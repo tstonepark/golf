@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>스윙 축 코치</title>
+<style>
+/* 레이아웃: 화면 전체가 카메라, 아래에 계기판 한 줄, 맨 아래 조작 버튼 */
+:root{
+  color-scheme:dark;
+  --turf:#0c1512;      /* 바탕: 인조잔디 그늘색 */
+  --panel:#13201b;
+  --line:#294238;
+  --ink:#eaf2ec;
+  --dim:#8fa69a;
+  --axis:#ffd23f;      /* 현재 축: 타깃 깃발의 노랑 */
+  --ref:#ffffff;       /* 기준 축 */
+  --ok:#58d68d;
+  --warn:#ff8a5b;
+  --num:"Barlow Condensed","Roboto Condensed","Noto Sans KR",system-ui,sans-serif;
+  --txt:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--turf);color:var(--ink);font:14px/1.4 var(--txt);
+  display:flex;flex-direction:column;overflow:hidden;
+  padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+[hidden]{display:none!important}
+
+#stage{position:relative;flex:1;min-height:0;background:#000}
+#view{position:absolute;inset:0;width:100%;height:100%;display:block}
+#cam{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+#status{position:absolute;left:12px;top:10px;display:flex;gap:8px;align-items:center;
+  font-size:12px;color:var(--dim);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px}
+#dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+#dot.on{background:var(--ok)} #dot.bad{background:var(--warn)}
+
+#msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:24px;text-align:center;background:rgba(12,21,18,.88)}
+#msg h1{font-size:22px;margin:0;font-weight:700;text-wrap:balance}
+#msg p{margin:0;color:var(--dim);max-width:30em}
+#count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font:600 38vmin/1 var(--num);color:var(--axis);text-shadow:0 0 24px #000;pointer-events:none}
+
+#gauges{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border-top:1px solid var(--line)}
+.g{background:var(--panel);padding:8px 8px 9px;min-width:0}
+.g .k{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.g .v{font:600 30px/1.05 var(--num);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.g .v small{font-size:15px;font-weight:500;color:var(--dim);margin-left:2px}
+.g .s{font-size:11px;color:var(--dim);min-height:1.4em}
+.g.empty .v{color:var(--line)}
+
+#bar{display:flex;gap:8px;padding:10px 12px;background:var(--panel);border-top:1px solid var(--line)}
+button{font:600 14px var(--txt);color:var(--ink);background:transparent;border:1px solid var(--line);
+  border-radius:6px;padding:12px 10px;min-height:46px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--axis);outline-offset:2px}
+button.main{flex:1;background:var(--axis);border-color:var(--axis);color:#1a1400}
+button:disabled{opacity:.4}
+@media (max-width:360px){.g .v{font-size:25px}}
+@media (orientation:landscape){
+  body{flex-direction:row;flex-wrap:wrap}
+  #stage{flex:1 1 60%;height:100%}
+  #side{flex:0 0 300px;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+  #gauges{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" playsinline muted></video>
+  <canvas id="view"></canvas>
+  <div id="status"><span id="dot"></span><span id="stxt">대기 중</span></div>
+  <div id="count" hidden></div>
+  <div id="msg">
+    <h1>스윙 축 코치</h1>
+    <p>폰을 정면(가슴이 보이는 방향) 2.5~3m 거리에 세우고, 머리부터 발까지 화면에 들어오게 맞춰 주세요.</p>
+    <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
+    <p id="err" style="color:var(--warn)"></p>
+  </div>
+</div>
+<div id="side">
+  <div id="gauges">
+    <div class="g empty" id="g-spine"><div class="k">척추 기울기</div><div class="v">–</div><div class="s"></div></div>
+    <div class="g empty" id="g-head"><div class="k">머리 이동 (어깨너비 %)</div><div class="v">–</div><div class="s"></div></div>
+    <div class="g empty" id="g-sway"><div class="k">골반 스웨이 (어깨너비 %)</div><div class="v">–</div><div class="s"></div></div>
+    <div class="g empty" id="g-hand"><div class="k">손 높이</div><div class="v">–</div><div class="s"></div></div>
+    <div class="g empty" id="g-sh"><div class="k">어깨 회전(추정)</div><div class="v">–</div><div class="s"></div></div>
+    <div class="g empty" id="g-hip"><div class="k">골반 회전(추정)</div><div class="v">–</div><div class="s"></div></div>
+    <div class="g empty" id="g-x"><div class="k">꼬임 차이</div><div class="v">–</div><div class="s"></div></div>
+    <div class="g empty" id="g-arm"><div class="k">리드 팔 펴짐</div><div class="v">–</div><div class="s"></div></div>
+  </div>
+  <div id="bar">
+    <button class="main" id="setref" disabled>어드레스 기준 저장 (5초)</button>
+    <button id="hand">우타</button>
+    <button id="flip">카메라 전환</button>
+  </div>
+</div>
+
+<script>
+// 포즈 엔진 파일 위치. 직접 호스팅하려면 이 경로만 바꾸면 됩니다.
+const POSE_BASE = window.POSE_BASE || "vendor/pose/";
+</script>
+<script>
+(function(){
+  const s=document.createElement("script");
+  s.src=POSE_BASE+"pose.js";
+  s.onerror=()=>{document.getElementById("err").textContent="포즈 엔진을 내려받지 못했습니다. 인터넷 연결을 확인해 주세요.";};
+  document.head.appendChild(s);
+})();
+
+const $=id=>document.getElementById(id);
+const video=$("cam"), cv=$("view"), ctx=cv.getContext("2d");
+const L={nose:0,lSh:11,rSh:12,lEl:13,rEl:14,lWr:15,rWr:16,lHip:23,rHip:24,lKn:25,rKn:26,lAn:27,rAn:28};
+const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+
+let pose=null, stream=null, busy=false, running=false;
+let facing="user", rightHanded=true;
+let ref=null;            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
+let last=null;           // 가장 최근 측정값
+let frames=0, fpsT=performance.now(), fps=0;
+const ema={};
+
+function setStatus(text,cls){ $("stxt").textContent=text; $("dot").className=cls||""; }
+
+async function startCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,
+    video:{facingMode:facing,width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}});
+  video.srcObject=stream; await video.play();
+}
+
+async function boot(){
+  $("err").textContent="";
+  const local=["localhost","127.0.0.1"].includes(location.hostname);
+  if(location.protocol!=="https:"&&!local){
+    $("err").textContent="파일을 직접 열면 카메라를 쓸 수 없습니다. 이 파일을 웹서버에 올리고 https:// 주소로 열어 주세요."; return; }
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    $("err").textContent="이 주소에서는 카메라를 쓸 수 없습니다. https 주소로 열어야 합니다."; return; }
+  if(typeof Pose==="undefined"){ $("err").textContent="포즈 엔진을 아직 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요."; return; }
+  $("start").disabled=true; setStatus("카메라 여는 중");
+  try{ await startCamera(); }
+  catch(e){
+    $("start").disabled=false; setStatus("카메라 없음","bad");
+    $("err").textContent = e.name==="NotAllowedError" ? "카메라 권한이 거부되었습니다. 주소창의 자물쇠 아이콘에서 카메라를 허용해 주세요."
+      : "카메라를 열지 못했습니다 ("+e.name+")."; return; }
+  setStatus("포즈 엔진 준비 중");
+  try{
+    pose=new Pose({locateFile:f=>POSE_BASE+f});
+    pose.setOptions({modelComplexity:1,smoothLandmarks:true,enableSegmentation:false,
+      minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+    pose.onResults(onResults);
+    await pose.initialize();
+  }catch(e){
+    $("start").disabled=false; setStatus("엔진 오류","bad");
+    $("err").textContent="포즈 엔진을 시작하지 못했습니다. 인터넷 연결을 확인해 주세요."; return; }
+  $("msg").hidden=true; running=true;
+  try{ if(navigator.wakeLock) await navigator.wakeLock.request("screen"); }catch(e){}
+  requestAnimationFrame(loop);
+}
+
+async function loop(){
+  if(!running) return;
+  if(!busy && video.readyState>=2){
+    busy=true;
+    try{ await pose.send({image:video}); }catch(e){ setStatus("분석 오류","bad"); }
+    busy=false;
+  }
+  requestAnimationFrame(loop);
+}
+
+// ---------- 계산 ----------
+const mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+const deg=r=>r*180/Math.PI;
+function wrap(d){ while(d>180)d-=360; while(d<-180)d+=360; return d; }
+function angle3(a,b,c){ // b 꼭짓점 각도 (3D)
+  const u=[a.x-b.x,a.y-b.y,a.z-b.z], v=[c.x-b.x,c.y-b.y,c.z-b.z];
+  const dot=u[0]*v[0]+u[1]*v[1]+u[2]*v[2];
+  const n=Math.hypot(...u)*Math.hypot(...v);
+  return n? deg(Math.acos(Math.max(-1,Math.min(1,dot/n)))) : NaN;
+}
+function smooth(k,v){ if(v==null||isNaN(v)){ delete ema[k]; return null; }
+  ema[k]= ema[k]==null ? v : ema[k]+0.35*(v-ema[k]); return ema[k]; }
+
+function measure(lm,wl,w,h){
+  const need=[L.nose,L.lSh,L.rSh,L.lHip,L.rHip];
+  if(need.some(i=>!lm[i]||lm[i].visibility<0.5)) return null;
+  const P=i=>({x:lm[i].x*w,y:lm[i].y*h});           // 원본 영상 픽셀 좌표
+  const sh=mid(P(L.lSh),P(L.rSh)), hip=mid(P(L.lHip),P(L.rHip)), nose=P(L.nose);
+  const shW=Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y);
+  const m={sh,hip,nose,shW};
+  // 척추 기울기: 골반 중심→어깨 중심 선이 수직에서 벗어난 각. +는 골퍼 기준 왼쪽
+  m.spine=deg(Math.atan2(sh.x-hip.x, hip.y-sh.y));
+  // 리드 팔(우타=왼팔)
+  const S=rightHanded?L.lSh:L.rSh, E=rightHanded?L.lEl:L.rEl, W=rightHanded?L.lWr:L.rWr;
+  const armSeen=[S,E,W].every(i=>lm[i].visibility>0.5);
+  if(armSeen){
+    m.hand=(hip.y-P(W).y)/(hip.y-sh.y)*100;         // 0=골반 높이, 100=어깨 높이
+    if(wl) m.arm=angle3(wl[S],wl[E],wl[W]);
+  }
+  if(wl){ // 위에서 내려다본 어깨·골반 선의 방향 (깊이 추정값 사용)
+    m.shDir=deg(Math.atan2(wl[L.lSh].z-wl[L.rSh].z, wl[L.lSh].x-wl[L.rSh].x));
+    m.hipDir=deg(Math.atan2(wl[L.lHip].z-wl[L.rHip].z, wl[L.lHip].x-wl[L.rHip].x));
+  }
+  if(ref){
+    m.head=(nose.x-ref.nose.x)/ref.shW*100;        // 어깨너비 대비 %
+    m.headUp=(ref.nose.y-nose.y)/ref.shW*100;
+    m.sway=(hip.x-ref.hip.x)/ref.shW*100;
+    if(m.shDir!=null&&ref.shDir!=null){
+      m.shTurn=Math.abs(wrap(m.shDir-ref.shDir));
+      m.hipTurn=Math.abs(wrap(m.hipDir-ref.hipDir));
+      m.xf=m.shTurn-m.hipTurn;
+    }
+  }
+  return m;
+}
+
+// ---------- 화면 ----------
+function fit(){
+  const r=$("stage").getBoundingClientRect(), d=Math.min(window.devicePixelRatio||1,2);
+  if(cv.width!==Math.round(r.width*d)||cv.height!==Math.round(r.height*d)){
+    cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); }
+}
+function gauge(id,val,unit,sub,emptySub){
+  const g=$(id), v=g.querySelector(".v"), s=g.querySelector(".s");
+  if(val==null||isNaN(val)){ g.classList.add("empty"); v.textContent="–"; s.textContent=emptySub||""; return; }
+  g.classList.remove("empty");
+  v.innerHTML=Math.round(Math.abs(val))+"<small>"+unit+"</small>"; s.textContent=sub||"";
+}
+// 골퍼 기준 좌우: 원본 영상에서 x가 커지는 쪽이 (카메라를 마주 본) 골퍼의 왼쪽
+const side=v=> Math.abs(v)<1 ? "중앙" : (v>0?"왼쪽":"오른쪽");
+
+function onResults(res){
+  fit();
+  const img=res.image, iw=img.width||video.videoWidth, ih=img.height||video.videoHeight;
+  const sc=Math.min(cv.width/iw,cv.height/ih), dw=iw*sc, dh=ih*sc, ox=(cv.width-dw)/2, oy=(cv.height-dh)/2;
+  const mirror=facing==="user";
+  const X=x=> mirror ? ox+dw-x*sc : ox+x*sc, Y=y=>oy+y*sc;
+  ctx.fillStyle="#000"; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.save();
+  if(mirror){ ctx.translate(cv.width,0); ctx.scale(-1,1); }
+  ctx.drawImage(img,ox,oy,dw,dh);
+  ctx.restore();
+  const u=Math.max(2,cv.width/220);
+
+  frames++; const now=performance.now();
+  if(now-fpsT>1000){ fps=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; }
+
+  const lm=res.poseLandmarks, wl=res.poseWorldLandmarks;
+  const m= lm ? measure(lm,wl,iw,ih) : null;
+  last=m;
+
+  // 기준 축은 사람이 안 보여도 그대로 표시
+  if(ref){
+    ctx.setLineDash([u*4,u*3]); ctx.strokeStyle="rgba(255,255,255,.85)"; ctx.lineWidth=u;
+    const dx=ref.sh.x-ref.hip.x, dy=ref.sh.y-ref.hip.y;
+    ctx.beginPath(); ctx.moveTo(X(ref.hip.x-dx*0.9),Y(ref.hip.y-dy*0.9)); ctx.lineTo(X(ref.sh.x+dx*0.9),Y(ref.sh.y+dy*0.9)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(X(ref.nose.x),Y(ref.nose.y),ref.shW*sc*0.33,0,Math.PI*2); ctx.stroke();
+  }
+
+  if(!m){
+    setStatus(lm?"머리~골반이 다 보이게 서 주세요":"사람이 보이지 않습니다","bad");
+    ["g-spine","g-head","g-sway","g-hand","g-sh","g-hip","g-x","g-arm"].forEach(id=>gauge(id,null));
+    $("setref").disabled=true; return;
+  }
+  setStatus("추적 중 · "+fps+"fps","on");
+  $("setref").disabled=counting;
+
+  // 뼈대
+  ctx.lineWidth=u*0.8; ctx.strokeStyle="rgba(234,242,236,.55)"; ctx.lineCap="round";
+  for(const [a,b] of BONES){
+    if(lm[a].visibility<0.5||lm[b].visibility<0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X(lm[a].x*iw),Y(lm[a].y*ih)); ctx.lineTo(X(lm[b].x*iw),Y(lm[b].y*ih)); ctx.stroke();
+  }
+  // 현재 축
+  const dx=m.sh.x-m.hip.x, dy=m.sh.y-m.hip.y;
+  ctx.strokeStyle="#ffd23f"; ctx.lineWidth=u*1.8;
+  ctx.beginPath(); ctx.moveTo(X(m.hip.x-dx*0.9),Y(m.hip.y-dy*0.9)); ctx.lineTo(X(m.sh.x+dx*0.9),Y(m.sh.y+dy*0.9)); ctx.stroke();
+  ctx.fillStyle="#ffd23f";
+  for(const p of [m.sh,m.hip,m.nose]){ ctx.beginPath(); ctx.arc(X(p.x),Y(p.y),u*2.2,0,Math.PI*2); ctx.fill(); }
+
+  // 계기판
+  const need="기준 저장 필요";
+  const sp=smooth("spine",m.spine); gauge("g-spine",sp,"°",side(sp));
+  const hd=smooth("head",m.head);   gauge("g-head",hd,"%", hd==null?"":side(hd), need);
+  const sw=smooth("sway",m.sway);   gauge("g-sway",sw,"%", sw==null?"":side(sw), need);
+  const hn=smooth("hand",m.hand);   gauge("g-hand",hn,"%", hn==null?"":(hn>=100?"어깨 위":hn>=0?"골반~어깨 사이":"골반 아래"), "손목이 안 보임");
+  const st=smooth("sh",m.shTurn);   gauge("g-sh",st,"°","어드레스 대비", ref?"깊이값 없음":need);
+  const ht=smooth("hip",m.hipTurn); gauge("g-hip",ht,"°","어드레스 대비", ref?"깊이값 없음":need);
+  const xf=smooth("xf",m.xf);       gauge("g-x",xf,"°","어깨 − 골반", ref?"깊이값 없음":need);
+  const ar=smooth("arm",m.arm);     gauge("g-arm",ar,"°", ar==null?"":(rightHanded?"왼팔":"오른팔")+" · 180°=펴짐", "팔이 안 보임");
+}
+
+// ---------- 기준 저장 ----------
+let counting=false, actx=null;
+function beep(f,d){ try{
+  actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+  const o=actx.createOscillator(), g=actx.createGain(); o.frequency.value=f; g.gain.value=0.2;
+  o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+d); }catch(e){} }
+
+function saveRef(){
+  if(counting) return; counting=true; $("setref").disabled=true;
+  let n=5; const c=$("count"); c.hidden=false; c.textContent=n; beep(660,.08);
+  const t=setInterval(()=>{
+    n--;
+    if(n>0){ c.textContent=n; beep(660,.08); return; }
+    clearInterval(t); c.hidden=true; counting=false;
+    if(last){
+      ref={nose:last.nose,hip:last.hip,sh:last.sh,shW:last.shW,shDir:last.shDir,hipDir:last.hipDir};
+      for(const k in ema) delete ema[k];
+      beep(990,.25); $("setref").textContent="기준 다시 저장 (5초)";
+    }else{ beep(220,.4); setStatus("기준 저장 실패: 사람이 보이지 않음","bad"); }
+  },1000);
+}
+
+$("start").onclick=boot;
+$("setref").onclick=saveRef;
+$("hand").onclick=()=>{ rightHanded=!rightHanded; $("hand").textContent=rightHanded?"우타":"좌타"; delete ema.arm; delete ema.hand; };
+$("flip").onclick=async()=>{
+  facing= facing==="user"?"environment":"user"; ref=null; $("setref").textContent="어드레스 기준 저장 (5초)";
+  try{ await startCamera(); }catch(e){ setStatus("카메라 전환 실패","bad"); }
+};
+document.addEventListener("visibilitychange",async()=>{
+  if(document.visibilityState==="visible"&&running){ try{ if(navigator.wakeLock) await navigator.wakeLock.request("screen"); }catch(e){} }
+});
+</script>
+</body>
+</html>
