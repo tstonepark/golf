@@ -55,7 +55,7 @@ body{background:var(--turf);color:var(--ink);font:14px/1.4 var(--txt);
 button{font:600 14px var(--txt);color:var(--ink);background:transparent;border:1px solid var(--line);
   border-radius:6px;padding:12px 10px;min-height:46px;cursor:pointer}
 button:focus-visible{outline:2px solid var(--axis);outline-offset:2px}
-#bar button{flex:1 1 20%;white-space:nowrap}
+#bar button{flex:1 1 15%;white-space:nowrap;padding-inline:4px}
 #bar button.main{flex:1 1 40%}
 button.off{color:var(--dim)}
 #phase{position:absolute;right:12px;top:10px;font-size:12px;color:var(--ink);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px}
@@ -95,17 +95,18 @@ button:disabled{opacity:.4}
   <div id="count" hidden></div>
   <div id="panel" hidden>
     <h2>판정 기준</h2>
-    <label for="c-head">머리 이동 허용 (어깨너비 %)</label><input id="c-head" type="number" inputmode="numeric" min="1" max="100">
-    <label for="c-sway">골반 스웨이 허용 (어깨너비 %)</label><input id="c-sway" type="number" inputmode="numeric" min="1" max="100">
-    <label for="c-spine">척추 기울기 변화 허용 (°)</label><input id="c-spine" type="number" inputmode="numeric" min="1" max="45">
+    <label for="c-head">머리 이동 허용 (%)</label><input id="c-head" type="number" inputmode="numeric" min="1" max="100">
+    <label for="c-sway">골반 스웨이 · 엉덩이 전진 허용 (%)</label><input id="c-sway" type="number" inputmode="numeric" min="1" max="100">
+    <label for="c-spine">축 변화 · 일어섬 허용 (°)</label><input id="c-spine" type="number" inputmode="numeric" min="1" max="45">
     <label for="c-handTol">탑 손 높이 허용 오차 (±%)</label><input id="c-handTol" type="number" inputmode="numeric" min="1" max="60">
     <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
     <p id="tinfo"></p>
+    <p>%는 정면에서는 어깨너비, 후방에서는 몸통 길이의 3/4을 100으로 봅니다.</p>
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v3</small></h1>
-    <p>폰을 정면(가슴이 보이는 방향) 2.5~3m 거리에 세우고, 머리부터 발까지 화면에 들어오게 맞춰 주세요.</p>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v4</small></h1>
+    <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
   </div>
@@ -127,7 +128,8 @@ button:disabled{opacity:.4}
     <button id="voice">음성 켬</button>
     <button id="cfgbtn">기준값</button>
     <button id="hand">우타</button>
-    <button id="flip">카메라 전환</button>
+    <button id="flip">카메라</button>
+    <button id="viewbtn">정면</button>
   </div>
 </div>
 
@@ -218,38 +220,72 @@ function angle3(a,b,c){ // b 꼭짓점 각도 (3D)
 function smooth(k,v,a){ if(v==null||isNaN(v)){ delete ema[k]; return null; }
   ema[k]= ema[k]==null ? v : ema[k]+(a||0.35)*(v-ema[k]); return ema[k]; }
 
+// 겹쳐 보이는 좌우 관절: 둘 다 잘 보이면 중간, 아니면 더 잘 보이는 쪽
+function pick(lm,P,a,b){
+  const va=lm[a]?lm[a].visibility:0, vb=lm[b]?lm[b].visibility:0;
+  if(va>0.5&&vb>0.5) return mid(P(a),P(b));
+  if(Math.max(va,vb)<0.3) return null;
+  return va>vb?P(a):P(b);
+}
+function angle2(a,b,c){ const u=[a.x-b.x,a.y-b.y], v=[c.x-b.x,c.y-b.y], n=Math.hypot(...u)*Math.hypot(...v);
+  return n? deg(Math.acos(Math.max(-1,Math.min(1,(u[0]*v[0]+u[1]*v[1])/n)))) : NaN; }
+
 function measure(lm,wl,w,h){
-  const need=[L.nose,L.lSh,L.rSh,L.lHip,L.rHip];
-  if(need.some(i=>!lm[i]||lm[i].visibility<0.5)) return null;
   const P=i=>({x:lm[i].x*w,y:lm[i].y*h});           // 원본 영상 픽셀 좌표
-  const sh=mid(P(L.lSh),P(L.rSh)), hip=mid(P(L.lHip),P(L.rHip)), nose=P(L.nose);
-  const shW=Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y);
-  const m={sh,hip,nose,shW};
-  // 척추 기울기: 골반 중심→어깨 중심 선이 수직에서 벗어난 각. +는 골퍼 기준 왼쪽
-  m.spine=deg(Math.atan2(sh.x-hip.x, hip.y-sh.y));
-  // 리드 팔(우타=왼팔)
-  const S=rightHanded?L.lSh:L.rSh, E=rightHanded?L.lEl:L.rEl, W=rightHanded?L.lWr:L.rWr;
-  const armSeen=[S,E,W].every(i=>lm[i].visibility>0.5);
-  if(armSeen&&wl) m.arm=angle3(wl[S],wl[E],wl[W]);
+  if(!lm[L.nose]||lm[L.nose].visibility<0.3) return null;
+  const nose=P(L.nose); let sh,hip;
+  if(view==="face"){
+    if([L.lSh,L.rSh,L.lHip,L.rHip].some(i=>!lm[i]||lm[i].visibility<0.5)) return null;
+    sh=mid(P(L.lSh),P(L.rSh)); hip=mid(P(L.lHip),P(L.rHip));
+  }else{
+    sh=pick(lm,P,L.lSh,L.rSh); hip=pick(lm,P,L.lHip,L.rHip);
+    if(!sh||!hip) return null;
+  }
+  const torso=Math.hypot(sh.x-hip.x,sh.y-hip.y);
+  if(torso<1) return null;
+  const m={sh,hip,nose};
+  // 길이 단위: 정면=어깨너비, 후방=몸통 길이의 3/4 (어깨가 겹쳐 보여 어깨너비를 못 씀)
+  m.U= view==="face" ? Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y) : torso*0.75;
   // 손 높이: 두 손은 그립에서 붙어 있으므로 보이는 손목을 씀 (0=골반 높이, 100=어깨 높이)
   const ws=[L.lWr,L.rWr].filter(i=>lm[i]&&lm[i].visibility>0.3);
-  if(ws.length){ const wy=ws.reduce((a,i)=>a+P(i).y,0)/ws.length; m.hand=(hip.y-wy)/(hip.y-sh.y)*100; }
-  if(wl){ // 위에서 내려다본 어깨·골반 선의 방향 (깊이 추정값 사용)
-    m.shDir=deg(Math.atan2(wl[L.lSh].z-wl[L.rSh].z, wl[L.lSh].x-wl[L.rSh].x));
-    m.hipDir=deg(Math.atan2(wl[L.lHip].z-wl[L.rHip].z, wl[L.lHip].x-wl[L.rHip].x));
-  }
-  if(ref){
-    m.head=(nose.x-ref.nose.x)/ref.shW*100;        // 어깨너비 대비 %
-    m.headUp=(ref.nose.y-nose.y)/ref.shW*100;
-    m.sway=(hip.x-ref.hip.x)/ref.shW*100;
-    if(m.shDir!=null&&ref.shDir!=null){
-      m.shTurn=Math.abs(wrap(m.shDir-ref.shDir));
-      m.hipTurn=Math.abs(wrap(m.hipDir-ref.hipDir));
-      m.xf=m.shTurn-m.hipTurn;
+  if(ws.length&&hip.y-sh.y>1){ const wy=ws.reduce((a,i)=>a+P(i).y,0)/ws.length; m.hand=(hip.y-wy)/(hip.y-sh.y)*100; }
+
+  if(view==="face"){
+    // 척추 기울기: 골반 중심→어깨 중심 선이 수직에서 벗어난 각. +는 골퍼 기준 왼쪽
+    m.spine=deg(Math.atan2(sh.x-hip.x, hip.y-sh.y));
+    const S=rightHanded?L.lSh:L.rSh, E=rightHanded?L.lEl:L.rEl, W=rightHanded?L.lWr:L.rWr;
+    if(wl&&[S,E,W].every(i=>lm[i].visibility>0.5)) m.arm=angle3(wl[S],wl[E],wl[W]);
+    if(wl){ // 위에서 내려다본 어깨·골반 선의 방향 (깊이 추정값 사용)
+      m.shDir=deg(Math.atan2(wl[L.lSh].z-wl[L.rSh].z, wl[L.lSh].x-wl[L.rSh].x));
+      m.hipDir=deg(Math.atan2(wl[L.lHip].z-wl[L.rHip].z, wl[L.lHip].x-wl[L.rHip].x));
+    }
+    if(ref){
+      m.head=(nose.x-ref.nose.x)/ref.U*100;
+      m.sway=(hip.x-ref.hip.x)/ref.U*100;
+      if(m.shDir!=null&&ref.shDir!=null){
+        m.shTurn=Math.abs(wrap(m.shDir-ref.shDir));
+        m.hipTurn=Math.abs(wrap(m.hipDir-ref.hipDir));
+        m.xf=m.shTurn-m.hipTurn;
+      }
+    }
+  }else{
+    // 후방: 척추 숙임(수직 대비), 카메라 쪽 다리의 무릎 각
+    m.bend=deg(Math.atan2(Math.abs(sh.x-hip.x), hip.y-sh.y));
+    m.f= nose.x>=hip.x ? 1 : -1;                    // 공이 있는 쪽(머리가 골반보다 나간 방향)
+    const K=rightHanded?[L.rHip,L.rKn,L.rAn]:[L.lHip,L.lKn,L.lAn];
+    if(K.every(i=>lm[i]&&lm[i].visibility>0.3)) m.knee=angle2(P(K[0]),P(K[1]),P(K[2]));
+    if(ref&&ref.bend!=null){
+      m.bendD=m.bend-ref.bend;                        // −면 일어섬
+      m.hipFwd=(hip.x-ref.hip.x)*ref.f/ref.U*100;     // +면 공 쪽으로 나옴
+      m.headUp=(ref.nose.y-nose.y)/ref.U*100;         // +면 위로
+      m.headFwd=(nose.x-ref.nose.x)*ref.f/ref.U*100;  // +면 공 쪽으로
+      if(m.knee!=null&&ref.knee!=null) m.kneeD=m.knee-ref.knee;
     }
   }
   return m;
 }
+function makeRef(m){ return {nose:m.nose,hip:m.hip,sh:m.sh,U:m.U,shDir:m.shDir,hipDir:m.hipDir,spine:m.spine,hand:m.hand,
+  bend:m.bend,f:m.f,knee:m.knee}; }
 
 // ---------- 화면 ----------
 function fit(){
@@ -292,7 +328,10 @@ function onResults(res){
     const dx=ref.sh.x-ref.hip.x, dy=ref.sh.y-ref.hip.y;
     ctx.beginPath(); ctx.moveTo(X(ref.hip.x-dx*0.9),Y(ref.hip.y-dy*0.9)); ctx.lineTo(X(ref.sh.x+dx*0.9),Y(ref.sh.y+dy*0.9)); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.beginPath(); ctx.arc(X(ref.nose.x),Y(ref.nose.y),ref.shW*sc*0.33,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(X(ref.nose.x),Y(ref.nose.y),ref.U*sc*0.33,0,Math.PI*2); ctx.stroke();
+    if(view==="dtl"){ // 엉덩이 기준선
+      ctx.setLineDash([u*2,u*3]); ctx.beginPath(); ctx.moveTo(X(ref.hip.x),Y(ref.hip.y-ref.U*0.7)); ctx.lineTo(X(ref.hip.x),Y(ref.hip.y+ref.U*1.6)); ctx.stroke(); ctx.setLineDash([]);
+    }
   }
 
   if(!m){
@@ -317,19 +356,31 @@ function onResults(res){
   for(const p of [m.sh,m.hip,m.nose]){ ctx.beginPath(); ctx.arc(X(p.x),Y(p.y),u*2.2,0,Math.PI*2); ctx.fill(); }
 
   // 계기판
-  const need="기준 저장 필요";
-  const sp=smooth("spine",m.spine); gauge("g-spine",sp,"°",side(sp));
-  const hd=smooth("head",m.head);   gauge("g-head",hd,"%", hd==null?"":side(hd), need);
-  const sw=smooth("sway",m.sway);   gauge("g-sway",sw,"%", sw==null?"":side(sw), need);
-  const hn=smooth("hand",m.hand);   gauge("g-hand",hn,"%", hn==null?"":(target?"목표 "+Math.round(target.hand)+"%":(hn>=100?"어깨 위":hn>=0?"골반~어깨 사이":"골반 아래")), "손목이 안 보임");
-  const st=smooth("sh",m.shTurn);   gauge("g-sh",st,"°","어드레스 대비", ref?"깊이값 없음":need);
-  const ht=smooth("hip",m.hipTurn); gauge("g-hip",ht,"°","어드레스 대비", ref?"깊이값 없음":need);
-  const xf=smooth("xf",m.xf);       gauge("g-x",xf,"°","어깨 − 골반", ref?"깊이값 없음":need);
-  // 판정: 빠른 동작을 놓치지 않게 손 높이는 덜 누른 값을 씀
-  lastV={hand:smooth("handFast",m.hand,0.7), head:hd, sway:sw, shTurn:st,
-         spineD:(ref&&ref.spine!=null&&sp!=null)? sp-ref.spine : null};
+  const need="기준 대기 중", r0=x=>x==null?"":x;
+  const tgt=hn=> hn==null?"":(target?"목표 "+Math.round(target.hand)+"%":(hn>=100?"어깨 위":hn>=0?"골반~어깨 사이":"골반 아래"));
+  const hn=smooth("hand",m.hand), hf=smooth("handFast",m.hand,0.7);   // 판정에는 덜 누른 값을 써서 빠른 동작을 놓치지 않음
+  gauge("g-hand",hn,"%",tgt(hn),"손목이 안 보임");
+  if(view==="face"){
+    const sp=smooth("spine",m.spine); gauge("g-spine",sp,"°",side(sp));
+    const hd=smooth("head",m.head);   gauge("g-head",hd,"%", hd==null?"":side(hd), need);
+    const sw=smooth("sway",m.sway);   gauge("g-sway",sw,"%", sw==null?"":side(sw), need);
+    const st=smooth("sh",m.shTurn);   gauge("g-sh",st,"°","어드레스 대비", ref?"깊이값 없음":need);
+    const ht=smooth("hip",m.hipTurn); gauge("g-hip",ht,"°","어드레스 대비", ref?"깊이값 없음":need);
+    const xf=smooth("xf",m.xf);       gauge("g-x",xf,"°","어깨 − 골반", ref?"깊이값 없음":need);
+    const ar=smooth("arm",m.arm);     gauge("g-arm",ar,"°", ar==null?"":(rightHanded?"왼팔":"오른팔")+" · 180°=펴짐", "팔이 안 보임");
+    lastV={hand:hf, head:hd, sway:sw, shTurn:st, spineD:(ref&&ref.spine!=null&&sp!=null)? sp-ref.spine : null};
+  }else{
+    const fb=v=>Math.abs(v)<1?"제자리":(v>0?"공 쪽":"뒤쪽");
+    const bd=smooth("bend",m.bend);     gauge("g-spine",bd,"°","수직 대비");
+    const hu=smooth("headUp",m.headUp); gauge("g-head",hu,"%", hu==null?"":(Math.abs(hu)<1?"제자리":hu>0?"위로":"아래로"), need);
+    const hp=smooth("hipFwd",m.hipFwd); gauge("g-sway",hp,"%", hp==null?"":fb(hp), need);
+    const dd=smooth("bendD",m.bendD);   gauge("g-sh",dd,"°", dd==null?"":(Math.abs(dd)<1?"유지":dd<0?"일어섬":"더 숙임"), need);
+    const hw=smooth("headFwd",m.headFwd); gauge("g-hip",hw,"%", hw==null?"":fb(hw), need);
+    const kn=smooth("knee",m.knee);     gauge("g-x",kn,"°","180°=펴짐","무릎이 안 보임");
+    const kd=smooth("kneeD",m.kneeD);   gauge("g-arm",kd,"°", kd==null?"":(Math.abs(kd)<1?"유지":kd>0?"펴짐":"더 굽힘"), ref?"무릎이 안 보임":need);
+    lastV={hand:hf, bendD:dd, hipFwd:hp, headMove:(hu==null||hw==null)?null:Math.hypot(hu,hw), shTurn:null};
+  }
   coach.step(lastV,now); showPhase();
-  const ar=smooth("arm",m.arm);     gauge("g-arm",ar,"°", ar==null?"":(rightHanded?"왼팔":"오른팔")+" · 180°=펴짐", "팔이 안 보임");
 }
 
 // ---------- 기준 저장 ----------
@@ -351,8 +402,7 @@ function countdown(done){
 function saveRef(){
   countdown(()=>{
     if(last){
-      ref={nose:last.nose,hip:last.hip,sh:last.sh,shW:last.shW,shDir:last.shDir,hipDir:last.hipDir,
-           spine:last.spine,hand:last.hand};
+      ref=makeRef(last);
       for(const k in ema) delete ema[k];
       coach.reset(); beep(990,.25); $("setref").textContent="기준 다시 저장 (10초)"; say("기준 저장","good");
     }else{ beep(220,.4); setStatus("기준 저장 실패: 사람이 보이지 않음","bad"); }
@@ -362,16 +412,18 @@ function saveTop(){
   countdown(()=>{
     if(ref&&lastV&&lastV.hand!=null){
       target={hand:lastV.hand,shTurn:lastV.shTurn};
-      store("target",target); coach.reset(); beep(990,.25); showTarget(); say("목표 저장","good");
+      targets[view]=target; store("targets",targets); coach.reset(); beep(990,.25); showTarget(); say("목표 저장","good");
     }else{ beep(220,.4); say("저장 실패","bad"); }
   });
 }
 
 // ---------- 판정 ----------
-const CFG_DEF={head:15,sway:15,spine:8,handTol:10,turnTol:15,voice:true};
+const CFG_DEF={head:15,sway:15,spine:8,handTol:10,turnTol:15,voice:true,view:"face"};
 function load(k,d){ try{ const v=JSON.parse(localStorage.getItem("swing."+k)); return v==null?d:v; }catch(e){ return d; } }
 function store(k,v){ try{ localStorage.setItem("swing."+k,JSON.stringify(v)); }catch(e){} }
-let cfg=Object.assign({},CFG_DEF,load("cfg",{})), target=load("target",null), lastV=null;
+let cfg=Object.assign({},CFG_DEF,load("cfg",{})), lastV=null;
+let view= cfg.view==="dtl" ? "dtl" : "face";            // face=정면, dtl=후방(타깃 라인 뒤)
+let targets=load("targets",null)||{face:load("target",null)}, target=targets[view]||null;
 const said=[]; let lastSay={t:"",at:0}, vTimer=null;
 
 function say(text,kind){
@@ -401,12 +453,23 @@ function topCat(v){
   }
   return ["좋아요","good"];
 }
-// 어드레스 대비 벗어난 항목 중 가장 심한 것
-function worst(v){
-  const c=[["머리",v.head,cfg.head],["골반 밀림",v.sway,cfg.sway],["축",v.spineD,cfg.spine]]
-    .filter(x=>x[1]!=null).map(x=>[x[0],Math.abs(x[1])/x[2]]).filter(x=>x[1]>1).sort((a,b)=>b[1]-a[1]);
+// 어드레스 대비 판정 항목. val은 "벗어난 양"(클수록 나쁨), down=다운스윙에서도 봄
+const pos=x=>x==null?null:Math.max(0,x), ab=x=>x==null?null:Math.abs(x);
+const ITEMS={
+  face:[{k:"head",say:"머리",thr:"head",lab:"머리 최대",u:"%",val:v=>ab(v.head)},
+        {k:"sway",say:"골반 밀림",thr:"sway",lab:"스웨이 최대",u:"%",val:v=>ab(v.sway)},
+        {k:"spineD",say:"축",thr:"spine",lab:"축 변화 최대",u:"°",val:v=>ab(v.spineD)}],
+  dtl: [{k:"rise",say:"일어섬",thr:"spine",lab:"일어섬 최대",u:"°",down:true,val:v=>pos(v.bendD==null?null:-v.bendD)},
+        {k:"hipF",say:"엉덩이",thr:"sway",lab:"엉덩이 전진 최대",u:"%",down:true,val:v=>pos(v.hipFwd)},
+        {k:"headM",say:"머리",thr:"head",lab:"머리 이동 최대",u:"%",down:true,val:v=>ab(v.headMove)}]
+};
+// 벗어난 항목 중 가장 심한 것 (get: 항목→값)
+function worstOf(get,onlyDown){
+  const c=ITEMS[view].filter(it=>!onlyDown||it.down).map(it=>[it.say,get(it),cfg[it.thr]])
+    .filter(x=>x[1]!=null).map(x=>[x[0],x[1]/x[2]]).filter(x=>x[1]>1).sort((a,b)=>b[1]-a[1]);
   return c.length?c[0][0]:null;
 }
+const worst=v=>worstOf(it=>it.val(v));
 
 /* 스윙 단계: wait(어드레스 대기) → ready(가만히 서 있음) → back(손이 올라감) → top(정점/멈춤) → wait
    손 높이(0=골반, 100=어깨)만으로 단계를 나눔 */
@@ -419,7 +482,7 @@ const coach={
   step(v,t){
     if(v.hand==null){
       // 스윙 중 손목이 잠깐 가려지면 0.4초까지는 직전 값으로 버팀
-      if((this.phase==="back"||this.phase==="top")&&this.prev&&(this.lostAt==null||t-this.lostAt<400)){
+      if((this.phase==="back"||this.phase==="top"||this.phase==="down")&&this.prev&&(this.lostAt==null||t-this.lostAt<400)){
         if(this.lostAt==null) this.lostAt=t; v=Object.assign({},v,{hand:this.prev.h});
       }else{ this.lost(); return; }
     }else this.lostAt=null;
@@ -434,10 +497,19 @@ const coach={
     }
     if(this.phase==="ready"){
       if(v.hand>b+25){ this.phase="back"; this.n++; this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null;
-        this.peak={head:0,sway:0,spineD:0}; }
+        this.peak={}; }
       return;
     }
-    for(const k of ["head","sway","spineD"]) if(v[k]!=null&&this.phase==="back") this.peak[k]=Math.max(this.peak[k],Math.abs(v[k]));
+    for(const it of ITEMS[view]){ const x=it.val(v);
+      if(x!=null&&(this.phase==="back"||(this.phase==="down"&&it.down))) this.peak[it.k]=Math.max(this.peak[it.k]||0,x); }
+    if(this.phase==="down"){
+      // 다운스윙: 손이 내려올 때까지(최대 0.7초) 지켜본 뒤 결과를 알림
+      if(v.hand<b+15||t-this.downT>700){
+        if(!this.alerted){ const w=worstOf(it=>this.peak[it.k],true); if(w) say(w,"bad"); }
+        showResult(this.atMax,this.peak,this.catPair); this.reset();
+      }
+      return;
+    }
     // back / top 공통: 어드레스 대비 벗어남을 바로 알림 (스윙당 한 번)
     if(!this.alerted){
       const w=worst(v);
@@ -450,19 +522,21 @@ const coach={
       const dropped=v.hand<this.max-8, held=t-this.maxT>500&&this.max>b+40;
       if(dropped||held){
         this.phase="top"; const c=topCat(this.atMax);
-        this.cat=c?c[0]:null; this.catSince=null;
+        this.cat=c?c[0]:null; this.catPair=c; this.catSince=null;
         if(c&&!(this.alerted&&performance.now()-lastSay.at<700)) say(c[0],c[1]);
         if(typeof showResult==="function") showResult(this.atMax,this.peak,c);
       }
       return;
     }
     if(this.phase==="top"){
-      if(v.hand<this.max-25||v.hand<b+25){ this.reset(); return; }     // 다운스윙 시작
+      if(v.hand<this.max-25||v.hand<b+25){                             // 다운스윙 시작
+        if(view==="dtl"){ this.phase="down"; this.downT=t; } else this.reset();
+        return; }
       // 탑에서 멈춘 채 조정하면 바뀐 판정을 다시 알려줌
       const c=topCat(v);
       if(c&&still&&c[0]!==this.cat){
         if(this.catSince==null) this.catSince=t;
-        if(t-this.catSince>400){ this.cat=c[0]; this.catSince=null; say(c[0],c[1]); showResult(v,this.peak,c); }
+        if(t-this.catSince>400){ this.cat=c[0]; this.catPair=c; this.catSince=null; this.atMax=v; say(c[0],c[1]); showResult(v,this.peak,c); }
       }else this.catSince=null;
     }
   }
@@ -470,8 +544,8 @@ const coach={
 // 어드레스로 가만히 서면 기준을 자동으로 다시 잡음 (공마다 서는 위치가 조금씩 달라지므로)
 function autoRef(){
   if(counting||!last) return;
-  ref={nose:last.nose,hip:last.hip,sh:last.sh,shW:last.shW,shDir:last.shDir,hipDir:last.hipDir,spine:last.spine,hand:last.hand};
-  for(const k of ["head","sway","sh","hip","xf"]) delete ema[k];
+  ref=makeRef(last);
+  for(const k of ["head","sway","sh","hip","xf","headUp","headFwd","hipFwd","bendD","kneeD"]) delete ema[k];
   if(cfg.voice) beep(990,.06);
 }
 // 스윙 직후 화면에 남는 결과 (측정된 값만 표시)
@@ -479,11 +553,25 @@ function showResult(v,pk,c){
   const r=x=>Math.round(x), row=[];
   row.push("탑 손 높이 <b>"+r(v.hand)+"%</b>"+(target?" / 목표 "+r(target.hand)+"%":""));
   if(v.shTurn!=null) row.push("어깨 회전 <b>"+r(v.shTurn)+"°</b>"+(target&&target.shTurn!=null?" / 목표 "+r(target.shTurn)+"°":""));
-  if(ref) row.push("머리 최대 <b>"+r(pk.head)+"%</b> · 스웨이 최대 <b>"+r(pk.sway)+"%</b> · 축 변화 최대 <b>"+r(pk.spineD)+"°</b>");
+  if(ref){ const ps=ITEMS[view].filter(it=>pk[it.k]!=null).map(it=>it.lab+" <b>"+r(pk[it.k])+it.u+"</b>"); if(ps.length) row.push(ps.join(" · ")); }
   const el=$("result"); el.hidden=false;
   el.innerHTML='<div class="t">스윙 '+coach.n+(c?" · "+c[0]:target?"":" · 목표 탑을 저장하면 판정이 나옵니다")+"</div>"+row.join("<br>");
 }
-const PHASE={wait:"어드레스 대기",ready:"준비됨",back:"백스윙",top:"탑"};
+const PHASE={wait:"어드레스 대기",ready:"준비됨",back:"백스윙",top:"탑",down:"다운스윙"};
+const LABELS={
+  face:{"g-spine":"척추 기울기","g-head":"머리 이동 (%)","g-sway":"골반 스웨이 (%)","g-sh":"어깨 회전(추정)","g-hip":"골반 회전(추정)","g-x":"꼬임 차이","g-arm":"리드 팔 펴짐"},
+  dtl:{"g-spine":"척추 숙임","g-head":"머리 상하 (%)","g-sway":"엉덩이 전후 (%)","g-sh":"숙임 변화","g-hip":"머리 전후 (%)","g-x":"뒤 무릎 각","g-arm":"무릎 변화"}
+};
+function setView(v){
+  view=v; cfg.view=v; store("cfg",cfg); ref=null; lastV=null; coach.reset(); for(const k in ema) delete ema[k];
+  target=targets[view]||null;
+  for(const id in LABELS[view]){ $(id).querySelector(".k").textContent=LABELS[view][id]; gauge(id,null); }
+  $("viewbtn").textContent= view==="face"?"정면":"후방";
+  $("howto").textContent= view==="face"
+    ? "정면 모드: 폰을 가슴이 보이는 방향 2.5~3m 거리에 세우고, 머리부터 발까지 화면에 들어오게 맞춰 주세요."
+    : "후방 모드: 폰을 타깃 라인 뒤(오른쪽 어깨 뒤, 옆모습이 보이는 방향) 2.5~3m 거리, 손 높이에 세워 주세요.";
+  $("result").hidden=true; $("setref").textContent="어드레스 기준 저장 (10초)"; showTarget();
+}
 function showPhase(){ const el=$("phase"); el.hidden=!running; el.textContent=PHASE[coach.phase]+(target?"":" · 목표 탑 없음"); }
 function showTarget(){
   $("tinfo").textContent= target ? "저장된 목표 탑: 손 높이 "+Math.round(target.hand)+"%"+(target.shTurn!=null?", 어깨 회전 "+Math.round(target.shTurn)+"°":"")
@@ -495,7 +583,8 @@ for(const k of ["head","sway","spine","handTol","turnTol"]){
   const el=$("c-"+k); el.value=cfg[k];
   el.onchange=()=>{ const n=Number(el.value); if(n>0){ cfg[k]=n; store("cfg",cfg); } else el.value=cfg[k]; };
 }
-showTarget(); showVoice();
+setView(view); showVoice();
+$("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
 $("settop").onclick=saveTop;
 $("voice").onclick=()=>{ cfg.voice=!cfg.voice; store("cfg",cfg); showVoice(); if(cfg.voice) say("음성 안내 켬","good"); else if(window.speechSynthesis) speechSynthesis.cancel(); };
 $("cfgbtn").onclick=()=>{ $("panel").hidden=!$("panel").hidden; };
