@@ -51,10 +51,24 @@ body{background:var(--turf);color:var(--ink);font:14px/1.4 var(--txt);
 .g .s{font-size:11px;color:var(--dim);min-height:1.4em}
 .g.empty .v{color:var(--line)}
 
-#bar{display:flex;gap:8px;padding:10px 12px;background:var(--panel);border-top:1px solid var(--line)}
+#bar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;background:var(--panel);border-top:1px solid var(--line)}
 button{font:600 14px var(--txt);color:var(--ink);background:transparent;border:1px solid var(--line);
   border-radius:6px;padding:12px 10px;min-height:46px;cursor:pointer}
 button:focus-visible{outline:2px solid var(--axis);outline-offset:2px}
+#bar button{flex:1 1 20%;white-space:nowrap}
+#bar button.main{flex:1 1 40%}
+button.off{color:var(--dim)}
+#phase{position:absolute;right:12px;top:10px;font-size:12px;color:var(--ink);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px}
+#verdict{position:absolute;left:0;right:0;bottom:14%;text-align:center;font:700 13vmin/1.1 var(--txt);
+  color:var(--axis);text-shadow:0 2px 18px #000,0 0 4px #000;pointer-events:none}
+#verdict.good{color:var(--ok)} #verdict.bad{color:var(--warn)}
+#panel{position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center}
+#panel h2{grid-column:1/-1;margin:0;font-size:15px}
+#panel p{grid-column:1/-1;margin:0;font-size:12px;color:var(--dim)}
+#panel label{font-size:13px}
+#panel input{width:76px;font:600 18px var(--num);color:var(--ink);background:var(--turf);border:1px solid var(--line);
+  border-radius:6px;padding:8px;text-align:right}
 button.main{flex:1;background:var(--axis);border-color:var(--axis);color:#1a1400}
 button:disabled{opacity:.4}
 @media (max-width:360px){.g .v{font-size:25px}}
@@ -71,7 +85,19 @@ button:disabled{opacity:.4}
   <video id="cam" playsinline muted></video>
   <canvas id="view"></canvas>
   <div id="status"><span id="dot"></span><span id="stxt">대기 중</span></div>
+  <div id="phase" hidden></div>
+  <div id="verdict" hidden></div>
   <div id="count" hidden></div>
+  <div id="panel" hidden>
+    <h2>판정 기준</h2>
+    <label for="c-head">머리 이동 허용 (어깨너비 %)</label><input id="c-head" type="number" inputmode="numeric" min="1" max="100">
+    <label for="c-sway">골반 스웨이 허용 (어깨너비 %)</label><input id="c-sway" type="number" inputmode="numeric" min="1" max="100">
+    <label for="c-spine">척추 기울기 변화 허용 (°)</label><input id="c-spine" type="number" inputmode="numeric" min="1" max="45">
+    <label for="c-handTol">탑 손 높이 허용 오차 (±%)</label><input id="c-handTol" type="number" inputmode="numeric" min="1" max="60">
+    <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
+    <p id="tinfo"></p>
+    <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
+  </div>
   <div id="msg">
     <h1>스윙 축 코치</h1>
     <p>폰을 정면(가슴이 보이는 방향) 2.5~3m 거리에 세우고, 머리부터 발까지 화면에 들어오게 맞춰 주세요.</p>
@@ -92,6 +118,9 @@ button:disabled{opacity:.4}
   </div>
   <div id="bar">
     <button class="main" id="setref" disabled>어드레스 기준 저장 (5초)</button>
+    <button class="main" id="settop" disabled>목표 탑 저장 (5초)</button>
+    <button id="voice">음성 켬</button>
+    <button id="cfgbtn">기준값</button>
     <button id="hand">우타</button>
     <button id="flip">카메라 전환</button>
   </div>
@@ -179,8 +208,8 @@ function angle3(a,b,c){ // b 꼭짓점 각도 (3D)
   const n=Math.hypot(...u)*Math.hypot(...v);
   return n? deg(Math.acos(Math.max(-1,Math.min(1,dot/n)))) : NaN;
 }
-function smooth(k,v){ if(v==null||isNaN(v)){ delete ema[k]; return null; }
-  ema[k]= ema[k]==null ? v : ema[k]+0.35*(v-ema[k]); return ema[k]; }
+function smooth(k,v,a){ if(v==null||isNaN(v)){ delete ema[k]; return null; }
+  ema[k]= ema[k]==null ? v : ema[k]+(a||0.35)*(v-ema[k]); return ema[k]; }
 
 function measure(lm,wl,w,h){
   const need=[L.nose,L.lSh,L.rSh,L.lHip,L.rHip];
@@ -262,10 +291,10 @@ function onResults(res){
   if(!m){
     setStatus(lm?"머리~골반이 다 보이게 서 주세요":"사람이 보이지 않습니다","bad");
     ["g-spine","g-head","g-sway","g-hand","g-sh","g-hip","g-x","g-arm"].forEach(id=>gauge(id,null));
-    $("setref").disabled=true; return;
+    $("setref").disabled=true; $("settop").disabled=true; lastV=null; coach.lost(); showPhase(); return;
   }
   setStatus("추적 중 · "+fps+"fps","on");
-  $("setref").disabled=counting;
+  $("setref").disabled=counting; $("settop").disabled=counting||!ref;
 
   // 뼈대
   ctx.lineWidth=u*0.8; ctx.strokeStyle="rgba(234,242,236,.55)"; ctx.lineCap="round";
@@ -285,10 +314,14 @@ function onResults(res){
   const sp=smooth("spine",m.spine); gauge("g-spine",sp,"°",side(sp));
   const hd=smooth("head",m.head);   gauge("g-head",hd,"%", hd==null?"":side(hd), need);
   const sw=smooth("sway",m.sway);   gauge("g-sway",sw,"%", sw==null?"":side(sw), need);
-  const hn=smooth("hand",m.hand);   gauge("g-hand",hn,"%", hn==null?"":(hn>=100?"어깨 위":hn>=0?"골반~어깨 사이":"골반 아래"), "손목이 안 보임");
+  const hn=smooth("hand",m.hand);   gauge("g-hand",hn,"%", hn==null?"":(target?"목표 "+Math.round(target.hand)+"%":(hn>=100?"어깨 위":hn>=0?"골반~어깨 사이":"골반 아래")), "손목이 안 보임");
   const st=smooth("sh",m.shTurn);   gauge("g-sh",st,"°","어드레스 대비", ref?"깊이값 없음":need);
   const ht=smooth("hip",m.hipTurn); gauge("g-hip",ht,"°","어드레스 대비", ref?"깊이값 없음":need);
   const xf=smooth("xf",m.xf);       gauge("g-x",xf,"°","어깨 − 골반", ref?"깊이값 없음":need);
+  // 판정: 빠른 동작을 놓치지 않게 손 높이는 덜 누른 값을 씀
+  lastV={hand:smooth("handFast",m.hand,0.7), head:hd, sway:sw, shTurn:st,
+         spineD:(ref&&ref.spine!=null&&sp!=null)? sp-ref.spine : null};
+  coach.step(lastV,now); showPhase();
   const ar=smooth("arm",m.arm);     gauge("g-arm",ar,"°", ar==null?"":(rightHanded?"왼팔":"오른팔")+" · 180°=펴짐", "팔이 안 보임");
 }
 
@@ -299,26 +332,145 @@ function beep(f,d){ try{
   const o=actx.createOscillator(), g=actx.createGain(); o.frequency.value=f; g.gain.value=0.2;
   o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+d); }catch(e){} }
 
-function saveRef(){
-  if(counting) return; counting=true; $("setref").disabled=true;
+function countdown(done){
+  if(counting) return; counting=true; $("setref").disabled=true; $("settop").disabled=true;
   let n=5; const c=$("count"); c.hidden=false; c.textContent=n; beep(660,.08);
   const t=setInterval(()=>{
     n--;
     if(n>0){ c.textContent=n; beep(660,.08); return; }
-    clearInterval(t); c.hidden=true; counting=false;
-    if(last){
-      ref={nose:last.nose,hip:last.hip,sh:last.sh,shW:last.shW,shDir:last.shDir,hipDir:last.hipDir};
-      for(const k in ema) delete ema[k];
-      beep(990,.25); $("setref").textContent="기준 다시 저장 (5초)";
-    }else{ beep(220,.4); setStatus("기준 저장 실패: 사람이 보이지 않음","bad"); }
+    clearInterval(t); c.hidden=true; counting=false; done();
   },1000);
 }
+function saveRef(){
+  countdown(()=>{
+    if(last){
+      ref={nose:last.nose,hip:last.hip,sh:last.sh,shW:last.shW,shDir:last.shDir,hipDir:last.hipDir,
+           spine:last.spine,hand:last.hand};
+      for(const k in ema) delete ema[k];
+      coach.reset(); beep(990,.25); $("setref").textContent="기준 다시 저장 (5초)"; say("기준 저장","good");
+    }else{ beep(220,.4); setStatus("기준 저장 실패: 사람이 보이지 않음","bad"); }
+  });
+}
+function saveTop(){
+  countdown(()=>{
+    if(ref&&lastV&&lastV.hand!=null){
+      target={hand:lastV.hand,shTurn:lastV.shTurn};
+      store("target",target); coach.reset(); beep(990,.25); showTarget(); say("목표 저장","good");
+    }else{ beep(220,.4); say("저장 실패","bad"); }
+  });
+}
+
+// ---------- 판정 ----------
+const CFG_DEF={head:15,sway:15,spine:8,handTol:10,turnTol:15,voice:true};
+function load(k,d){ try{ const v=JSON.parse(localStorage.getItem("swing."+k)); return v==null?d:v; }catch(e){ return d; } }
+function store(k,v){ try{ localStorage.setItem("swing."+k,JSON.stringify(v)); }catch(e){} }
+let cfg=Object.assign({},CFG_DEF,load("cfg",{})), target=load("target",null), lastV=null;
+const said=[]; let lastSay={t:"",at:0}, vTimer=null;
+
+function say(text,kind){
+  const now=performance.now();
+  if(text===lastSay.t&&now-lastSay.at<1200) return;
+  lastSay={t:text,at:now}; said.push(text);
+  const el=$("verdict"); el.textContent=text; el.className=kind||""; el.hidden=false;
+  clearTimeout(vTimer); vTimer=setTimeout(()=>{ el.hidden=true; },1800);
+  if(cfg.voice&&window.speechSynthesis){ try{
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text); u.lang="ko-KR"; u.rate=1.15; speechSynthesis.speak(u);
+  }catch(e){} }
+}
+
+// 탑 자세를 목표와 비교. 목표가 없으면 판정하지 않음
+function topCat(v){
+  if(!target||v.hand==null) return null;
+  const dh=v.hand-target.hand;
+  if(dh<-cfg.handTol) return ["조금 더","bad"];
+  if(dh>cfg.handTol) return ["오버","bad"];
+  if(target.shTurn!=null&&v.shTurn!=null){
+    const d=v.shTurn-target.shTurn;
+    if(d<-cfg.turnTol) return ["어깨 더","bad"];
+    if(d>cfg.turnTol) return ["회전 과다","bad"];
+  }
+  return ["좋아요","good"];
+}
+// 어드레스 대비 벗어난 항목 중 가장 심한 것
+function worst(v){
+  const c=[["머리",v.head,cfg.head],["골반 밀림",v.sway,cfg.sway],["축",v.spineD,cfg.spine]]
+    .filter(x=>x[1]!=null).map(x=>[x[0],Math.abs(x[1])/x[2]]).filter(x=>x[1]>1).sort((a,b)=>b[1]-a[1]);
+  return c.length?c[0][0]:null;
+}
+
+/* 스윙 단계: wait(어드레스 대기) → ready(가만히 서 있음) → back(손이 올라감) → top(정점/멈춤) → wait
+   손 높이(0=골반, 100=어깨)만으로 단계를 나눔 */
+const coach={
+  phase:"wait", prev:null, stillSince:null, max:0, maxT:0, atMax:null,
+  alerted:false, overSince:null, cat:null, catSince:null,
+  base(){ return ref&&ref.hand!=null ? ref.hand : 10; },
+  reset(){ this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
+  lost(){ this.prev=null; this.stillSince=null; },
+  step(v,t){
+    if(v.hand==null){ this.lost(); return; }
+    const speed=this.prev? Math.abs(v.hand-this.prev.h)/Math.max(1,t-this.prev.t)*1000 : 0;   // %/초
+    this.prev={h:v.hand,t};
+    const b=this.base(), still=speed<30;
+    if(this.phase==="wait"){
+      if(v.hand<b+12&&still){ if(this.stillSince==null) this.stillSince=t; if(t-this.stillSince>600) this.phase="ready"; }
+      else this.stillSince=null;
+      return;
+    }
+    if(this.phase==="ready"){
+      if(v.hand>b+25){ this.phase="back"; this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null; }
+      return;
+    }
+    // back / top 공통: 어드레스 대비 벗어남을 바로 알림 (스윙당 한 번)
+    if(!this.alerted){
+      const w=worst(v);
+      if(w){ if(this.overSince==null) this.overSince=t; if(t-this.overSince>250){ this.alerted=true; say(w,"bad"); } }
+      else this.overSince=null;
+    }
+    if(this.phase==="back"){
+      if(v.hand>this.max){ this.max=v.hand; this.maxT=t; this.atMax=v; }
+      if(v.hand<b+12){ this.reset(); return; }                         // 중간에 내려놓음
+      const dropped=v.hand<this.max-8, held=t-this.maxT>500&&this.max>b+40;
+      if(dropped||held){
+        this.phase="top"; const c=topCat(this.atMax);
+        this.cat=c?c[0]:null; this.catSince=null;
+        if(c&&!(this.alerted&&performance.now()-lastSay.at<700)) say(c[0],c[1]);
+      }
+      return;
+    }
+    if(this.phase==="top"){
+      if(v.hand<this.max-25||v.hand<b+25){ this.reset(); return; }     // 다운스윙 시작
+      // 탑에서 멈춘 채 조정하면 바뀐 판정을 다시 알려줌
+      const c=topCat(v);
+      if(c&&still&&c[0]!==this.cat){
+        if(this.catSince==null) this.catSince=t;
+        if(t-this.catSince>400){ this.cat=c[0]; this.catSince=null; say(c[0],c[1]); }
+      }else this.catSince=null;
+    }
+  }
+};
+const PHASE={wait:"어드레스 대기",ready:"준비됨",back:"백스윙",top:"탑"};
+function showPhase(){ const el=$("phase"); el.hidden=!running; el.textContent=PHASE[coach.phase]+(target?"":" · 목표 탑 없음"); }
+function showTarget(){
+  $("tinfo").textContent= target ? "저장된 목표 탑: 손 높이 "+Math.round(target.hand)+"%"+(target.shTurn!=null?", 어깨 회전 "+Math.round(target.shTurn)+"°":"")
+    : "저장된 목표 탑이 없습니다. 탑 판정(조금 더/오버)은 목표를 저장해야 나옵니다.";
+  $("settop").textContent= target ? "목표 탑 다시 저장 (5초)" : "목표 탑 저장 (5초)";
+}
+function showVoice(){ $("voice").textContent=cfg.voice?"음성 켬":"음성 끔"; $("voice").classList.toggle("off",!cfg.voice); }
+for(const k of ["head","sway","spine","handTol","turnTol"]){
+  const el=$("c-"+k); el.value=cfg[k];
+  el.onchange=()=>{ const n=Number(el.value); if(n>0){ cfg[k]=n; store("cfg",cfg); } else el.value=cfg[k]; };
+}
+showTarget(); showVoice();
+$("settop").onclick=saveTop;
+$("voice").onclick=()=>{ cfg.voice=!cfg.voice; store("cfg",cfg); showVoice(); if(cfg.voice) say("음성 안내 켬","good"); else if(window.speechSynthesis) speechSynthesis.cancel(); };
+$("cfgbtn").onclick=()=>{ $("panel").hidden=!$("panel").hidden; };
 
 $("start").onclick=boot;
 $("setref").onclick=saveRef;
 $("hand").onclick=()=>{ rightHanded=!rightHanded; $("hand").textContent=rightHanded?"우타":"좌타"; delete ema.arm; delete ema.hand; };
 $("flip").onclick=async()=>{
-  facing= facing==="user"?"environment":"user"; ref=null; $("setref").textContent="어드레스 기준 저장 (5초)";
+  facing= facing==="user"?"environment":"user"; ref=null; coach.reset(); $("setref").textContent="어드레스 기준 저장 (5초)";
   try{ await startCamera(); }catch(e){ setStatus("카메라 전환 실패","bad"); }
 };
 document.addEventListener("visibilitychange",async()=>{
