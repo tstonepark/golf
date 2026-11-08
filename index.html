@@ -130,7 +130,7 @@ button:disabled{opacity:.4}
     <label for="c-handTol">탑 손 높이 허용 오차 (±%)</label><input id="c-handTol" type="number" inputmode="numeric" min="1" max="60">
     <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
     <label for="c-ghost">목표 탑 가이드(초록 고스트) 표시</label><input id="c-ghost" type="checkbox" style="width:24px;height:24px">
-    <label for="c-hq">정밀 모드(관절 인식 정확도↑, 속도↓ · 재시작 필요)</label><input id="c-hq" type="checkbox" style="width:24px;height:24px">
+    <label for="c-hq">구형 엔진 사용(신형이 느릴 때 · 새로고침 필요)</label><input id="c-hq" type="checkbox" style="width:24px;height:24px">
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
@@ -138,7 +138,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v18</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v19</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -174,6 +174,13 @@ button:disabled{opacity:.4}
 // 포즈 엔진 파일 위치. 직접 호스팅하려면 이 경로만 바꾸면 됩니다.
 const POSE_BASE = window.POSE_BASE || "vendor/pose/";
 </script>
+<script type="module">
+// 신형 엔진 (MediaPipe Pose Landmarker). 로드 실패 시 구형 엔진으로 자동 대체
+try{
+  const m=await import("./vendor/tasks/vision_bundle.mjs");
+  window.MPV={PoseLandmarker:m.PoseLandmarker, FilesetResolver:m.FilesetResolver};
+}catch(e){ window.MPV_ERR=e; }
+</script>
 <script>
 (function(){
   const s=document.createElement("script");
@@ -191,7 +198,7 @@ const video=$("cam"), cv=$("view"), ctx=cv.getContext("2d");
 const L={nose:0,lSh:11,rSh:12,lEl:13,rEl:14,lWr:15,rWr:16,lHip:23,rHip:24,lKn:25,rKn:26,lAn:27,rAn:28};
 const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 
-let pose=null, stream=null, busy=false, running=false;
+let pose=null, lmk=null, engineName="", stream=null, busy=false, running=false;
 let facing="user", rightHanded=true;
 let ref=null, noBody=null, wristS=null, wristMiss=0;
 // 폰 기울기(센서). pitch: +면 위를 봄, roll: 좌우 기울기. null이면 센서 없음
@@ -252,16 +259,32 @@ async function boot(){
     $("start").disabled=false; setStatus("카메라 없음","bad");
     $("err").textContent = e.name==="NotAllowedError" ? "카메라 권한이 거부되었습니다. 주소창의 자물쇠 아이콘에서 카메라를 허용해 주세요."
       : "카메라를 열지 못했습니다 ("+e.name+")."; return; }
-  setStatus("포즈 엔진 준비 중");
-  try{
-    pose=new Pose({locateFile:f=>POSE_BASE+f});
-    pose.setOptions({modelComplexity:cfg.hq?2:1,smoothLandmarks:true,enableSegmentation:false,
-      minDetectionConfidence:0.5,minTrackingConfidence:0.5});
-    pose.onResults(onResults);
-    await pose.initialize();
-  }catch(e){
-    $("start").disabled=false; setStatus("엔진 오류","bad");
-    $("err").textContent="포즈 엔진을 시작하지 못했습니다. 인터넷 연결을 확인해 주세요."; return; }
+  setStatus("포즈 엔진 준비 중 (모델 30MB, 처음 한 번만 내려받음)");
+  // 1) 신형 엔진: GPU → CPU 순으로 시도
+  if(window.MPV&&cfg.engine!=="v1"){
+    for(const delegate of ["GPU","CPU"]){
+      try{
+        const vision=await MPV.FilesetResolver.forVisionTasks("vendor/tasks/wasm");
+        lmk=await MPV.PoseLandmarker.createFromOptions(vision,{
+          baseOptions:{modelAssetPath:"vendor/models/pose_landmarker_heavy.task",delegate},
+          runningMode:"VIDEO",numPoses:1,minPoseDetectionConfidence:0.5,minPosePresenceConfidence:0.5,minTrackingConfidence:0.5});
+        engineName="v2-"+delegate; dlog("엔진: "+engineName); break;
+      }catch(e){ dlog("신형 엔진 "+delegate+" 실패: "+(e&&e.message||e)); lmk=null; }
+    }
+  }
+  // 2) 구형 엔진
+  if(!lmk){
+    try{
+      if(typeof Pose==="undefined") throw new Error("Pose 미로드");
+      pose=new Pose({locateFile:f=>POSE_BASE+f});
+      pose.setOptions({modelComplexity:cfg.hq?2:1,smoothLandmarks:true,enableSegmentation:false,
+        minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+      pose.onResults(onResults);
+      await pose.initialize(); engineName="v1"; dlog("엔진: v1");
+    }catch(e){
+      $("start").disabled=false; setStatus("엔진 오류","bad");
+      $("err").textContent="포즈 엔진을 시작하지 못했습니다. 인터넷 연결을 확인해 주세요."; return; }
+  }
   $("msg").hidden=true; running=true;
   try{ if(navigator.wakeLock) await navigator.wakeLock.request("screen"); }catch(e){}
   requestAnimationFrame(loop);
@@ -271,7 +294,12 @@ async function loop(){
   if(!running) return;
   if(!busy && video.readyState>=2){
     busy=true;
-    try{ await pose.send({image:video}); }catch(e){ setStatus("분석 오류: "+(e&&e.message||e),"bad"); dlog("분석 오류: "+(e&&e.message||e)); }
+    try{
+      if(lmk){
+        const t=performance.now(), r=lmk.detectForVideo(video,t);
+        onResults({image:video, poseLandmarks:r.landmarks&&r.landmarks[0], poseWorldLandmarks:r.worldLandmarks&&r.worldLandmarks[0]});
+      }else await pose.send({image:video});
+    }catch(e){ setStatus("분석 오류: "+(e&&e.message||e),"bad"); dlog("분석 오류: "+(e&&e.message||e)); }
     busy=false;
   }
   requestAnimationFrame(loop);
@@ -808,7 +836,7 @@ function showSummary(){
   if(top.length&&top[0][0]!=="좋아요") r.push("<p>가장 많이 나온 문제: <b>"+top[0][0]+"</b></p><p>"+TIPS[top[0][0]].tip+"</p>");
   el.innerHTML=r.join("");
   el.innerHTML+='<details style="margin-top:8px"><summary style="color:var(--dim);font-size:12px">진단 정보</summary><pre style="font-size:11px;white-space:pre-wrap;color:var(--dim)">'
-    +[navigator.userAgent, "fps "+fps+" · 단계 "+coach.phase+" · 버퍼 "+rec.buf.length+"장 · 저장 "+(rec.last?rec.last.length:0)+"장 · 기준 "+(ref?"있음":"없음")+" · 목표 "+(target?"있음":"없음")].concat(diag).join("\n").replace(/</g,"&lt;")+'</pre></details>';
+    +[navigator.userAgent, "엔진 "+engineName+" · fps "+fps+" · 단계 "+coach.phase+" · 버퍼 "+rec.buf.length+"장 · 저장 "+(rec.last?rec.last.length:0)+"장 · 기준 "+(ref?"있음":"없음")+" · 목표 "+(target?"있음":"없음")].concat(diag).join("\n").replace(/</g,"&lt;")+'</pre></details>';
 }
 $("sumbtn").onclick=()=>{ showSummary(); $("summary").hidden=false; };
 $("sumclose").onclick=()=>{ $("summary").hidden=true; };
@@ -847,7 +875,7 @@ for(const k of ["head","sway","spine","handTol","turnTol"]){
 }
 setView(view); showVoice();
 $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.target.checked; store("cfg",cfg); };
-$("c-hq").checked=!!cfg.hq; $("c-hq").onchange=e=>{ cfg.hq=e.target.checked; store("cfg",cfg); if(pose){ try{ pose.setOptions({modelComplexity:cfg.hq?2:1}); }catch(x){} } };
+$("c-hq").checked=cfg.engine==="v1"; $("c-hq").onchange=e=>{ cfg.engine=e.target.checked?"v1":"v2"; store("cfg",cfg); };
 $("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
