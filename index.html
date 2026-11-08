@@ -142,7 +142,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v23</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v24</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -168,7 +168,7 @@ button:disabled{opacity:.4}
     <button id="cfgbtn">기준값</button>
     <button id="sumbtn">요약</button>
     <button id="hand">우타</button>
-    <button id="flip">카메라</button>
+    <button id="flip" title="누를 때마다 다음 렌즈로">카메라</button>
     <button id="viewbtn">정면</button>
     <button id="replaybtn" disabled>리플레이</button>
   </div>
@@ -239,11 +239,26 @@ const ema={};
 
 function setStatus(text,cls){ $("stxt").textContent=text; $("dot").className=cls||""; }
 
-async function startCamera(){
+let cams=[], camIdx=-1;   // 카메라 목록 (권한 허용 후에 라벨이 채워짐)
+async function listCams(){
+  try{ cams=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput"); }catch(e){ cams=[]; }
+}
+async function startCamera(deviceId){
   if(stream) stream.getTracks().forEach(t=>t.stop());
-  stream=await navigator.mediaDevices.getUserMedia({audio:false,
-    video:{facingMode:facing,width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}});
+  const v={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}};
+  if(deviceId) v.deviceId={exact:deviceId}; else v.facingMode=facing;
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:v});
   video.srcObject=stream; await video.play();
+  await listCams();
+  const st=stream.getVideoTracks()[0], set=st.getSettings?st.getSettings():{};
+  camIdx=cams.findIndex(c=>c.deviceId===set.deviceId);
+  if(set.facingMode) facing=set.facingMode;
+  else if(st.label){ facing=/front|user|전면/i.test(st.label)?"user":"environment"; }
+  const name=st.label||("카메라 "+(camIdx+1));
+  $("flip").textContent= cams.length>1 ? name.replace(/camera/i,"").trim().slice(0,10)||"카메라" : "카메라";
+  dlog("카메라: "+name+" "+(set.width||"")+"x"+(set.height||"")+" "+(facing));
+  // 센터 스테이지 등 자동 프레이밍이 켜져 있으면 측정이 흔들리므로 끌 수 있으면 끔
+  try{ if(st.getCapabilities&&st.getCapabilities().zoom) await st.applyConstraints({advanced:[{zoom:1}]}); }catch(e){}
 }
 
 async function boot(){
@@ -915,8 +930,11 @@ $("start").onclick=boot;
 $("setref").onclick=saveRef;
 $("hand").onclick=()=>{ rightHanded=!rightHanded; $("hand").textContent=rightHanded?"우타":"좌타"; delete ema.arm; delete ema.hand; };
 $("flip").onclick=async()=>{
-  facing= facing==="user"?"environment":"user"; ref=null; coach.reset(); $("setref").textContent="어드레스 기준 저장 (10초)";
-  try{ await startCamera(); }catch(e){ setStatus("카메라 전환 실패","bad"); }
+  ref=null; coach.reset(); $("setref").textContent="어드레스 기준 저장 (10초)";
+  try{
+    if(cams.length>1){ camIdx=(camIdx+1)%cams.length; await startCamera(cams[camIdx].deviceId); }   // 렌즈를 하나씩 순환
+    else { facing= facing==="user"?"environment":"user"; await startCamera(); }
+  }catch(e){ setStatus("카메라 전환 실패","bad"); dlog("카메라 전환 실패: "+e.message); }
 };
 document.addEventListener("visibilitychange",async()=>{
   if(document.visibilityState==="visible"&&running){ try{ if(navigator.wakeLock) await navigator.wakeLock.request("screen"); }catch(e){} }
