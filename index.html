@@ -105,7 +105,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v4</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v5</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -152,9 +152,9 @@ const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23
 
 let pose=null, stream=null, busy=false, running=false;
 let facing="user", rightHanded=true;
-let ref=null;            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
+let ref=null, noBody=null;            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
 let last=null;           // 가장 최근 측정값
-let frames=0, fpsT=performance.now(), fps=0;
+let lostFrames=0, frames=0, fpsT=performance.now(), fps=0;
 const ema={};
 
 function setStatus(text,cls){ $("stxt").textContent=text; $("dot").className=cls||""; }
@@ -243,6 +243,8 @@ function measure(lm,wl,w,h){
   }
   const torso=Math.hypot(sh.x-hip.x,sh.y-hip.y);
   if(torso<1) return null;
+  const kneeSeen=[L.lKn,L.rKn].some(i=>lm[i]&&lm[i].visibility>0.5);
+  if(!kneeSeen||torso<h*0.12){ noBody="전신(무릎까지)이 보이게 폰을 세워 주세요"; return null; }
   const m={sh,hip,nose};
   // 길이 단위: 정면=어깨너비, 후방=몸통 길이의 3/4 (어깨가 겹쳐 보여 어깨너비를 못 씀)
   m.U= view==="face" ? Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y) : torso*0.75;
@@ -319,6 +321,7 @@ function onResults(res){
   if(now-fpsT>1000){ fps=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; }
 
   const lm=res.poseLandmarks, wl=res.poseWorldLandmarks;
+  noBody=null;
   const m= lm ? measure(lm,wl,iw,ih) : null;
   last=m;
 
@@ -335,11 +338,12 @@ function onResults(res){
   }
 
   if(!m){
-    setStatus(lm?"머리~골반이 다 보이게 서 주세요":"사람이 보이지 않습니다","bad");
+    setStatus(noBody||(lm?"머리~골반이 다 보이게 서 주세요":"사람이 보이지 않습니다"),"bad");
     ["g-spine","g-head","g-sway","g-hand","g-sh","g-hip","g-x","g-arm"].forEach(id=>gauge(id,null));
-    $("setref").disabled=true; $("settop").disabled=true; lastV=null; coach.lost(); showPhase(); return;
+    $("setref").disabled=true; $("settop").disabled=true; lastV=null;
+    if(lostFrames++>8) coach.lost(); showPhase(); return;
   }
-  setStatus("추적 중 · "+fps+"fps","on");
+  lostFrames=0; setStatus("추적 중 · "+fps+"fps","on");
   $("setref").disabled=counting; $("settop").disabled=counting||!ref;
 
   // 뼈대
@@ -410,6 +414,7 @@ function saveRef(){
 }
 function saveTop(){
   countdown(()=>{
+    if(ref&&lastV&&lastV.hand!=null&&lastV.hand<50){ beep(220,.4); say("탑 자세가 아닙니다","bad"); return; }
     if(ref&&lastV&&lastV.hand!=null){
       target={hand:lastV.hand,shTurn:lastV.shTurn};
       targets[view]=target; store("targets",targets); coach.reset(); beep(990,.25); showTarget(); say("목표 저장","good");
@@ -423,7 +428,9 @@ function load(k,d){ try{ const v=JSON.parse(localStorage.getItem("swing."+k)); r
 function store(k,v){ try{ localStorage.setItem("swing."+k,JSON.stringify(v)); }catch(e){} }
 let cfg=Object.assign({},CFG_DEF,load("cfg",{})), lastV=null;
 let view= cfg.view==="dtl" ? "dtl" : "face";            // face=정면, dtl=후방(타깃 라인 뒤)
-let targets=load("targets",null)||{face:load("target",null)}, target=targets[view]||null;
+let targets=load("targets",null)||{face:load("target",null)};
+for(const k in targets) if(targets[k]&&!(targets[k].hand>=50)) targets[k]=null;
+let target=targets[view]||null;
 const said=[]; let lastSay={t:"",at:0}, vTimer=null;
 
 function say(text,kind){
@@ -478,7 +485,7 @@ const coach={
   alerted:false, overSince:null, cat:null, catSince:null, peak:null,
   base(){ return ref&&ref.hand!=null ? Math.min(ref.hand,20) : 10; },
   reset(){ this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
-  lost(){ this.prev=null; this.stillSince=null; },
+  lost(){ this.prev=null; this.stillSince=null; if(this.phase!=="wait") this.reset(); },
   step(v,t){
     if(v.hand==null){
       // 스윙 중 손목이 잠깐 가려지면 0.4초까지는 직전 값으로 버팀
@@ -491,7 +498,7 @@ const coach={
     const b=this.base(), still=speed<30;
     if(this.phase==="wait"){
       if(v.hand<b+15&&still){ if(this.stillSince==null) this.stillSince=t;
-        if(t-this.stillSince>1200){ this.phase="ready"; if(typeof autoRef==="function") autoRef(); } }
+        if(t-this.stillSince>2000){ this.phase="ready"; if(typeof autoRef==="function") autoRef(); } }
       else this.stillSince=null;
       return;
     }
