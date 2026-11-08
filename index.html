@@ -133,7 +133,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v15</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v16</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -188,7 +188,7 @@ const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23
 
 let pose=null, stream=null, busy=false, running=false;
 let facing="user", rightHanded=true;
-let ref=null, noBody=null;            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
+let ref=null, noBody=null, wristS=null, wristMiss=0;            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
 let last=null, lastLm=null; // 가장 최근 측정값 / 관절
 let lostFrames=0, frames=0, fpsT=performance.now(), fps=0;
 const ema={};
@@ -285,8 +285,14 @@ function measure(lm,wl,w,h){
   // 길이 단위: 정면=어깨너비, 후방=몸통 길이의 3/4 (어깨가 겹쳐 보여 어깨너비를 못 씀)
   m.U= view==="face" ? Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y) : torso*0.75;
   // 손 높이: 두 손은 그립에서 붙어 있으므로 보이는 손목을 씀 (0=골반 높이, 100=어깨 높이)
-  const ws=[L.lWr,L.rWr].filter(i=>lm[i]&&lm[i].visibility>0.3);
-  if(ws.length&&hip.y-sh.y>1){ const wy=ws.reduce((a,i)=>a+P(i).y,0)/ws.length; m.hand=(hip.y-wy)/(hip.y-sh.y)*100; }
+  const wraw=pick(lm,P,L.lWr,L.rWr);
+  if(wraw){
+    if(wristS){ const jump=Math.hypot(wraw.x-wristS.x,wraw.y-wristS.y), a= jump>m.U*0.5 ? 0.25 : 0.6;
+      wristS={x:wristS.x+a*(wraw.x-wristS.x), y:wristS.y+a*(wraw.y-wristS.y)}; }
+    else wristS=wraw;
+    wristMiss=0;
+  }else if(++wristMiss>6) wristS=null;
+  if(wristS&&hip.y-sh.y>1){ m.wrist=wristS; m.hand=(hip.y-wristS.y)/(hip.y-sh.y)*100; }
 
   if(view==="face"){
     // 척추 기울기: 골반 중심→어깨 중심 선이 수직에서 벗어난 각. +는 골퍼 기준 왼쪽
@@ -389,7 +395,7 @@ function onResults(res){
     setStatus(noBody||(lm?"머리~골반이 다 보이게 서 주세요":"사람이 보이지 않습니다"),"bad");
     ["g-spine","g-head","g-sway","g-hand","g-sh","g-hip","g-x","g-arm"].forEach(id=>gauge(id,null));
     $("setref").disabled=true; $("settop").disabled=true; lastV=null;
-    if(lostFrames++>8) coach.lost(); showPhase(); return;
+    if(lostFrames++>8){ coach.lost(); wristS=null; } showPhase(); return;
   }
   lostFrames=0;
   const lowCam = m.hip.y>ih*0.72 && (m.hip.y-m.sh.y)<ih*0.2;   // 사람이 아래쪽에 작게 = 카메라가 낮고 위를 봄
@@ -409,7 +415,7 @@ function onResults(res){
   ctx.fillStyle="#ffd23f";
   for(const p of [m.sh,m.hip,m.nose]){ ctx.beginPath(); ctx.arc(X(p.x),Y(p.y),u*2.2,0,Math.PI*2); ctx.fill(); }
   // 손(손목) 표시 + 높이 수치. 흐릿하게 잡혀도 표시
-  const wr=[L.lWr,L.rWr].filter(i=>lm[i]&&lm[i].visibility>0.3).map(i=>({x:lm[i].x*iw,y:lm[i].y*ih}));
+  const wr=m.wrist?[m.wrist]:[];
   ctx.font="600 "+Math.round(u*6)+"px "+getComputedStyle(document.body).getPropertyValue("--num");
   ctx.textBaseline="middle";
   if(wr.length){
@@ -601,7 +607,7 @@ const coach={
     if(this.phase==="back"){
       if(v.hand>this.max){ this.max=v.hand; this.maxT=t; this.atMax=v; }
       if(v.hand<b+15){ this.reset(); return; }                         // 중간에 내려놓음
-      const dropped=v.hand<this.max-8, held=t-this.maxT>500&&this.max>b+40;
+      const dropped=v.hand<this.max-12, held=t-this.maxT>500&&this.max>b+40;
       if(dropped||held){
         this.phase="top"; const c=topCat(this.atMax);
         this.cat=c?c[0]:null; this.catPair=c; this.catSince=null;
