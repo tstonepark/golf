@@ -590,7 +590,7 @@ const coach={
         this.phase="top"; const c=topCat(this.atMax);
         this.cat=c?c[0]:null; this.catPair=c; this.catSince=null;
         if(c&&!(this.alerted&&performance.now()-lastSay.at<700)) say(c[0],c[1]);
-        if(typeof showResult==="function") showResult(this.atMax,this.peak,c);
+        showResult(this.atMax,this.peak,c,"탑 확인");
       }
       return;
     }
