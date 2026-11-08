@@ -59,22 +59,19 @@ button:focus-visible{outline:2px solid var(--axis);outline-offset:2px}
 #bar button.main{flex:1 1 40%}
 button.off{color:var(--dim)}
 #phase{position:absolute;right:12px;top:10px;font-size:12px;color:var(--ink);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px}
-#verdict{position:absolute;left:0;right:0;bottom:14%;text-align:center;font:700 13vmin/1.1 var(--txt);
+#verdict{position:absolute;left:0;right:0;top:44px;text-align:center;font:700 8vmin/1.1 var(--txt);
   color:var(--axis);text-shadow:0 2px 18px #000,0 0 4px #000;pointer-events:none}
 #verdict.good{color:var(--ok)} #verdict.bad{color:var(--warn)}
-#result{position:absolute;left:12px;bottom:12px;max-width:calc(100% - 24px);background:rgba(12,21,18,.86);border:1px solid var(--line);
-  border-radius:6px;padding:8px 12px;font-size:13px;line-height:1.5}
-#result b{font:600 17px var(--num);color:var(--axis)}
+#result{background:var(--panel);border-top:1px solid var(--line);padding:6px 12px;font-size:12px;line-height:1.45;color:var(--dim)}
+#result b{font:600 15px var(--num);color:var(--axis)}
 #result .t{color:var(--dim);font-size:11px}
 #replay{position:absolute;inset:0;background:#000;z-index:3;display:flex;flex-direction:column}
 #rcv{flex:1;min-height:0;width:100%;display:block}
 #rbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--panel);border-top:1px solid var(--line)}
 #rbar button{min-height:40px;padding:6px 10px;font-size:13px}
 #rbar input[type=range]{flex:1 1 100%;accent-color:var(--axis);height:28px}
-#rinfo{position:absolute;left:12px;top:10px;font:600 15px var(--num);color:var(--axis);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
-#result{cursor:pointer;z-index:4}
-#stage.rp #result{bottom:auto;top:44px;right:12px;max-width:none;font-size:12px}
-#stage.rp #result b{font-size:15px}
+#rinfo{position:absolute;left:12px;top:10px;font:600 13px var(--num);color:var(--axis);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
+#result{cursor:pointer}
 #rhint{flex:1 1 100%;font-size:11px;color:var(--dim)}
 #panel{z-index:2;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center}
@@ -101,7 +98,6 @@ button:disabled{opacity:.4}
   <div id="status"><span id="dot"></span><span id="stxt">대기 중</span></div>
   <div id="phase" hidden></div>
   <div id="verdict" hidden></div>
-  <div id="result" hidden></div>
   <div id="replay" hidden>
     <canvas id="rcv"></canvas>
     <div id="rinfo"></div>
@@ -129,13 +125,14 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v7</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v8</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
   </div>
 </div>
 <div id="side">
+  <div id="result" hidden></div>
   <div id="gauges">
     <div class="g empty" id="g-spine"><div class="k">척추 기울기</div><div class="v">–</div><div class="s"></div></div>
     <div class="g empty" id="g-head"><div class="k">머리 이동 (어깨너비 %)</div><div class="v">–</div><div class="s"></div></div>
@@ -592,7 +589,7 @@ function showResult(v,pk,c){
   if(v.shTurn!=null) row.push("어깨 회전 <b>"+r(v.shTurn)+"°</b>"+(target&&target.shTurn!=null?" / 목표 "+r(target.shTurn)+"°":""));
   if(ref){ const ps=ITEMS[view].filter(it=>pk[it.k]!=null).map(it=>it.lab+" <b>"+r(pk[it.k])+it.u+"</b>"); if(ps.length) row.push(ps.join(" · ")); }
   const el=$("result"); el.hidden=false;
-  el.innerHTML='<div class="t">스윙 '+coach.n+(c?" · "+c[0]:target?"":" · 목표 탑을 저장하면 판정이 나옵니다")+"</div>"+row.join("<br>");
+  el.innerHTML='<span class="t">스윙 '+coach.n+(c?" · "+c[0]:target?"":" · 목표 탑 없음")+"</span> &nbsp; "+row.join(" &nbsp;·&nbsp; ");
 }
 // ---------- 녹화 / 리플레이 ----------
 const rec={
@@ -618,11 +615,11 @@ const rec={
 const replay={
   open:false, i:0, timer:null, speeds:[0.25,0.5,1], si:0,
   show(){
-    if(!rec.last) return; this.open=true; $("replay").hidden=false; $("stage").classList.add("rp"); this.i=0;
+    if(!rec.last) return; this.open=true; $("replay").hidden=false;  this.i=0;
     $("rslider").max=rec.last.length-1; this.draw(); this.play(true);
     clearTimeout(this.autoT); this.autoT=setTimeout(()=>this.close(),40000);
   },
-  close(){ this.open=false; this.play(false); clearTimeout(this.autoT); $("replay").hidden=true; $("stage").classList.remove("rp"); },
+  close(){ this.open=false; this.play(false); clearTimeout(this.autoT); $("replay").hidden=true; },
   play(on){
     clearInterval(this.timer); this.timer=null; $("rplay").textContent=on?"멈춤":"재생";
     if(!on) return;
