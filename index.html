@@ -72,6 +72,9 @@ button.off{color:var(--dim)}
 #rbar input[type=range]{flex:1 1 100%;accent-color:var(--axis);height:28px}
 #rinfo{position:absolute;left:12px;top:10px;font:600 13px var(--num);color:var(--axis);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
 #result{cursor:pointer}
+#coach{background:var(--panel);border-top:1px solid var(--line);padding:6px 12px 8px;font-size:12px;line-height:1.5;color:var(--ink)}
+#summary{z-index:5;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:13px;line-height:1.5}
+#summary h2{margin:0 0 8px;font-size:15px} #summary p{margin:0 0 6px} #summary b{font:600 16px var(--num);color:var(--axis)}
 #rhint{flex:1 1 100%;font-size:11px;color:var(--dim)}
 #panel{z-index:2;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center}
@@ -112,6 +115,10 @@ button:disabled{opacity:.4}
     </div>
   </div>
   <div id="count" hidden></div>
+  <div id="summary" hidden>
+    <h2>오늘 요약</h2><div id="sumbody"></div>
+    <button id="sumclose">닫기</button>
+  </div>
   <div id="panel" hidden>
     <h2>판정 기준</h2>
     <label for="c-head">머리 이동 허용 (%)</label><input id="c-head" type="number" inputmode="numeric" min="1" max="100">
@@ -119,13 +126,14 @@ button:disabled{opacity:.4}
     <label for="c-spine">축 변화 · 일어섬 허용 (°)</label><input id="c-spine" type="number" inputmode="numeric" min="1" max="45">
     <label for="c-handTol">탑 손 높이 허용 오차 (±%)</label><input id="c-handTol" type="number" inputmode="numeric" min="1" max="60">
     <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
+    <label for="c-ghost">목표 탑 가이드(초록 고스트) 표시</label><input id="c-ghost" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
     <p>%는 정면에서는 어깨너비, 후방에서는 몸통 길이의 3/4을 100으로 봅니다.</p>
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v8</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v9</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -133,6 +141,7 @@ button:disabled{opacity:.4}
 </div>
 <div id="side">
   <div id="result" hidden></div>
+  <div id="coach" hidden></div>
   <div id="gauges">
     <div class="g empty" id="g-spine"><div class="k">척추 기울기</div><div class="v">–</div><div class="s"></div></div>
     <div class="g empty" id="g-head"><div class="k">머리 이동 (어깨너비 %)</div><div class="v">–</div><div class="s"></div></div>
@@ -148,6 +157,7 @@ button:disabled{opacity:.4}
     <button class="main" id="settop" disabled>목표 탑 저장 (10초)</button>
     <button id="voice">음성 켬</button>
     <button id="cfgbtn">기준값</button>
+    <button id="sumbtn">요약</button>
     <button id="hand">우타</button>
     <button id="flip">카메라</button>
     <button id="viewbtn">정면</button>
@@ -175,7 +185,7 @@ const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23
 let pose=null, stream=null, busy=false, running=false;
 let facing="user", rightHanded=true;
 let ref=null, noBody=null;            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
-let last=null;           // 가장 최근 측정값
+let last=null, lastLm=null; // 가장 최근 측정값 / 관절
 let lostFrames=0, frames=0, fpsT=performance.now(), fps=0;
 const ema={};
 
@@ -346,8 +356,19 @@ function onResults(res){
   rec.push(img,iw,ih,lm,now);
   noBody=null;
   const m= lm ? measure(lm,wl,iw,ih) : null;
-  last=m;
+  last=m; lastLm= m&&lm ? {lm:lm.map(p=>({x:p.x*iw,y:p.y*ih,v:p.visibility})),hip:ref?ref.hip:m.hip,U:ref?ref.U:m.U} : null;
 
+  // 목표 탑 고스트: 저장 당시 어드레스 골반을 지금 어드레스 골반에 맞춰 겹침
+  if(ref&&target&&target.ghost&&cfg.ghost!==false&&(coach.phase==="ready"||coach.phase==="back"||coach.phase==="top")){
+    const gh=target.ghost, k=ref.U/gh.U, G=p=>({x:ref.hip.x+(p.x-gh.hip.x)*k, y:ref.hip.y+(p.y-gh.hip.y)*k});
+    ctx.lineWidth=u*2.6; ctx.strokeStyle="rgba(88,214,141,.55)"; ctx.lineCap="round"; ctx.lineJoin="round";
+    for(const [a,b] of BONES){ if(gh.lm[a].v<0.5||gh.lm[b].v<0.5) continue;
+      const A=G(gh.lm[a]), B=G(gh.lm[b]); ctx.beginPath(); ctx.moveTo(X(A.x),Y(A.y)); ctx.lineTo(X(B.x),Y(B.y)); ctx.stroke(); }
+    const ws=[L.lWr,L.rWr].filter(i=>gh.lm[i].v>0.3);   // 손 위치 표적
+    if(ws.length){ const w=G(gh.lm[ws[0]]); ctx.strokeStyle="rgba(88,214,141,.9)"; ctx.lineWidth=u*1.2;
+      ctx.beginPath(); ctx.arc(X(w.x),Y(w.y),ref.U*sc*0.16,0,Math.PI*2); ctx.stroke(); }
+    if(gh.lm[L.nose].v>0.5){ const n=G(gh.lm[L.nose]); ctx.fillStyle="rgba(88,214,141,.7)"; ctx.beginPath(); ctx.arc(X(n.x),Y(n.y),u*2.4,0,Math.PI*2); ctx.fill(); }
+  }
   // 기준 축은 사람이 안 보여도 그대로 표시
   if(ref){
     ctx.setLineDash([u*4,u*3]); ctx.strokeStyle="rgba(255,255,255,.85)"; ctx.lineWidth=u;
@@ -439,7 +460,7 @@ function saveTop(){
   countdown(()=>{
     if(ref&&lastV&&lastV.hand!=null&&lastV.hand<50){ beep(220,.4); say("탑 자세가 아닙니다","bad"); return; }
     if(ref&&lastV&&lastV.hand!=null){
-      target={hand:lastV.hand,shTurn:lastV.shTurn};
+      target={hand:lastV.hand,shTurn:lastV.shTurn,ghost:lastLm};
       targets[view]=target; store("targets",targets); coach.reset(); beep(990,.25); showTarget(); say("목표 저장","good");
     }else{ beep(220,.4); say("저장 실패","bad"); }
   });
@@ -453,6 +474,7 @@ let cfg=Object.assign({},CFG_DEF,load("cfg",{})), lastV=null;
 let view= cfg.view==="dtl" ? "dtl" : "face";            // face=정면, dtl=후방(타깃 라인 뒤)
 let targets=load("targets",null)||{face:load("target",null)};
 for(const k in targets) if(targets[k]&&!(targets[k].hand>=50)) targets[k]=null;
+const session=[];   // 오늘 스윙 기록 (페이지를 닫으면 사라짐)
 let target=targets[view]||null;
 const said=[]; let lastSay={t:"",at:0}, vTimer=null;
 
@@ -507,7 +529,7 @@ const coach={
   phase:"wait", n:0, prev:null, stillSince:null, max:0, maxT:0, atMax:null, lostAt:null,
   alerted:false, overSince:null, cat:null, catSince:null, peak:null,
   base(){ return ref&&ref.hand!=null ? Math.min(ref.hand,20) : 10; },
-  reset(){ if(this.phase==="top"||this.phase==="down"||this.phase==="follow") rec.freeze(this.startT); this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
+  reset(){ if(this.phase==="top"||this.phase==="down"||this.phase==="follow"){ finishSwing(this); rec.freeze(this.startT); } this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
   lost(){ this.prev=null; this.stillSince=null; if(this.phase!=="wait") this.reset(); },
   step(v,t){
     if(v.hand==null){
@@ -672,6 +694,47 @@ $("rspeed").onclick=()=>{ replay.si=(replay.si+1)%replay.speeds.length; $("rspee
 $("rslider").oninput=e=>replay.seek(Number(e.target.value));
 $("rcv").onclick=()=>replay.play(!replay.timer);
 
+// ---------- 코칭 ----------
+// 측정 항목별 원인·연습법. 레슨 교과서 수준의 일반론이며 개인 체형은 반영하지 못함
+const TIPS={
+  "머리":    {say:"머리가 밀렸어요. 머리는 공 위에 두고 몸만 돌리세요.", tip:"백스윙에서 머리가 옆으로 밀렸습니다. 머리를 공 위에 고정한다는 느낌으로 어깨만 돌리세요. 벽에 머리를 살짝 대고 백스윙하는 연습이 도움이 됩니다."},
+  "골반 밀림":{say:"골반이 밀렸어요. 오른발 안쪽으로 버티세요.", tip:"골반이 옆으로 밀리는 스웨이입니다. 오른발 안쪽 날에 체중을 느끼며 골반을 제자리에서 돌리세요. 오른발 바깥쪽에 공이나 수건을 두고 밟지 않게 연습하세요."},
+  "축":      {say:"축이 흔들렸어요. 어드레스 각도를 유지하세요.", tip:"척추 기울기가 어드레스와 달라졌습니다. 숙인 각도와 좌우 기울기를 그대로 둔 채 회전만 한다는 느낌으로. 거울 앞에서 천천히 하프 스윙으로 축을 확인하세요."},
+  "조금 더": {say:"백스윙이 작아요. 왼어깨를 턱 밑까지 돌리세요.", tip:"탑이 목표보다 낮습니다. 팔로 드는 대신 왼어깨가 턱 아래로 들어올 때까지 상체를 더 돌리세요."},
+  "오버":    {say:"오버스윙이에요. 왼팔이 땅과 평행할 때 멈추세요.", tip:"탑이 목표보다 높습니다. 왼팔이 지면과 평행해지는 지점에서 멈추는 느낌으로, 손목이 더 꺾이지 않게 그립 압력을 조금 높이세요."},
+  "어깨 더": {say:"어깨 회전이 부족해요. 등을 타깃으로 돌리세요.", tip:"팔만 올라가고 어깨 회전이 부족합니다. 등이 타깃을 향할 때까지 돌린다는 느낌으로. 팔짱을 끼고 회전만 연습해 보세요."},
+  "회전 과다":{say:"회전이 많아요. 하체로 버티세요.", tip:"어깨 회전이 목표보다 많습니다. 오른 무릎 각도를 유지해 하체가 따라 돌지 않게 하세요."},
+  "일어섬":  {say:"일어섰어요. 엉덩이를 뒤에 두세요.", tip:"스윙 중 상체가 일어나 척추 각이 풀렸습니다. 엉덩이를 뒤에 둔 채 가슴만 돌리세요. 엉덩이를 벽이나 의자에 댄 채 스윙하는 연습이 효과적입니다."},
+  "엉덩이":  {say:"엉덩이가 앞으로 나왔어요. 벽에 대고 연습하세요.", tip:"다운스윙에서 엉덩이가 공 쪽으로 나오는 얼리 익스텐션입니다. 왼쪽 엉덩이를 뒤로 돌린다는 느낌으로. 엉덩이를 벽에 댄 채 벽에서 떨어지지 않게 스윙하세요."},
+  "좋아요":  {say:"좋아요. 그 느낌 기억하세요.", tip:"기준 범위 안입니다. 같은 느낌으로 반복하세요."}
+};
+function finishSwing(c){
+  if(!c.atMax) return;
+  const pk=c.peak||{}, topV=c.catPair?c.catPair[0]:null;
+  // 어드레스 대비 이탈 중 가장 심한 것 > 탑 판정 순
+  const dev=worstOf(it=>pk[it.k]);
+  const issue= dev || (topV&&topV!=="좋아요"?topV:null) || (topV==="좋아요"?"좋아요":null);
+  session.push({n:c.n,view,issue,hand:c.atMax.hand,shTurn:c.atMax.shTurn,peak:Object.assign({},pk)});
+  if(!issue) return;
+  const tp=TIPS[issue]; if(!tp) return;
+  $("coach").hidden=false; $("coach").textContent=tp.tip;
+  if(cfg.voice&&cfg.tips!==false) setTimeout(()=>say(tp.say,issue==="좋아요"?"good":"bad"),600);
+}
+function showSummary(){
+  const el=$("sumbody"), sw=session.filter(x=>x.view===view);
+  if(!sw.length){ el.innerHTML="<p>아직 기록된 스윙이 없습니다.</p>"; return; }
+  const cnt={}; sw.forEach(x=>{ if(x.issue) cnt[x.issue]=(cnt[x.issue]||0)+1; });
+  const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]);
+  const avg=k=>{ const v=sw.map(x=>x[k]).filter(x=>x!=null); return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null; };
+  const r=[]; r.push("<p>스윙 <b>"+sw.length+"</b>회 · 탑 손 높이 평균 <b>"+(avg("hand")??"–")+"%</b>"+(target?" (목표 "+Math.round(target.hand)+"%)":"")+
+    (avg("shTurn")!=null?" · 어깨 회전 평균 <b>"+avg("shTurn")+"°</b>":"")+"</p>");
+  r.push("<p>"+top.map(([k,v])=>k+" <b>"+v+"</b>회").join(" · ")+"</p>");
+  if(top.length&&top[0][0]!=="좋아요") r.push("<p>가장 많이 나온 문제: <b>"+top[0][0]+"</b></p><p>"+TIPS[top[0][0]].tip+"</p>");
+  el.innerHTML=r.join("");
+}
+$("sumbtn").onclick=()=>{ showSummary(); $("summary").hidden=false; };
+$("sumclose").onclick=()=>{ $("summary").hidden=true; };
+
 const PHASE={wait:"어드레스 대기",ready:"준비됨",back:"백스윙",top:"탑",down:"다운스윙",follow:"피니시"};
 const LABELS={
   face:{"g-spine":"척추 기울기","g-head":"머리 이동 (%)","g-sway":"골반 스웨이 (%)","g-sh":"어깨 회전(추정)","g-hip":"골반 회전(추정)","g-x":"꼬임 차이","g-arm":"리드 팔 펴짐"},
@@ -699,6 +762,7 @@ for(const k of ["head","sway","spine","handTol","turnTol"]){
   el.onchange=()=>{ const n=Number(el.value); if(n>0){ cfg[k]=n; store("cfg",cfg); } else el.value=cfg[k]; };
 }
 setView(view); showVoice();
+$("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.target.checked; store("cfg",cfg); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
 $("settop").onclick=saveTop;
