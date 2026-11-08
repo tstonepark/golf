@@ -133,7 +133,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v14</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v15</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -377,7 +377,7 @@ function onResults(res){
   if(ref){
     ctx.setLineDash([u*4,u*3]); ctx.strokeStyle="rgba(255,255,255,.85)"; ctx.lineWidth=u;
     const dx=ref.sh.x-ref.hip.x, dy=ref.sh.y-ref.hip.y;
-    ctx.beginPath(); ctx.moveTo(X(ref.hip.x-dx*0.9),Y(ref.hip.y-dy*0.9)); ctx.lineTo(X(ref.sh.x+dx*0.9),Y(ref.sh.y+dy*0.9)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(ref.hip.x-dx*0.15),Y(ref.hip.y-dy*0.15)); ctx.lineTo(X(ref.sh.x+dx*0.25),Y(ref.sh.y+dy*0.25)); ctx.stroke();
     ctx.setLineDash([]);
     ctx.beginPath(); ctx.arc(X(ref.nose.x),Y(ref.nose.y),ref.U*sc*0.33,0,Math.PI*2); ctx.stroke();
     if(view==="dtl"){ // 엉덩이 기준선
@@ -391,7 +391,9 @@ function onResults(res){
     $("setref").disabled=true; $("settop").disabled=true; lastV=null;
     if(lostFrames++>8) coach.lost(); showPhase(); return;
   }
-  lostFrames=0; setStatus("추적 중 · "+fps+"fps","on");
+  lostFrames=0;
+  const lowCam = m.hip.y>ih*0.72 && (m.hip.y-m.sh.y)<ih*0.2;   // 사람이 아래쪽에 작게 = 카메라가 낮고 위를 봄
+  setStatus(lowCam?"폰이 너무 낮습니다. 가슴 높이에 똑바로 세워 주세요":"추적 중 · "+fps+"fps", lowCam?"":"on");
   $("setref").disabled=counting; $("settop").disabled=counting||!ref;
 
   // 뼈대
@@ -403,7 +405,7 @@ function onResults(res){
   // 현재 축
   const dx=m.sh.x-m.hip.x, dy=m.sh.y-m.hip.y;
   ctx.strokeStyle="#ffd23f"; ctx.lineWidth=u*1.8;
-  ctx.beginPath(); ctx.moveTo(X(m.hip.x-dx*0.9),Y(m.hip.y-dy*0.9)); ctx.lineTo(X(m.sh.x+dx*0.9),Y(m.sh.y+dy*0.9)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(X(m.hip.x-dx*0.15),Y(m.hip.y-dy*0.15)); ctx.lineTo(X(m.sh.x+dx*0.25),Y(m.sh.y+dy*0.25)); ctx.stroke();
   ctx.fillStyle="#ffd23f";
   for(const p of [m.sh,m.hip,m.nose]){ ctx.beginPath(); ctx.arc(X(p.x),Y(p.y),u*2.2,0,Math.PI*2); ctx.fill(); }
   // 손(손목) 표시 + 높이 수치. 흐릿하게 잡혀도 표시
@@ -699,7 +701,7 @@ const replay={
       if(ok(L.lSh)&&ok(L.rSh)&&ok(L.lHip)&&ok(L.rHip)){
         const sh=mid(P(L.lSh),P(L.rSh)), hip=mid(P(L.lHip),P(L.rHip)), dx=sh.x-hip.x, dy=sh.y-hip.y;
         g.strokeStyle="#ffd23f"; g.lineWidth=u*1.8;
-        g.beginPath(); g.moveTo(X(hip.x-dx*0.9),Y(hip.y-dy*0.9)); g.lineTo(X(sh.x+dx*0.9),Y(sh.y+dy*0.9)); g.stroke();
+        g.beginPath(); g.moveTo(X(hip.x-dx*0.15),Y(hip.y-dy*0.15)); g.lineTo(X(sh.x+dx*0.25),Y(sh.y+dy*0.25)); g.stroke();
         const ws=[L.lWr,L.rWr].filter(i=>f.lm[i].v>0.3);
         if(ws.length&&hip.y-sh.y>1){ const wy=ws.reduce((a,i)=>a+P(i).y,0)/ws.length; hand=(hip.y-wy)/(hip.y-sh.y)*100; }
       }
@@ -777,8 +779,8 @@ function setView(v){
   for(const id in LABELS[view]){ $(id).querySelector(".k").textContent=LABELS[view][id]; gauge(id,null); }
   $("viewbtn").textContent= view==="face"?"정면":"후방";
   $("howto").textContent= view==="face"
-    ? "정면 모드: 폰을 가슴이 보이는 방향 2.5~3m 거리에 세우고, 머리부터 발까지 화면에 들어오게 맞춰 주세요."
-    : "후방 모드: 폰을 타깃 라인 뒤(오른쪽 어깨 뒤, 옆모습이 보이는 방향) 2.5~3m 거리, 손 높이에 세워 주세요.";
+    ? "정면 모드: 폰을 가슴이 보이는 방향 2.5~3m 거리, 가슴 높이에 기울이지 말고 똑바로 세우세요. 몸이 화면 세로의 2/3쯤 차지하면 적당합니다."
+    : "후방 모드: 폰을 타깃 라인 뒤(오른쪽 어깨 뒤, 옆모습이 보이는 방향) 2.5~3m 거리, 가슴 높이에 세워 주세요.";
   $("result").hidden=true; $("setref").textContent="어드레스 기준 저장 (10초)"; showTarget();
 }
 function showPhase(){ const el=$("phase"); el.hidden=!running; el.textContent=PHASE[coach.phase]+(target?"":" · 목표 탑 없음"); }
