@@ -78,6 +78,7 @@ button.off{color:var(--dim)}
 #summary{z-index:5;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:13px;line-height:1.5}
 #summary h2{margin:0 0 8px;font-size:15px} #summary p{margin:0 0 6px} #summary b{font:600 16px var(--num);color:var(--axis)}
 #rhint{flex:1 1 100%;font-size:11px;color:var(--dim)}
+#rphases button{flex:1;padding:6px 4px;font-size:12px;color:var(--dim)} #rphases button.on{color:var(--axis);border-color:var(--axis)}
 #panel{z-index:2;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center}
 #panel h2{grid-column:1/-1;margin:0;font-size:15px}
@@ -114,6 +115,7 @@ button:disabled{opacity:.4}
       <button id="rnext">1칸 ▶</button>
       <button id="rspeed">0.25×</button>
       <button id="rclose" style="margin-left:auto">닫기</button>
+      <div id="rphases" style="flex:1 1 100%;display:flex;gap:6px"></div>
       <div id="rhint">다음 스윙을 시작하면 자동으로 닫힙니다. 화면을 누르면 멈춤/재생.</div>
     </div>
   </div>
@@ -140,7 +142,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v22</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v23</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -369,6 +371,10 @@ function measure(lm,wl,w,h){
     m.spine=deg(Math.atan2(shR.x-hipR.x, hipR.y-shR.y));
     const S=rightHanded?L.lSh:L.rSh, E=rightHanded?L.lEl:L.rEl, W=rightHanded?L.lWr:L.rWr;
     if(wl&&[S,E,W].every(i=>lm[i].visibility>0.5)) m.arm=angle3(wl[S],wl[E],wl[W]);
+    if(lm[L.lAn].visibility>0.5&&lm[L.rAn].visibility>0.5){
+      const aL=R(L.lAn), aR=R(L.rAn), trail=rightHanded?aR:aL, lead=rightHanded?aL:aR, span=trail.x-lead.x;
+      if(Math.abs(span)>1) m.weight=Math.max(0,Math.min(100,(hipR.x-lead.x)/span*100));   // 트레일 발 쪽 체중 %(추정)
+    }
     const K=rightHanded?[L.rHip,L.rKn,L.rAn]:[L.lHip,L.lKn,L.lAn];     // 트레일(우타=오른) 무릎
     if(K.every(i=>lm[i]&&lm[i].visibility>0.5)){ m.knee=angle2(R(K[0]),R(K[1]),R(K[2])); if(ref&&ref.knee!=null) m.kneeD=m.knee-ref.knee; }
     if(wl){ // 위에서 내려다본 어깨·골반 선의 방향 (깊이 추정값 사용)
@@ -514,7 +520,7 @@ function onResults(res){
     const ht=smooth("hip",m.hipTurn); gauge("g-hip",ht,"°","어드레스 대비", ref?"깊이값 없음":need);
     const xf=smooth("xf",m.xf);       gauge("g-x",xf,"°","어깨 − 골반", ref?"깊이값 없음":need);
     const kd=smooth("kneeD",m.kneeD); gauge("g-arm",kd,"°", kd==null?"":(Math.abs(kd)<1?"유지":kd>0?"펴짐":"더 굽힘"), ref?"무릎이 안 보임":need);
-    lastV={hand:hf, head:hd, sway:sw, shTurn:st, spineD:(ref&&ref.spine!=null&&sp!=null)? sp-ref.spine : null, kneeD:kd};
+    lastV={hand:hf, head:hd, sway:sw, shTurn:st, spineD:(ref&&ref.spine!=null&&sp!=null)? sp-ref.spine : null, kneeD:kd, weight:smooth("weight",m.weight,0.6)};
   }else{
     const fb=v=>Math.abs(v)<1?"제자리":(v>0?"공 쪽":"뒤쪽");
     const bd=smooth("bend",m.bend);     gauge("g-spine",bd,"°","수직 대비");
@@ -713,6 +719,7 @@ function showResult(v,pk,c,label){
   const r=x=>Math.round(x), row=[];
   row.push("탑 손 높이 <b>"+r(v.hand)+"%</b>"+(target?" / 목표 "+r(target.hand)+"%":""));
   if(v.shTurn!=null) row.push("어깨 회전 <b>"+r(v.shTurn)+"°</b>"+(target&&target.shTurn!=null?" / 목표 "+r(target.shTurn)+"°":""));
+  if(v.weight!=null) row.push("탑 체중 "+(rightHanded?"오른발":"왼발")+" <b>"+r(v.weight)+"%</b><span class=\"t\">(추정)</span>");
   if(ref){ const ps=ITEMS[view].filter(it=>pk[it.k]!=null).map(it=>it.lab+" <b>"+r(pk[it.k])+it.u+"</b>"); if(ps.length) row.push(ps.join(" · ")); }
   const el=$("result"); el.hidden=false;
   el.innerHTML='<span class="t">'+(label||"스윙 "+(coach.n+1))+(c?" · "+c[0]:target?"":" · 목표 탑 없음")+"</span> &nbsp; "+row.join(" &nbsp;·&nbsp; ");
@@ -744,7 +751,7 @@ const replay={
   open:false, i:0, timer:null, speeds:[0.25,0.5,1], si:0,
   show(){
     if(!rec.last) return; this.open=true; $("replay").hidden=false;  this.i=0;
-    $("rslider").max=rec.last.length-1; this.draw(); this.play(true);
+    $("rslider").max=rec.last.length-1; this.marks(); this.draw(); this.play(true);
     clearTimeout(this.autoT); this.autoT=setTimeout(()=>this.close(),40000);
   },
   close(){ this.open=false; this.play(false); clearTimeout(this.autoT); $("replay").hidden=true; },
@@ -759,6 +766,18 @@ const replay={
     this.timer=setTimeout(step,200);
   },
   seek(i){ this.i=Math.max(0,Math.min(rec.last.length-1,i)); this.play(false); this.draw(); },
+  // 프레임별 손 높이로 단계 위치 찾기: 어드레스(시작) / 탑(최고) / 임팩트(탑 이후 최저) / 피니시(끝)
+  handAt(f){ if(!f.lm) return null; const ok=i=>f.lm[i].v>0.5; if(!(ok(L.lSh)&&ok(L.rSh)&&ok(L.lHip)&&ok(L.rHip))) return null;
+    const sh=(f.lm[L.lSh].y+f.lm[L.rSh].y)/2, hip=(f.lm[L.lHip].y+f.lm[L.rHip].y)/2, ws=[L.lWr,L.rWr].filter(i=>f.lm[i].v>0.3);
+    if(!ws.length||hip-sh<1e-3) return null; const wy=ws.reduce((a,i)=>a+f.lm[i].y,0)/ws.length; return (hip-wy)/(hip-sh)*100; },
+  marks(){
+    const hs=rec.last.map(f=>this.handAt(f)); let top=0, tv=-1e9;
+    hs.forEach((h,i)=>{ if(h!=null&&h>tv){ tv=h; top=i; } });
+    let imp=top, iv=1e9; for(let i=top;i<hs.length;i++){ if(hs[i]!=null&&hs[i]<iv){ iv=hs[i]; imp=i; } }
+    this.ph={"어드레스":0,"탑":top,"임팩트":imp,"피니시":rec.last.length-1};
+    $("rphases").innerHTML=Object.keys(this.ph).map(k=>'<button data-k="'+k+'">'+k+'</button>').join("");
+    $("rphases").querySelectorAll("button").forEach(b=>{ b.onclick=()=>this.seek(this.ph[b.dataset.k]); });
+  },
   draw(){
     const f=rec.last[this.i], seq=++this.seq||(this.seq=1);
     if(f.img){ this.paint(f,f.img); return; }
@@ -792,6 +811,7 @@ const replay={
     const t0=rec.last[0].t;
     $("rinfo").textContent=(this.i+1)+"/"+rec.last.length+" · "+((f.t-t0)/1000).toFixed(2)+"s"+(hand!=null?" · 손 높이 "+Math.round(hand)+"%":"");
     $("rslider").value=this.i;
+    if(this.ph) $("rphases").querySelectorAll("button").forEach(b=>b.classList.toggle("on",this.ph[b.dataset.k]===this.i));
   }
 };
 $("replaybtn").onclick=()=>replay.show();
