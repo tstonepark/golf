@@ -130,6 +130,7 @@ button:disabled{opacity:.4}
     <label for="c-handTol">탑 손 높이 허용 오차 (±%)</label><input id="c-handTol" type="number" inputmode="numeric" min="1" max="60">
     <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
     <label for="c-ghost">목표 탑 가이드(초록 고스트) 표시</label><input id="c-ghost" type="checkbox" style="width:24px;height:24px">
+    <label for="c-hq">정밀 모드(관절 인식 정확도↑, 속도↓ · 재시작 필요)</label><input id="c-hq" type="checkbox" style="width:24px;height:24px">
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
@@ -137,7 +138,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v17</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v18</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -254,7 +255,7 @@ async function boot(){
   setStatus("포즈 엔진 준비 중");
   try{
     pose=new Pose({locateFile:f=>POSE_BASE+f});
-    pose.setOptions({modelComplexity:1,smoothLandmarks:true,enableSegmentation:false,
+    pose.setOptions({modelComplexity:cfg.hq?2:1,smoothLandmarks:true,enableSegmentation:false,
       minDetectionConfidence:0.5,minTrackingConfidence:0.5});
     pose.onResults(onResults);
     await pose.initialize();
@@ -319,11 +320,15 @@ function measure(lm,wl,w,h){
   // 길이 단위: 정면=어깨너비, 후방=몸통 길이의 3/4 (어깨가 겹쳐 보여 어깨너비를 못 씀)
   m.U= view==="face" ? Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y) : torso*0.75;
   // 손 높이: 두 손은 그립에서 붙어 있으므로 보이는 손목을 씀 (0=골반 높이, 100=어깨 높이)
-  const wraw=pick(lm,P,L.lWr,L.rWr);
+  let wraw=pick(lm,P,L.lWr,L.rWr);
+  if(!wraw){ // 손목을 못 잡으면 팔꿈치에서 팔뚝 길이(어깨~팔꿈치의 0.9배)만큼 뻗은 곳으로 추정
+    const cands=[[L.lSh,L.lEl,L.lWr],[L.rSh,L.rEl,L.rWr]].filter(([S,E])=>lm[S].visibility>0.5&&lm[E].visibility>0.5);
+    if(cands.length){ const [S,E,W]=cands[0], ps=P(S), pe=P(E), pw=P(W);
+      const dirx=pw.x-pe.x, diry=pw.y-pe.y, dn=Math.hypot(dirx,diry)||1, len=Math.hypot(pe.x-ps.x,pe.y-ps.y)*0.9;
+      wraw={x:pe.x+dirx/dn*len, y:pe.y+diry/dn*len}; }
+  }
   if(wraw){
-    if(wristS){ const jump=Math.hypot(wraw.x-wristS.x,wraw.y-wristS.y), a= jump>m.U*0.5 ? 0.25 : 0.6;
-      wristS={x:wristS.x+a*(wraw.x-wristS.x), y:wristS.y+a*(wraw.y-wristS.y)}; }
-    else wristS=wraw;
+    wristS= wristS ? {x:wristS.x+0.7*(wraw.x-wristS.x), y:wristS.y+0.7*(wraw.y-wristS.y)} : wraw;
     wristMiss=0;
   }else if(++wristMiss>6) wristS=null;
   if(wristS&&hip.y-sh.y>1){ m.wrist=wristS; m.hand=(hip.y-wristS.y)/(hip.y-sh.y)*100; }
@@ -842,6 +847,7 @@ for(const k of ["head","sway","spine","handTol","turnTol"]){
 }
 setView(view); showVoice();
 $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.target.checked; store("cfg",cfg); };
+$("c-hq").checked=!!cfg.hq; $("c-hq").onchange=e=>{ cfg.hq=e.target.checked; store("cfg",cfg); if(pose){ try{ pose.setOptions({modelComplexity:cfg.hq?2:1}); }catch(x){} } };
 $("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
