@@ -138,7 +138,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v19</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v20</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -622,7 +622,7 @@ const coach={
   phase:"wait", n:0, ft:false, maxSpd:0, prev:null, stillSince:null, max:0, maxT:0, atMax:null, lostAt:null,
   alerted:false, overSince:null, cat:null, catSince:null, peak:null,
   base(){ return ref&&ref.hand!=null ? Math.min(ref.hand,20) : 10; },
-  reset(){ if(this.phase==="follow"&&this.ft){ finishSwing(this); rec.freeze(this.startT); } this.ft=false; this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
+  reset(){ if(this.phase==="follow"&&this.ft){ finishSwing(this); rec.freeze(this.startT,this.stillAt); } this.ft=false; this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
   lost(){ this.prev=null; this.stillSince=null; if(this.phase!=="wait") this.reset(); },
   step(v,t){
     if(v.hand==null){
@@ -724,11 +724,12 @@ const rec={
     this.buf.push({url,w,h,lm:L2,t});
     while(this.buf.length&&t-this.buf[0].t>this.keepMs) this.buf.shift();
   },
-  freeze(startT){
-    const from=(startT||0)-500, fr=this.buf.filter(f=>f.t>=from);
+  freeze(startT,endT){
+    // 구간: 백스윙 시작 0.5초 전 ~ 피니시에서 멈춘 직후 0.25초 (멈춰 있는 꼬리는 잘라냄)
+    const from=(startT||0)-500, to= endT ? endT+250 : Infinity, fr=this.buf.filter(f=>f.t>=from&&f.t<=to);
     dlog("스윙 종료: 버퍼 "+this.buf.length+"장, 구간 "+fr.length+"장");
     if(fr.length<3) return;
-    this.last=fr; this.buf=this.buf.filter(f=>f.t<from);
+    this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to);
     $("replaybtn").disabled=false;
     if(cfg.auto!==false){ if(cfg.voice) beep(990,.1); replay.show(); }
   }
