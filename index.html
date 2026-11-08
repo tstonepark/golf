@@ -66,6 +66,13 @@ button.off{color:var(--dim)}
   border-radius:6px;padding:8px 12px;font-size:13px;line-height:1.5}
 #result b{font:600 17px var(--num);color:var(--axis)}
 #result .t{color:var(--dim);font-size:11px}
+#replay{position:absolute;inset:0;background:#000;z-index:3;display:flex;flex-direction:column}
+#rcv{flex:1;min-height:0;width:100%;display:block}
+#rbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--panel);border-top:1px solid var(--line)}
+#rbar button{min-height:40px;padding:6px 10px;font-size:13px}
+#rbar input[type=range]{flex:1 1 100%;accent-color:var(--axis);height:28px}
+#rinfo{position:absolute;left:12px;top:10px;font:600 15px var(--num);color:var(--axis);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
+#result{cursor:pointer}
 #panel{z-index:2;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center}
 #panel h2{grid-column:1/-1;margin:0;font-size:15px}
@@ -92,6 +99,18 @@ button:disabled{opacity:.4}
   <div id="phase" hidden></div>
   <div id="verdict" hidden></div>
   <div id="result" hidden></div>
+  <div id="replay" hidden>
+    <canvas id="rcv"></canvas>
+    <div id="rinfo"></div>
+    <div id="rbar">
+      <input id="rslider" type="range" min="0" max="0" value="0" aria-label="프레임">
+      <button id="rprev">◀ 1칸</button>
+      <button id="rplay">재생</button>
+      <button id="rnext">1칸 ▶</button>
+      <button id="rspeed">0.25×</button>
+      <button id="rclose" style="margin-left:auto">닫기</button>
+    </div>
+  </div>
   <div id="count" hidden></div>
   <div id="panel" hidden>
     <h2>판정 기준</h2>
@@ -105,7 +124,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v5</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v6</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -130,6 +149,7 @@ button:disabled{opacity:.4}
     <button id="hand">우타</button>
     <button id="flip">카메라</button>
     <button id="viewbtn">정면</button>
+    <button id="replaybtn" disabled>리플레이</button>
   </div>
 </div>
 
@@ -321,6 +341,7 @@ function onResults(res){
   if(now-fpsT>1000){ fps=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; }
 
   const lm=res.poseLandmarks, wl=res.poseWorldLandmarks;
+  rec.push(img,iw,ih,lm,now);
   noBody=null;
   const m= lm ? measure(lm,wl,iw,ih) : null;
   last=m;
@@ -484,7 +505,7 @@ const coach={
   phase:"wait", n:0, prev:null, stillSince:null, max:0, maxT:0, atMax:null, lostAt:null,
   alerted:false, overSince:null, cat:null, catSince:null, peak:null,
   base(){ return ref&&ref.hand!=null ? Math.min(ref.hand,20) : 10; },
-  reset(){ this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
+  reset(){ if(this.phase==="top"||this.phase==="down") rec.freeze(this.startT); this.phase="wait"; this.prev=null; this.stillSince=null; this.alerted=false; this.overSince=null; this.cat=null; },
   lost(){ this.prev=null; this.stillSince=null; if(this.phase!=="wait") this.reset(); },
   step(v,t){
     if(v.hand==null){
@@ -503,7 +524,7 @@ const coach={
       return;
     }
     if(this.phase==="ready"){
-      if(v.hand>b+25){ this.phase="back"; this.n++; this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null;
+      if(v.hand>b+25){ this.phase="back"; this.n++; this.startT=t; this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null;
         this.peak={}; }
       return;
     }
@@ -564,6 +585,81 @@ function showResult(v,pk,c){
   const el=$("result"); el.hidden=false;
   el.innerHTML='<div class="t">스윙 '+coach.n+(c?" · "+c[0]:target?"":" · 목표 탑을 저장하면 판정이 나옵니다")+"</div>"+row.join("<br>");
 }
+// ---------- 녹화 / 리플레이 ----------
+const rec={
+  buf:[], keepMs:6000, oc:document.createElement("canvas"), busy:false, last:null,
+  push(img,iw,ih,lm,t){
+    if(this.busy||replay.open) return; this.busy=true;
+    const w=480, h=Math.round(ih*w/iw); if(this.oc.width!==w||this.oc.height!==h){ this.oc.width=w; this.oc.height=h; }
+    this.oc.getContext("2d").drawImage(img,0,0,w,h);
+    createImageBitmap(this.oc).then(bmp=>{
+      this.buf.push({bmp,lm:lm?lm.map(p=>({x:p.x,y:p.y,v:p.visibility})):null,t});
+      while(this.buf.length&&t-this.buf[0].t>this.keepMs) this.buf.shift().bmp.close();
+    }).catch(()=>{}).finally(()=>{ this.busy=false; });
+  },
+  freeze(startT){
+    const from=(startT||0)-500;
+    const fr=this.buf.filter(f=>f.t>=from);
+    if(fr.length<3) return;
+    if(this.last) this.last.forEach(f=>{ if(!fr.includes(f)) f.bmp.close(); });
+    this.last=fr; this.buf=this.buf.filter(f=>!fr.includes(f));   // 저장본은 버퍼에서 분리
+    $("replaybtn").disabled=false;
+  }
+};
+const replay={
+  open:false, i:0, timer:null, speeds:[0.25,0.5,1], si:0,
+  show(){
+    if(!rec.last) return; this.open=true; $("replay").hidden=false; this.i=0;
+    $("rslider").max=rec.last.length-1; this.draw(); this.play(true);
+  },
+  close(){ this.open=false; this.play(false); $("replay").hidden=true; },
+  play(on){
+    clearInterval(this.timer); this.timer=null; $("rplay").textContent=on?"멈춤":"재생";
+    if(!on) return;
+    const step=()=>{ this.i=(this.i+1)%rec.last.length; this.draw();
+      const d=rec.last[this.i+1]?rec.last[this.i+1].t-rec.last[this.i].t:66;
+      this.timer=setTimeout(step,Math.min(600,d/this.speeds[this.si])); };
+    this.timer=setTimeout(step,200);
+  },
+  seek(i){ this.i=Math.max(0,Math.min(rec.last.length-1,i)); this.play(false); this.draw(); },
+  draw(){
+    const f=rec.last[this.i], c=$("rcv"), g=c.getContext("2d");
+    const r=c.getBoundingClientRect(), d=Math.min(window.devicePixelRatio||1,2);
+    if(c.width!==Math.round(r.width*d)||c.height!==Math.round(r.height*d)){ c.width=Math.round(r.width*d); c.height=Math.round(r.height*d); }
+    const iw=f.bmp.width, ih=f.bmp.height, sc=Math.min(c.width/iw,c.height/ih), dw=iw*sc, dh=ih*sc, ox=(c.width-dw)/2, oy=(c.height-dh)/2;
+    const mirror=facing==="user", X=x=>mirror?ox+dw-x*sc:ox+x*sc, Y=y=>oy+y*sc, u=Math.max(2,c.width/220);
+    g.fillStyle="#000"; g.fillRect(0,0,c.width,c.height);
+    g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(f.bmp,ox,oy,dw,dh); g.restore();
+    let hand=null;
+    if(f.lm){
+      g.lineWidth=u*0.9; g.strokeStyle="rgba(234,242,236,.75)"; g.lineCap="round";
+      for(const [a,b] of BONES){ if(f.lm[a].v<0.5||f.lm[b].v<0.5) continue;
+        g.beginPath(); g.moveTo(X(f.lm[a].x*iw),Y(f.lm[a].y*ih)); g.lineTo(X(f.lm[b].x*iw),Y(f.lm[b].y*ih)); g.stroke(); }
+      const P=i=>({x:f.lm[i].x*iw,y:f.lm[i].y*ih}), ok=i=>f.lm[i].v>0.5;
+      if(ok(L.lSh)&&ok(L.rSh)&&ok(L.lHip)&&ok(L.rHip)){
+        const sh=mid(P(L.lSh),P(L.rSh)), hip=mid(P(L.lHip),P(L.rHip)), dx=sh.x-hip.x, dy=sh.y-hip.y;
+        g.strokeStyle="#ffd23f"; g.lineWidth=u*1.8;
+        g.beginPath(); g.moveTo(X(hip.x-dx*0.9),Y(hip.y-dy*0.9)); g.lineTo(X(sh.x+dx*0.9),Y(sh.y+dy*0.9)); g.stroke();
+        const ws=[L.lWr,L.rWr].filter(i=>f.lm[i].v>0.3);
+        if(ws.length&&hip.y-sh.y>1){ const wy=ws.reduce((a,i)=>a+P(i).y,0)/ws.length; hand=(hip.y-wy)/(hip.y-sh.y)*100; }
+      }
+      if(ok(L.nose)){ g.fillStyle="#ffd23f"; g.beginPath(); g.arc(X(P(L.nose).x),Y(P(L.nose).y),u*2.4,0,Math.PI*2); g.fill(); }
+    }
+    const t0=rec.last[0].t;
+    $("rinfo").textContent=(this.i+1)+"/"+rec.last.length+" · "+((f.t-t0)/1000).toFixed(2)+"s"+(hand!=null?" · 손 높이 "+Math.round(hand)+"%":"");
+    $("rslider").value=this.i;
+  }
+};
+$("replaybtn").onclick=()=>replay.show();
+$("result").onclick=()=>replay.show();
+$("rclose").onclick=()=>replay.close();
+$("rplay").onclick=()=>replay.play(!replay.timer);
+$("rprev").onclick=()=>replay.seek(replay.i-1);
+$("rnext").onclick=()=>replay.seek(replay.i+1);
+$("rspeed").onclick=()=>{ replay.si=(replay.si+1)%replay.speeds.length; $("rspeed").textContent=replay.speeds[replay.si]+"×"; };
+$("rslider").oninput=e=>replay.seek(Number(e.target.value));
+$("rcv").onclick=()=>replay.play(!replay.timer);
+
 const PHASE={wait:"어드레스 대기",ready:"준비됨",back:"백스윙",top:"탑",down:"다운스윙"};
 const LABELS={
   face:{"g-spine":"척추 기울기","g-head":"머리 이동 (%)","g-sway":"골반 스웨이 (%)","g-sh":"어깨 회전(추정)","g-hip":"골반 회전(추정)","g-x":"꼬임 차이","g-arm":"리드 팔 펴짐"},
