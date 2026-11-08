@@ -131,6 +131,7 @@ button:disabled{opacity:.4}
     <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
     <label for="c-ghost">목표 탑 가이드(초록 고스트) 표시</label><input id="c-ghost" type="checkbox" style="width:24px;height:24px">
     <label for="c-hq">구형 엔진 사용(신형이 느릴 때 · 새로고침 필요)</label><input id="c-hq" type="checkbox" style="width:24px;height:24px">
+    <label for="c-vfov">카메라 세로 화각 (°, 보정 계산용)</label><input id="c-vfov" type="number" inputmode="numeric" min="30" max="120">
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
@@ -138,7 +139,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v20</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v21</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -220,7 +221,7 @@ async function startTilt(){
 // 피치 보정: 화면 좌표를 폰이 수평으로 봤을 때의 좌표로 되돌림 (세로 화각 70° 가정)
 function rectify(p,w,h){
   if(!tilt.ok||cfg.tiltfix===false) return p;
-  const f=h/(2*Math.tan(35*Math.PI/180)), cx=w/2, cy=h/2, th=tilt.pitch*Math.PI/180, rl=-tilt.roll*Math.PI/180;
+  const f=h/(2*Math.tan((cfg.vfov||70)/2*Math.PI/180)), cx=w/2, cy=h/2, th=tilt.pitch*Math.PI/180, rl=-tilt.roll*Math.PI/180;
   let X=(p.x-cx)/f, Y=(p.y-cy)/f;
   // 롤: 화면 내 회전
   const xr=X*Math.cos(rl)-Y*Math.sin(rl), yr=X*Math.sin(rl)+Y*Math.cos(rl); X=xr; Y=yr;
@@ -332,21 +333,22 @@ function measure(lm,wl,w,h){
   const P=i=>({x:lm[i].x*w,y:lm[i].y*h});           // 원본 영상 픽셀 좌표 (그리기용)
   const R=i=>rectify(P(i),w,h);                      // 기울기 보정 좌표 (각도 계산용)
   if(!lm[L.nose]||lm[L.nose].visibility<0.3) return null;
-  const nose=P(L.nose); let sh,hip;
+  const nose=P(L.nose), noseR=R(L.nose); let sh,hip,shR,hipR;
   if(view==="face"){
     if([L.lSh,L.rSh,L.lHip,L.rHip].some(i=>!lm[i]||lm[i].visibility<0.5)) return null;
-    sh=mid(P(L.lSh),P(L.rSh)); hip=mid(P(L.lHip),P(L.rHip));
+    sh=mid(P(L.lSh),P(L.rSh)); hip=mid(P(L.lHip),P(L.rHip)); shR=mid(R(L.lSh),R(L.rSh)); hipR=mid(R(L.lHip),R(L.rHip));
   }else{
-    sh=pick(lm,P,L.lSh,L.rSh); hip=pick(lm,P,L.lHip,L.rHip);
+    sh=pick(lm,P,L.lSh,L.rSh); hip=pick(lm,P,L.lHip,L.rHip); shR=pick(lm,R,L.lSh,L.rSh); hipR=pick(lm,R,L.lHip,L.rHip);
     if(!sh||!hip) return null;
   }
   const torso=Math.hypot(sh.x-hip.x,sh.y-hip.y);
   if(torso<1) return null;
   const kneeSeen=[L.lKn,L.rKn].some(i=>lm[i]&&lm[i].visibility>0.5);
   if(!kneeSeen||torso<h*0.12){ noBody="전신(무릎까지)이 보이게 폰을 세워 주세요"; return null; }
-  const m={sh,hip,nose};
+  const m={sh,hip,nose,shR,hipR,noseR};
   // 길이 단위: 정면=어깨너비, 후방=몸통 길이의 3/4 (어깨가 겹쳐 보여 어깨너비를 못 씀)
   m.U= view==="face" ? Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y) : torso*0.75;
+  m.UR= view==="face" ? Math.hypot(R(L.lSh).x-R(L.rSh).x,R(L.lSh).y-R(L.rSh).y) : Math.hypot(shR.x-hipR.x,shR.y-hipR.y)*0.75;
   // 손 높이: 두 손은 그립에서 붙어 있으므로 보이는 손목을 씀 (0=골반 높이, 100=어깨 높이)
   let wraw=pick(lm,P,L.lWr,L.rWr);
   if(!wraw){ // 손목을 못 잡으면 팔꿈치에서 팔뚝 길이(어깨~팔꿈치의 0.9배)만큼 뻗은 곳으로 추정
@@ -359,11 +361,11 @@ function measure(lm,wl,w,h){
     wristS= wristS ? {x:wristS.x+0.7*(wraw.x-wristS.x), y:wristS.y+0.7*(wraw.y-wristS.y)} : wraw;
     wristMiss=0;
   }else if(++wristMiss>6) wristS=null;
-  if(wristS&&hip.y-sh.y>1){ m.wrist=wristS; m.hand=(hip.y-wristS.y)/(hip.y-sh.y)*100; }
+  if(wristS&&hipR.y-shR.y>1){ m.wrist=wristS; const wR=rectify(wristS,w,h); m.hand=(hipR.y-wR.y)/(hipR.y-shR.y)*100; }
 
   if(view==="face"){
     // 척추 기울기: 골반 중심→어깨 중심 선이 수직에서 벗어난 각. +는 골퍼 기준 왼쪽
-    { const s2=mid(R(L.lSh),R(L.rSh)), h2=mid(R(L.lHip),R(L.rHip)); m.spine=deg(Math.atan2(s2.x-h2.x, h2.y-s2.y)); }
+    m.spine=deg(Math.atan2(shR.x-hipR.x, hipR.y-shR.y));
     const S=rightHanded?L.lSh:L.rSh, E=rightHanded?L.lEl:L.rEl, W=rightHanded?L.lWr:L.rWr;
     if(wl&&[S,E,W].every(i=>lm[i].visibility>0.5)) m.arm=angle3(wl[S],wl[E],wl[W]);
     if(wl){ // 위에서 내려다본 어깨·골반 선의 방향 (깊이 추정값 사용)
@@ -371,8 +373,8 @@ function measure(lm,wl,w,h){
       m.hipDir=deg(Math.atan2(wl[L.lHip].z-wl[L.rHip].z, wl[L.lHip].x-wl[L.rHip].x));
     }
     if(ref){
-      m.head=(nose.x-ref.nose.x)/ref.U*100;
-      m.sway=(hip.x-ref.hip.x)/ref.U*100;
+      m.head=(noseR.x-ref.noseR.x)/ref.UR*100;
+      m.sway=(hipR.x-ref.hipR.x)/ref.UR*100;
       if(m.shDir!=null&&ref.shDir!=null){
         m.shTurn=Math.abs(wrap(m.shDir-ref.shDir));
         m.hipTurn=Math.abs(wrap(m.hipDir-ref.hipDir));
@@ -381,21 +383,21 @@ function measure(lm,wl,w,h){
     }
   }else{
     // 후방: 척추 숙임(수직 대비), 카메라 쪽 다리의 무릎 각
-    { const s2=pick(lm,R,L.lSh,L.rSh)||sh, h2=pick(lm,R,L.lHip,L.rHip)||hip; m.bend=deg(Math.atan2(Math.abs(s2.x-h2.x), h2.y-s2.y)); }
-    m.f= nose.x>=hip.x ? 1 : -1;                    // 공이 있는 쪽(머리가 골반보다 나간 방향)
+    m.bend=deg(Math.atan2(Math.abs(shR.x-hipR.x), hipR.y-shR.y));
+    m.f= noseR.x>=hipR.x ? 1 : -1;                    // 공이 있는 쪽(머리가 골반보다 나간 방향)
     const K=rightHanded?[L.rHip,L.rKn,L.rAn]:[L.lHip,L.lKn,L.lAn];
     if(K.every(i=>lm[i]&&lm[i].visibility>0.3)) m.knee=angle2(P(K[0]),P(K[1]),P(K[2]));
     if(ref&&ref.bend!=null){
       m.bendD=m.bend-ref.bend;                        // −면 일어섬
-      m.hipFwd=(hip.x-ref.hip.x)*ref.f/ref.U*100;     // +면 공 쪽으로 나옴
-      m.headUp=(ref.nose.y-nose.y)/ref.U*100;         // +면 위로
-      m.headFwd=(nose.x-ref.nose.x)*ref.f/ref.U*100;  // +면 공 쪽으로
+      m.hipFwd=(hipR.x-ref.hipR.x)*ref.f/ref.UR*100;     // +면 공 쪽으로 나옴
+      m.headUp=(ref.noseR.y-noseR.y)/ref.UR*100;         // +면 위로
+      m.headFwd=(noseR.x-ref.noseR.x)*ref.f/ref.UR*100;  // +면 공 쪽으로
       if(m.knee!=null&&ref.knee!=null) m.kneeD=m.knee-ref.knee;
     }
   }
   return m;
 }
-function makeRef(m){ return {nose:m.nose,hip:m.hip,sh:m.sh,U:m.U,shDir:m.shDir,hipDir:m.hipDir,spine:m.spine,hand:m.hand,
+function makeRef(m){ return {nose:m.nose,hip:m.hip,sh:m.sh,U:m.U,noseR:m.noseR,hipR:m.hipR,shR:m.shR,UR:m.UR,shDir:m.shDir,hipDir:m.hipDir,spine:m.spine,hand:m.hand,
   bend:m.bend,f:m.f,knee:m.knee}; }
 
 // ---------- 화면 ----------
@@ -560,7 +562,7 @@ function saveTop(){
 }
 
 // ---------- 판정 ----------
-const CFG_DEF={head:15,sway:15,spine:8,handTol:10,turnTol:15,voice:true,view:"face",auto:true};
+const CFG_DEF={head:15,sway:15,spine:8,handTol:10,turnTol:15,voice:true,view:"face",auto:true,vfov:70};
 function load(k,d){ try{ const v=JSON.parse(localStorage.getItem("swing."+k)); return v==null?d:v; }catch(e){ return d; } }
 function store(k,v){ try{ localStorage.setItem("swing."+k,JSON.stringify(v)); }catch(e){} }
 let cfg=Object.assign({},CFG_DEF,load("cfg",{})), lastV=null;
@@ -870,7 +872,7 @@ function showTarget(){
   $("settop").textContent= target ? "목표 탑 다시 저장 (10초)" : "목표 탑 저장 (10초)";
 }
 function showVoice(){ $("voice").textContent=cfg.voice?"음성 켬":"음성 끔"; $("voice").classList.toggle("off",!cfg.voice); }
-for(const k of ["head","sway","spine","handTol","turnTol"]){
+for(const k of ["head","sway","spine","handTol","turnTol","vfov"]){
   const el=$("c-"+k); el.value=cfg[k];
   el.onchange=()=>{ const n=Number(el.value); if(n>0){ cfg[k]=n; store("cfg",cfg); } else el.value=cfg[k]; };
 }
