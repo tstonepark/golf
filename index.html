@@ -59,6 +59,8 @@ button:focus-visible{outline:2px solid var(--axis);outline-offset:2px}
 #bar button.main{flex:1 1 40%}
 button.off{color:var(--dim)}
 #phase{position:absolute;right:12px;top:10px;font-size:12px;color:var(--ink);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px}
+#level{position:absolute;right:12px;top:40px;font:600 12px var(--num);color:var(--dim);background:rgba(12,21,18,.72);padding:4px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
+#level.bad{color:var(--warn)}
 #verdict{position:absolute;left:0;right:0;top:44px;text-align:center;font:700 8vmin/1.1 var(--txt);
   color:var(--axis);text-shadow:0 2px 18px #000,0 0 4px #000;pointer-events:none}
 #verdict.good{color:var(--ok)} #verdict.bad{color:var(--warn)}
@@ -100,6 +102,7 @@ button:disabled{opacity:.4}
   <canvas id="view"></canvas>
   <div id="status"><span id="dot"></span><span id="stxt">대기 중</span></div>
   <div id="phase" hidden></div>
+  <div id="level" hidden></div>
   <div id="verdict" hidden></div>
   <div id="replay" hidden>
     <canvas id="rcv"></canvas>
@@ -127,13 +130,14 @@ button:disabled{opacity:.4}
     <label for="c-handTol">탑 손 높이 허용 오차 (±%)</label><input id="c-handTol" type="number" inputmode="numeric" min="1" max="60">
     <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
     <label for="c-ghost">목표 탑 가이드(초록 고스트) 표시</label><input id="c-ghost" type="checkbox" style="width:24px;height:24px">
+    <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
     <p>%는 정면에서는 어깨너비, 후방에서는 몸통 길이의 3/4을 100으로 봅니다.</p>
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v16</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v17</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -188,7 +192,35 @@ const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23
 
 let pose=null, stream=null, busy=false, running=false;
 let facing="user", rightHanded=true;
-let ref=null, noBody=null, wristS=null, wristMiss=0;            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
+let ref=null, noBody=null, wristS=null, wristMiss=0;
+// 폰 기울기(센서). pitch: +면 위를 봄, roll: 좌우 기울기. null이면 센서 없음
+const tilt={pitch:null,roll:null,ok:false};
+function onOrient(e){
+  if(e.beta==null) return;
+  const portrait=!(screen.orientation&&/landscape/.test(screen.orientation.type));
+  if(portrait){ tilt.pitch=e.beta-90; tilt.roll=e.gamma; }      // 세로로 세웠을 때 beta=90이 수직
+  else { tilt.pitch=Math.abs(e.gamma)-90; tilt.roll=e.beta; }
+  tilt.ok=true;
+}
+async function startTilt(){
+  try{
+    if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==="function"){
+      const r=await DeviceOrientationEvent.requestPermission(); if(r!=="granted") return; }
+    window.addEventListener("deviceorientation",onOrient);
+  }catch(e){}
+}
+// 피치 보정: 화면 좌표를 폰이 수평으로 봤을 때의 좌표로 되돌림 (세로 화각 70° 가정)
+function rectify(p,w,h){
+  if(!tilt.ok||cfg.tiltfix===false) return p;
+  const f=h/(2*Math.tan(35*Math.PI/180)), cx=w/2, cy=h/2, th=tilt.pitch*Math.PI/180, rl=-tilt.roll*Math.PI/180;
+  let X=(p.x-cx)/f, Y=(p.y-cy)/f;
+  // 롤: 화면 내 회전
+  const xr=X*Math.cos(rl)-Y*Math.sin(rl), yr=X*Math.sin(rl)+Y*Math.cos(rl); X=xr; Y=yr;
+  // 피치: 수평축 기준 회전 후 재투영
+  const Z=1, Y2=Y*Math.cos(th)+Z*Math.sin(th), Z2=-Y*Math.sin(th)+Z*Math.cos(th);
+  if(Z2<0.2) return p;
+  return {x:cx+X/Z2*f, y:cy+Y2/Z2*f};
+}            // 어드레스 기준 (저장 전에는 null → 기준이 필요한 값은 비워 둠)
 let last=null, lastLm=null; // 가장 최근 측정값 / 관절
 let lostFrames=0, frames=0, fpsT=performance.now(), fps=0;
 const ema={};
@@ -211,6 +243,7 @@ async function boot(){
     $("err").textContent="이 주소에서는 카메라를 쓸 수 없습니다. https 주소로 열어야 합니다."; return; }
   if(typeof Pose==="undefined"){ $("err").textContent="포즈 엔진을 아직 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요."; return; }
   $("start").disabled=true; setStatus("카메라 여는 중");
+  startTilt();
   beep(660,.05);                                         // 누른 순간에 소리 권한을 열어 둠
   try{ if(cfg.voice&&window.speechSynthesis){ const u=new SpeechSynthesisUtterance("시작합니다"); u.lang="ko-KR"; speechSynthesis.speak(u); } }catch(e){}
   try{ await startCamera(); }
@@ -267,7 +300,8 @@ function angle2(a,b,c){ const u=[a.x-b.x,a.y-b.y], v=[c.x-b.x,c.y-b.y], n=Math.h
   return n? deg(Math.acos(Math.max(-1,Math.min(1,(u[0]*v[0]+u[1]*v[1])/n)))) : NaN; }
 
 function measure(lm,wl,w,h){
-  const P=i=>({x:lm[i].x*w,y:lm[i].y*h});           // 원본 영상 픽셀 좌표
+  const P=i=>({x:lm[i].x*w,y:lm[i].y*h});           // 원본 영상 픽셀 좌표 (그리기용)
+  const R=i=>rectify(P(i),w,h);                      // 기울기 보정 좌표 (각도 계산용)
   if(!lm[L.nose]||lm[L.nose].visibility<0.3) return null;
   const nose=P(L.nose); let sh,hip;
   if(view==="face"){
@@ -296,7 +330,7 @@ function measure(lm,wl,w,h){
 
   if(view==="face"){
     // 척추 기울기: 골반 중심→어깨 중심 선이 수직에서 벗어난 각. +는 골퍼 기준 왼쪽
-    m.spine=deg(Math.atan2(sh.x-hip.x, hip.y-sh.y));
+    { const s2=mid(R(L.lSh),R(L.rSh)), h2=mid(R(L.lHip),R(L.rHip)); m.spine=deg(Math.atan2(s2.x-h2.x, h2.y-s2.y)); }
     const S=rightHanded?L.lSh:L.rSh, E=rightHanded?L.lEl:L.rEl, W=rightHanded?L.lWr:L.rWr;
     if(wl&&[S,E,W].every(i=>lm[i].visibility>0.5)) m.arm=angle3(wl[S],wl[E],wl[W]);
     if(wl){ // 위에서 내려다본 어깨·골반 선의 방향 (깊이 추정값 사용)
@@ -314,7 +348,7 @@ function measure(lm,wl,w,h){
     }
   }else{
     // 후방: 척추 숙임(수직 대비), 카메라 쪽 다리의 무릎 각
-    m.bend=deg(Math.atan2(Math.abs(sh.x-hip.x), hip.y-sh.y));
+    { const s2=pick(lm,R,L.lSh,L.rSh)||sh, h2=pick(lm,R,L.lHip,L.rHip)||hip; m.bend=deg(Math.atan2(Math.abs(s2.x-h2.x), h2.y-s2.y)); }
     m.f= nose.x>=hip.x ? 1 : -1;                    // 공이 있는 쪽(머리가 골반보다 나간 방향)
     const K=rightHanded?[L.rHip,L.rKn,L.rAn]:[L.lHip,L.lKn,L.lAn];
     if(K.every(i=>lm[i]&&lm[i].visibility>0.3)) m.knee=angle2(P(K[0]),P(K[1]),P(K[2]));
@@ -789,7 +823,13 @@ function setView(v){
     : "후방 모드: 폰을 타깃 라인 뒤(오른쪽 어깨 뒤, 옆모습이 보이는 방향) 2.5~3m 거리, 가슴 높이에 세워 주세요.";
   $("result").hidden=true; $("setref").textContent="어드레스 기준 저장 (10초)"; showTarget();
 }
-function showPhase(){ const el=$("phase"); el.hidden=!running; el.textContent=PHASE[coach.phase]+(target?"":" · 목표 탑 없음"); }
+function showLevel(){
+  const el=$("level"); if(!tilt.ok||!running){ el.hidden=true; return; }
+  const bad=Math.abs(tilt.pitch)>10||Math.abs(tilt.roll)>3;
+  el.hidden=false; el.className=bad?"bad":"";
+  el.textContent=(tilt.pitch>0?"위로 ":"아래로 ")+Math.abs(Math.round(tilt.pitch))+"° · 좌우 "+Math.round(Math.abs(tilt.roll))+"°"+(bad?" 기울어짐":" 수평");
+}
+function showPhase(){ showLevel(); const el=$("phase"); el.hidden=!running; el.textContent=PHASE[coach.phase]+(target?"":" · 목표 탑 없음"); }
 function showTarget(){
   $("tinfo").textContent= target ? "저장된 목표 탑: 손 높이 "+Math.round(target.hand)+"%"+(target.shTurn!=null?", 어깨 회전 "+Math.round(target.shTurn)+"°":"")
     : "저장된 목표 탑이 없습니다. 탑 판정(조금 더/오버)은 목표를 저장해야 나옵니다.";
@@ -802,6 +842,7 @@ for(const k of ["head","sway","spine","handTol","turnTol"]){
 }
 setView(view); showVoice();
 $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.target.checked; store("cfg",cfg); };
+$("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
 $("settop").onclick=saveTop;
