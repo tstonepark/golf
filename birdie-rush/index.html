@@ -33,7 +33,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--chalk);f
 .meta{font-size:13px;color:var(--chalk-dim);display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .meta b{color:var(--chalk);font-weight:400}
 #windArrow{display:inline-block;color:var(--sun);font-size:16px;line-height:1;transition:transform .3s}
-#muteBtn{margin-left:auto;background:none;border:1px solid #2a5540;color:var(--chalk-dim);border-radius:4px;font-family:var(--font-body);font-size:12px;padding:3px 8px;cursor:pointer}
+.mini{background:none;border:1px solid #2a5540;color:var(--chalk-dim);border-radius:4px;font-family:var(--font-body);font-size:12px;padding:3px 8px;cursor:pointer}
 
 #stage{flex:1;position:relative;min-height:0;background:#bfe0ea;overflow:hidden}
 #cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
@@ -67,6 +67,12 @@ button:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
 .sheet h2{font-family:var(--font-display);font-weight:400;font-size:48px;line-height:1;text-wrap:balance;text-shadow:0 3px 0 rgba(0,0,0,.35)}
 .sheet p{font-size:15px;line-height:1.6;color:var(--chalk-dim);max-width:34em}
 .sheet ol{font-size:15px;line-height:1.7;color:var(--chalk);padding-left:20px;display:flex;flex-direction:column;gap:4px}
+#courses{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.course{background:rgba(23,56,42,.85);color:var(--chalk-dim);border:2px solid #2a5540;border-radius:4px;padding:10px 10px 9px;text-align:left;font-family:var(--font-body);font-size:12px;line-height:1.4;cursor:pointer}
+.course b{display:block;font-family:var(--font-display);font-weight:400;font-size:20px;color:var(--chalk)}
+.course.on{border-color:var(--sun);background:rgba(246,241,223,.12);color:var(--chalk)}
+#startSheet{gap:12px}
+#startSheet h1{font-size:52px}
 .cta{align-self:flex-start;background:var(--flag);color:#fff;border:0;border-radius:4px;font-family:var(--font-display);font-size:22px;padding:12px 28px;cursor:pointer}
 #endSheet{justify-content:flex-start;gap:12px;padding-top:20px}
 #endSheet h2{font-size:34px}
@@ -89,7 +95,8 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
       <span>바람 <span id="windArrow">↑</span> <b id="windTxt">0 m/s</b></span>
       <span>핀까지 <b id="distTxt">0 m</b></span>
       <span>라이 <b id="lieTxt">티</b></span>
-      <button type="button" id="muteBtn">소리 켬</button>
+      <span id="elevBox">고저 <b id="elevTxt">0 m</b></span>
+      <span style="margin-left:auto;display:flex;gap:6px"><button type="button" class="mini" id="courseBtn">코스</button><button type="button" class="mini" id="muteBtn">소리 켬</button></span>
     </div>
   </div>
 
@@ -97,7 +104,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
     <canvas id="cv"></canvas>
     <canvas id="map"></canvas>
     <div id="toast"></div>
-    <div id="ver">v0.3 · 11.10 21:50</div>
+    <div id="ver">v0.4 · 11.10 22:05</div>
     <div id="hint">화면을 누르면 항공 시점이 됩니다. 아래로 당겼다가 바늘이 초록에 올 때 놓으세요</div>
     <div id="err">이 브라우저에서 3D 그래픽(WebGL)을 열 수 없습니다. 다른 브라우저로 열어 보세요.</div>
   </div>
@@ -118,11 +125,13 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
       <li>바늘이 가운데 초록 구간에 올 때 손을 뗍니다.</li>
       <li>바람은 미리보기에 반영되지 않습니다. 직접 보정하세요.</li>
     </ol>
+    <p style="font-size:13px;color:var(--chalk)">골프장 선택</p>
+    <div id="courses"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="cta" id="resumeBtn" style="display:none">이어하기</button>
       <button class="cta" id="startBtn">티오프</button>
     </div>
-    <p style="font-size:12px">버전 v0.3 (2026-11-10 21:50) · 18홀, 항공 시점 조준, 이어하기</p>
+    <p style="font-size:12px">버전 v0.4 (2026-11-10 22:05) · 산악 코스, 골프장 선택</p>
   </div>
 
   <div class="sheet" id="holeSheet">
@@ -132,10 +141,10 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
   </div>
 
   <div class="sheet" id="endSheet">
-    <h2>스코어카드</h2>
+    <h2 id="endTitle">스코어카드</h2>
     <table id="card"></table>
     <p id="bestTxt"></p>
-    <button class="cta" id="againBtn">다시 라운드</button>
+    <button class="cta" id="againBtn">골프장 선택으로</button>
   </div>
 </div>
 
@@ -155,7 +164,7 @@ const CLUBS = [
   {id:'G', name:'웨지',     max:60,  dev:6,   roll:0.05},
   {id:'P', name:'퍼터',     max:40,  dev:3.5, roll:0}
 ];
-const HOLES = [
+const PARK = [
   {par:4, tee:{x:0,y:0}, pin:{x:10,y:320}, greenR:20,
    fair:[{w:50, pts:[[0,0],[0,150],[10,320]]}],
    sand:[{x:-28,y:215,rx:12,ry:9},{x:36,y:304,rx:9,ry:7}], water:[]},
@@ -233,12 +242,69 @@ const HOLES = [
    sand:[{x:-48,y:225,rx:11,ry:12},{x:-7,y:414,rx:8,ry:9},{x:47,y:428,rx:8,ry:9}],
    water:[{x:58,y:330,rx:26,ry:60}]}
 ];
+// 산악 코스: elev = [진행 거리, 높이] 고저 단면. 좁은 페어웨이, 큰 고저차.
+const ALPINE = [
+  {par:4, tee:{x:0,y:0}, pin:{x:0,y:310}, greenR:18, elev:[[0,40],[20,40],[240,4],[280,0]],
+   fair:[{w:40, pts:[[0,0],[-10,150],[0,310]]}], sand:[{x:24,y:300,rx:8,ry:9}], water:[]},
+  {par:3, tee:{x:0,y:0}, pin:{x:10,y:150}, greenR:18, elev:[[0,35],[15,35],[115,0]],
+   fair:[{w:28, pts:[[0,0],[0,25]]},{w:36, pts:[[10,130],[10,150]]}], sand:[{x:-14,y:150,rx:8,ry:9}], water:[]},
+  {par:5, tee:{x:0,y:0}, pin:{x:-20,y:470}, greenR:18, elev:[[0,0],[40,0],[430,45],[445,46]],
+   fair:[{w:42, pts:[[0,0],[25,160],[-25,320],[-20,470]]}], sand:[{x:48,y:170,rx:10,ry:11},{x:4,y:465,rx:8,ry:9}], water:[]},
+  {par:4, tee:{x:0,y:0}, pin:{x:45,y:330}, greenR:18, elev:[[0,20],[150,32],[190,32],[300,10]],
+   fair:[{w:40, pts:[[0,0],[-15,170],[45,330]]}], sand:[{x:18,y:180,rx:10,ry:10},{x:70,y:322,rx:8,ry:9}], water:[]},
+  {par:3, tee:{x:0,y:0}, pin:{x:-10,y:185}, greenR:18, elev:[[0,0],[60,2],[150,22],[160,22]],
+   fair:[{w:28, pts:[[0,0],[0,25]]},{w:38, pts:[[-10,160],[-10,185]]}],
+   sand:[{x:14,y:180,rx:8,ry:10},{x:-34,y:188,rx:8,ry:9}], water:[{x:-5,y:95,rx:30,ry:16}]},
+  {par:4, tee:{x:0,y:0}, pin:{x:-30,y:370}, greenR:18, elev:[[0,50],[20,50],[330,5],[345,4]],
+   fair:[{w:40, pts:[[0,0],[10,190],[-30,370]]}], sand:[{x:-22,y:200,rx:10,ry:11},{x:-4,y:366,rx:8,ry:9}], water:[]},
+  {par:5, tee:{x:0,y:0}, pin:{x:20,y:500}, greenR:18, elev:[[0,30],[30,30],[250,0],[270,0],[460,28],[470,28]],
+   fair:[{w:44, pts:[[0,0],[-30,170],[20,330],[20,500]]}],
+   sand:[{x:48,y:490,rx:8,ry:9},{x:-8,y:505,rx:8,ry:9}], water:[{x:0,y:255,rx:50,ry:12}]},
+  {par:4, tee:{x:0,y:0}, pin:{x:0,y:280}, greenR:18, elev:[[0,0],[30,0],[250,36],[255,36]],
+   fair:[{w:40, pts:[[0,0],[0,130]]},{w:36, pts:[[0,170],[0,280]]}],
+   sand:[{x:0,y:150,rx:16,ry:8},{x:26,y:276,rx:8,ry:9},{x:-26,y:284,rx:8,ry:9}], water:[]},
+  {par:4, tee:{x:0,y:0}, pin:{x:30,y:400}, greenR:18, elev:[[0,45],[30,45],[200,25],[240,25],[365,0]],
+   fair:[{w:42, pts:[[0,0],[-20,200],[30,400]]}],
+   sand:[{x:14,y:215,rx:10,ry:11},{x:56,y:392,rx:8,ry:9}], water:[{x:-52,y:300,rx:18,ry:30}]},
+  {par:4, tee:{x:0,y:0}, pin:{x:-45,y:345}, greenR:18, elev:[[0,10],[160,30],[200,30],[310,12],[320,12]],
+   fair:[{w:40, pts:[[0,0],[20,160],[-45,345]]}], sand:[{x:46,y:170,rx:10,ry:10},{x:-20,y:338,rx:8,ry:9}], water:[]},
+  {par:3, tee:{x:0,y:0}, pin:{x:-15,y:130}, greenR:18, elev:[[0,42],[15,42],[95,0]],
+   fair:[{w:28, pts:[[0,0],[0,22]]}], sand:[], water:[{x:-15,y:130,rx:30,ry:27}]},
+  {par:5, tee:{x:0,y:0}, pin:{x:0,y:520}, greenR:18, elev:[[0,0],[40,0],[260,40],[300,40],[480,14],[490,14]],
+   fair:[{w:44, pts:[[0,0],[30,180],[-30,350],[0,520]]}],
+   sand:[{x:-8,y:190,rx:10,ry:11},{x:4,y:350,rx:10,ry:10},{x:26,y:512,rx:8,ry:9}], water:[]},
+  {par:4, tee:{x:0,y:0}, pin:{x:40,y:300}, greenR:18, elev:[[0,25],[20,25],[270,0]],
+   fair:[{w:38, pts:[[0,0],[0,150],[40,300]]}], sand:[{x:14,y:300,rx:8,ry:9}], water:[{x:48,y:160,rx:22,ry:30}]},
+  {par:4, tee:{x:0,y:0}, pin:{x:-20,y:390}, greenR:18, elev:[[0,0],[30,0],[350,42],[360,42]],
+   fair:[{w:42, pts:[[0,0],[-30,200],[-20,390]]}],
+   sand:[{x:-2,y:210,rx:10,ry:11},{x:-46,y:384,rx:8,ry:9},{x:6,y:394,rx:8,ry:9}], water:[]},
+  {par:3, tee:{x:0,y:0}, pin:{x:0,y:165}, greenR:18, elev:[[0,12],[20,12],[80,0],[92,0],[138,12]],
+   fair:[{w:28, pts:[[0,0],[0,25]]},{w:38, pts:[[0,140],[0,165]]}],
+   sand:[{x:26,y:165,rx:8,ry:10}], water:[{x:0,y:86,rx:104,ry:13}]},
+  {par:5, tee:{x:0,y:0}, pin:{x:-30,y:480}, greenR:18, elev:[[0,60],[30,60],[440,6],[450,6]],
+   fair:[{w:44, pts:[[0,0],[30,170],[10,330],[-30,480]]}],
+   sand:[{x:56,y:180,rx:10,ry:11},{x:-14,y:330,rx:10,ry:10},{x:-56,y:474,rx:8,ry:9}], water:[{x:40,y:400,rx:20,ry:34}]},
+  {par:3, tee:{x:0,y:0}, pin:{x:15,y:200}, greenR:18, elev:[[0,30],[15,30],[165,0]],
+   fair:[{w:28, pts:[[0,0],[0,25]]},{w:40, pts:[[15,172],[15,200]]}],
+   sand:[{x:-11,y:198,rx:8,ry:10},{x:41,y:204,rx:8,ry:9}], water:[]},
+  {par:4, tee:{x:0,y:0}, pin:{x:0,y:430}, greenR:18, elev:[[0,0],[40,0],[390,38],[400,38]],
+   fair:[{w:44, pts:[[0,0],[20,210],[0,430]]}],
+   sand:[{x:-8,y:220,rx:10,ry:11},{x:46,y:225,rx:10,ry:11},{x:-26,y:424,rx:8,ry:9},{x:26,y:436,rx:8,ry:9}],
+   water:[{x:-50,y:320,rx:18,ry:30}]}
+];
+const COURSES = [
+  {id:'park', name:'파크 코스', desc:'평지 · 넓은 페어웨이', holes:PARK,
+   theme:{sky:['#2f7fd1','#8cc4ea','#cfe6ea'], out:'#1f5a36', rough:'#2f7a48', edge:'#3f8f50', fair:['#62b262','#55a357'], treeHue:0.34, wall:0, peaks:false, rocks:false}},
+  {id:'alpine', name:'산악 코스', desc:'큰 고저차 · 좁은 페어웨이', holes:ALPINE,
+   theme:{sky:['#1a57ad','#7fb2e6','#dde7f0'], out:'#294d3f', rough:'#2f6a55', edge:'#3d8660', fair:['#69b06c','#5a9f5f'], treeHue:0.41, wall:0.85, peaks:true, rocks:true}}
+];
+let HOLES = PARK;
 const FRICTION = {green:18, fairway:45, tee:45, rough:130, sand:420};
 const LIE_NAME = {green:'그린', fairway:'페어웨이', rough:'러프', sand:'벙커', tee:'티'};
 
 /* ---------- 상태 ---------- */
 const S = {
-  mode:'menu', hi:0, scores:[], strokes:0, club:0,
+  mode:'menu', course:0, hi:0, tl:1, scores:[], strokes:0, club:0,
   ball:{x:0,y:0}, prev:{x:0,y:0}, wind:{a:0,s:0},
   drag:null, phase:Math.PI/2, needle:1, power:0, aim:{dx:0,dy:1},
   fl:null, vel:null, h:0, head:Math.PI/2, camBack:30, camH:14
@@ -249,6 +315,25 @@ let W = 1, H = 1;
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const hyp = Math.hypot;
 const hole = () => HOLES[S.hi];
+const theme = () => COURSES[S.course].theme;
+// 고저: 진행 방향 단면 + (산악) 코스 밖 계곡 벽
+function prof(y){
+  const e = hole().elev; if(!e) return 0;
+  if(y<=e[0][0]) return e[0][1];
+  for(let i=0;i<e.length-1;i++){
+    const a = e[i], b = e[i+1];
+    if(y<=b[0]){ let t = (y-a[0])/(b[0]-a[0]); t = (t+t*t*(3-2*t))/2; return a[1]+(b[1]-a[1])*t; }
+  }
+  return e[e.length-1][1];
+}
+function gh(x,y){
+  let h = prof(y); const w = theme().wall;
+  if(w){
+    const d = Math.abs(x)-103; if(d>0) h += w*Math.pow(d,1.15);
+    const top = hole().pin.y+55; if(y>top) h += w*0.8*Math.pow(y-top,1.1);
+  }
+  return h;
+}
 function inEl(e,x,y){ const a=(x-e.x)/e.rx, b=(y-e.y)/e.ry; return a*a+b*b<=1; }
 function segDist(px,py,ax,ay,bx,by){
   const vx=bx-ax, vy=by-ay, l2=vx*vx+vy*vy;
@@ -292,7 +377,7 @@ function resultName(strokes, par){
   return '+'+d;
 }
 const relTxt = d => d===0 ? '이븐' : (d>0 ? '+'+d : ''+d);
-function rnd(i){ const v = Math.sin(i*127.1+S.hi*311.7+1.3)*43758.5453; return v-Math.floor(v); }
+function rnd(i){ const v = Math.sin(i*127.1+S.hi*311.7+S.course*71.3+1.3)*43758.5453; return v-Math.floor(v); }
 
 /* ---------- 소리 (합성음, 파일 없음) ---------- */
 let AC = null, muted = false;
@@ -345,13 +430,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
 const scene = new THREE.Scene();
 const HORIZON = 0xcfe6ea;
 scene.fog = new THREE.Fog(HORIZON, 260, 1100);
-{ // 하늘
+function setSky(T){
+  if(scene.background) scene.background.dispose();
   const c = document.createElement('canvas'); c.width = 4; c.height = 256;
   const g = c.getContext('2d'), gr = g.createLinearGradient(0,0,0,256);
-  gr.addColorStop(0,'#2f7fd1'); gr.addColorStop(0.45,'#8cc4ea'); gr.addColorStop(0.62,'#cfe6ea'); gr.addColorStop(1,'#cfe6ea');
+  gr.addColorStop(0,T.sky[0]); gr.addColorStop(0.45,T.sky[1]); gr.addColorStop(0.62,T.sky[2]); gr.addColorStop(1,T.sky[2]);
   g.fillStyle = gr; g.fillRect(0,0,4,256);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   scene.background = t;
+  scene.fog.color.set(T.sky[2]); base.material.color.set(T.out);
 }
 const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 2600);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x3f7044, 1.25));
@@ -372,6 +459,7 @@ const ringDot = new THREE.Mesh(new THREE.CircleGeometry(1,20).rotateX(-Math.PI/2
 ringDot.position.y = 0.11; ringDot.visible = false; scene.add(ringDot);
 const pinMark = new THREE.Mesh(new THREE.RingGeometry(1.6,2.6,28).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0xff5a36, depthWrite:false}));
 pinMark.position.y = 0.12; pinMark.visible = false; scene.add(pinMark);
+[ring, ringDot, pinMark].forEach((m,i) => { m.material.depthTest = false; m.renderOrder = 5+i; });
 const DOTS = 20;
 const dots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45,8,6), new THREE.MeshBasicMaterial({color:0xffffff}), DOTS);
 dots.frustumCulled = false; dots.visible = false; scene.add(dots);
@@ -384,10 +472,11 @@ const PN = 30, pPos = new Float32Array(PN*3), pVel = new Float32Array(PN*3);
 const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pPos,3));
 const pMat = new THREE.PointsMaterial({size:1.3, transparent:true, opacity:0, depthWrite:false});
 const parts = new THREE.Points(pGeo,pMat); parts.frustumCulled = false; scene.add(parts);
-let pLife = 0;
+let pLife = 0, pFloor = 0;
 function burst(x, y, color, lift){
+  pFloor = gh(x,y);
   for(let i=0;i<PN;i++){
-    pPos[i*3] = x; pPos[i*3+1] = 0.3; pPos[i*3+2] = -y;
+    pPos[i*3] = x; pPos[i*3+1] = pFloor+0.3; pPos[i*3+2] = -y;
     pVel[i*3] = (Math.random()-0.5)*11; pVel[i*3+1] = (4+Math.random()*10)*(lift||1); pVel[i*3+2] = (Math.random()-0.5)*11;
   }
   pMat.color.set(color); pLife = 0.9; pGeo.attributes.position.needsUpdate = true;
@@ -396,23 +485,24 @@ function burst(x, y, color, lift){
 // 홀마다 새로 짓는 것들
 let holeGroup = null, mapBase = null, mapGeo = null;
 function paintCourse(h, trees){
+  const T = theme();
   const X0=-160, X1=160, Y0=-70, Y1=h.pin.y+110, P=5;
   const c = document.createElement('canvas'); c.width = (X1-X0)*P; c.height = (Y1-Y0)*P;
   const g = c.getContext('2d');
   const cx = x => (x-X0)*P, cy = y => (Y1-y)*P;
   const top = h.pin.y+50, bot = -25;
-  g.fillStyle = '#1f5a36'; g.fillRect(0,0,c.width,c.height);
-  g.fillStyle = '#2f7a48'; g.fillRect(cx(-100), cy(top), 200*P, (top-bot)*P);
+  g.fillStyle = T.out; g.fillRect(0,0,c.width,c.height);
+  g.fillStyle = T.rough; g.fillRect(cx(-100), cy(top), 200*P, (top-bot)*P);
   for(let i=0;i<11000;i++){
     g.fillStyle = i%2 ? 'rgba(255,255,255,.04)' : 'rgba(0,0,0,.06)';
     const w = 2+Math.random()*7; g.fillRect(Math.random()*c.width, Math.random()*c.height, w, w);
   }
   // 페어웨이: 테두리 한 겹 + 잔디 깎은 줄무늬
   const stripe = document.createElement('canvas'); stripe.width = 8; stripe.height = 16*P;
-  { const s = stripe.getContext('2d'); s.fillStyle = '#62b262'; s.fillRect(0,0,8,8*P); s.fillStyle = '#55a357'; s.fillRect(0,8*P,8,8*P); }
+  { const s = stripe.getContext('2d'); s.fillStyle = T.fair[0]; s.fillRect(0,0,8,8*P); s.fillStyle = T.fair[1]; s.fillRect(0,8*P,8,8*P); }
   g.lineCap = 'round'; g.lineJoin = 'round';
   const path = f => { g.beginPath(); f.pts.forEach((p,i) => i ? g.lineTo(cx(p[0]),cy(p[1])) : g.moveTo(cx(p[0]),cy(p[1]))); };
-  for(const f of h.fair){ path(f); g.lineWidth = (f.w+6)*P; g.strokeStyle = '#3f8f50'; g.stroke(); }
+  for(const f of h.fair){ path(f); g.lineWidth = (f.w+6)*P; g.strokeStyle = T.edge; g.stroke(); }
   for(const f of h.fair){ path(f); g.lineWidth = f.w*P; g.strokeStyle = g.createPattern(stripe,'repeat'); g.stroke(); }
   // 물
   for(const w of h.water){
@@ -435,6 +525,20 @@ function paintCourse(h, trees){
   g.beginPath(); g.arc(cx(h.pin.x),cy(h.pin.y),h.greenR*P,0,Math.PI*2); g.fillStyle = g.createPattern(chk,'repeat'); g.fill();
   // 티 박스
   g.fillStyle = '#74bd60'; g.fillRect(cx(h.tee.x-8), cy(h.tee.y+5), 16*P, 10*P);
+  // 경사 음영: 오르막은 밝게, 내리막은 어둡게
+  if(h.elev){
+    for(let y=Y0; y<Y1; y+=4){
+      const sl = (prof(y+4)-prof(y))/4; if(Math.abs(sl)<0.01) continue;
+      g.fillStyle = sl>0 ? 'rgba(255,255,215,'+Math.min(0.24,sl*1.3)+')' : 'rgba(0,12,34,'+Math.min(0.32,-sl*1.7)+')';
+      g.fillRect(0, cy(y+4), c.width, 4*P);
+    }
+  }
+  if(T.rocks){
+    for(let i=0;i<1400;i++){
+      const x = Math.random()*c.width, y = Math.random()*c.height, inb = x>cx(-100) && x<cx(100);
+      g.fillStyle = 'rgba(190,195,200,'+(inb?0.10:0.35)+')'; const w = 3+Math.random()*(inb?5:14); g.fillRect(x,y,w,w*0.7);
+    }
+  }
   // 코스 경계선
   g.strokeStyle = 'rgba(255,255,255,.28)'; g.lineWidth = 2; g.setLineDash([10,14]);
   g.strokeRect(cx(-100), cy(top), 200*P, (top-bot)*P); g.setLineDash([]);
@@ -444,7 +548,8 @@ function paintCourse(h, trees){
   return {c, X0, X1, Y0, Y1, P};
 }
 function buildHole(){
-  const h = hole();
+  const h = hole(), T = theme();
+  setSky(T);
   if(holeGroup){
     scene.remove(holeGroup);
     holeGroup.traverse(o => {
@@ -469,8 +574,12 @@ function buildHole(){
   const tx = paintCourse(h, trees);
   const tex = new THREE.CanvasTexture(tx.c); tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(tx.X1-tx.X0, tx.Y1-tx.Y0).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({map:tex}));
-  ground.position.set((tx.X0+tx.X1)/2, 0, -(tx.Y0+tx.Y1)/2);
+  const gw = tx.X1-tx.X0, gln = tx.Y1-tx.Y0;
+  const geo = new THREE.PlaneGeometry(gw, gln, 40, Math.ceil(gln/6)).rotateX(-Math.PI/2);
+  geo.translate((tx.X0+tx.X1)/2, 0, -(tx.Y0+tx.Y1)/2);
+  const gpos = geo.attributes.position;
+  for(let i=0;i<gpos.count;i++) gpos.setY(i, gh(gpos.getX(i), -gpos.getZ(i)));
+  const ground = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({map:tex}));
   holeGroup.add(ground);
   // 미니맵 바탕
   const mx0=-104, mx1=104, my0=-28, my1=top+2;
@@ -488,38 +597,62 @@ function buildHole(){
   trees.forEach((t,i) => {
     o.rotation.set(0, rnd(i+900)*6.28, 0);
     o.scale.set(t.s,t.s,t.s);
-    o.position.set(t.x, t.s*1.75, -t.y); o.updateMatrix(); low.setMatrixAt(i,o.matrix);
-    o.position.set(t.x, t.s*3.0, -t.y); o.updateMatrix(); high.setMatrixAt(i,o.matrix);
-    o.position.set(t.x, t.s*0.4, -t.y); o.updateMatrix(); trunk.setMatrixAt(i,o.matrix);
+    const ty = gh(t.x,t.y);
+    o.position.set(t.x, ty+t.s*1.75, -t.y); o.updateMatrix(); low.setMatrixAt(i,o.matrix);
+    o.position.set(t.x, ty+t.s*3.0, -t.y); o.updateMatrix(); high.setMatrixAt(i,o.matrix);
+    o.position.set(t.x, ty+t.s*0.4, -t.y); o.updateMatrix(); trunk.setMatrixAt(i,o.matrix);
     const v = rnd(i+400);
-    col.setHSL(0.34+v*0.05, 0.5, 0.2+v*0.1); low.setColorAt(i,col);
-    col.setHSL(0.33+v*0.05, 0.5, 0.25+v*0.1); high.setColorAt(i,col);
+    col.setHSL(T.treeHue+v*0.05, 0.5, 0.2+v*0.1); low.setColorAt(i,col);
+    col.setHSL(T.treeHue-0.01+v*0.05, 0.5, 0.25+v*0.1); high.setColorAt(i,col);
   });
   holeGroup.add(low, high, trunk);
-  // 먼 언덕
-  const hillGeo = new THREE.SphereGeometry(1,14,8);
-  for(let i=0;i<14;i++){
-    const m = new THREE.Mesh(hillGeo, new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(0.36,0.4,0.2+rnd(i+70)*0.08)}));
-    const side = i%2 ? 1 : -1, r = 120+rnd(i+20)*140;
-    if(i<10) m.position.set(side*(330+rnd(i+30)*260), -20, -(-150+i*120+rnd(i)*80));
-    else m.position.set((i-11.5)*260, -20, -(top+420+rnd(i)*200));
-    m.scale.set(r, 50+rnd(i+60)*60, r);
-    holeGroup.add(m);
+  // 먼 풍경: 파크는 둥근 언덕, 산악은 눈 덮인 봉우리와 바위
+  if(T.peaks){
+    const cone = new THREE.ConeGeometry(1,1,7);
+    for(let i=0;i<13;i++){
+      const side = i%2 ? 1 : -1, r = 190+rnd(i+20)*140, hh = 230+rnd(i+60)*210;
+      let px, pz;
+      if(i<9){ px = side*(300+rnd(i+30)*220); pz = -(-120+i*110+rnd(i)*70); }
+      else { px = (i-10.5)*250; pz = -(top+380+rnd(i)*180); }
+      const m = new THREE.Mesh(cone, new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(0.6,0.1,0.36+rnd(i+70)*0.1), flatShading:true}));
+      m.position.set(px, hh/2-12, pz); m.scale.set(r,hh,r); m.rotation.y = rnd(i+5)*3;
+      const cap = new THREE.Mesh(cone, new THREE.MeshLambertMaterial({color:0xf4f8fb, flatShading:true}));
+      cap.position.set(px, hh-12-hh*0.19, pz); cap.scale.set(r*0.4,hh*0.38,r*0.4); cap.rotation.y = m.rotation.y;
+      holeGroup.add(m, cap);
+    }
+    const RN = 70, rock = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0), new THREE.MeshLambertMaterial({color:0x8d9499, flatShading:true}), RN);
+    for(let i=0;i<RN;i++){
+      const side = rnd(i+700)<0.5 ? -1 : 1, rx = side*(105+rnd(i+710)*50), ry = -50+rnd(i+720)*(top+110), rs = 1.4+rnd(i+730)*3.2;
+      o.rotation.set(rnd(i)*3, rnd(i+1)*3, rnd(i+2)*3); o.scale.set(rs, rs*0.7, rs);
+      o.position.set(rx, gh(rx,ry)+rs*0.3, -ry); o.updateMatrix(); rock.setMatrixAt(i,o.matrix);
+    }
+    holeGroup.add(rock);
+  } else {
+    const hillGeo = new THREE.SphereGeometry(1,14,8);
+    for(let i=0;i<14;i++){
+      const m = new THREE.Mesh(hillGeo, new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(0.36,0.4,0.2+rnd(i+70)*0.08)}));
+      const side = i%2 ? 1 : -1, r = 120+rnd(i+20)*140;
+      if(i<10) m.position.set(side*(330+rnd(i+30)*260), -20, -(-150+i*120+rnd(i)*80));
+      else m.position.set((i-11.5)*260, -20, -(top+420+rnd(i)*200));
+      m.scale.set(r, 50+rnd(i+60)*60, r);
+      holeGroup.add(m);
+    }
   }
   // 깃대, 깃발, 홀컵
   const cup = new THREE.Mesh(new THREE.CircleGeometry(1.15,20).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0x08140d}));
-  cup.position.set(h.pin.x, 0.06, -h.pin.y);
+  const pg = gh(h.pin.x,h.pin.y);
+  cup.position.set(h.pin.x, pg+0.06, -h.pin.y);
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,11,6), new THREE.MeshLambertMaterial({color:0xf6f1df}));
-  pole.position.set(h.pin.x, 5.5, -h.pin.y);
+  pole.position.set(h.pin.x, pg+5.5, -h.pin.y);
   const fg = new THREE.BufferGeometry();
   fg.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0,11,0, 0,8,0, 4.6,9.5,0]),3)); fg.computeVertexNormals();
   const flag = new THREE.Mesh(fg, new THREE.MeshBasicMaterial({color:0xff5a36, side:THREE.DoubleSide}));
-  flag.position.set(h.pin.x, 0, -h.pin.y); flag.name = 'flag';
+  flag.position.set(h.pin.x, pg, -h.pin.y); flag.name = 'flag';
   holeGroup.add(cup, pole, flag);
   // 티 마커
   for(const sx of [-5,5]){
     const m = new THREE.Mesh(new THREE.SphereGeometry(0.6,10,8), new THREE.MeshLambertMaterial({color:0xffd447}));
-    m.position.set(h.tee.x+sx, 0.5, -(h.tee.y-1.5)); holeGroup.add(m);
+    m.position.set(h.tee.x+sx, gh(h.tee.x,h.tee.y)+0.5, -(h.tee.y-1.5)); holeGroup.add(m);
   }
 }
 
@@ -545,6 +678,10 @@ function hud(){
   $('windArrow').style.opacity = S.wind.s ? 1 : .3;
   $('distTxt').textContent = Math.round(pinDist())+' m';
   $('lieTxt').textContent = LIE_NAME[lieOf()] || '-';
+  if(h.elev){
+    const de = Math.round(gh(h.pin.x,h.pin.y)-gh(S.ball.x,S.ball.y));
+    $('elevBox').style.display = ''; $('elevTxt').textContent = (de>0?'+':'')+de+' m';
+  } else $('elevBox').style.display = 'none';
   [...clubsEl.children].forEach((b,i) => b.classList.toggle('on', i===S.club));
   const c = CLUBS[S.club];
   if(S.drag){
@@ -561,6 +698,13 @@ function toast(msg, ms){
 }
 
 /* ---------- 진행 ---------- */
+const skey = k => 'birdie-rush-'+k+'-'+COURSES[S.course].id;
+try { // 코스가 하나뿐이던 때의 저장분은 파크 코스로 옮김
+  for(const k of ['round','best']){
+    const v = localStorage.getItem('birdie-rush-'+k);
+    if(v!==null){ if(localStorage.getItem('birdie-rush-'+k+'-park')===null) localStorage.setItem('birdie-rush-'+k+'-park', v); localStorage.removeItem('birdie-rush-'+k); }
+  }
+} catch(e){}
 function autoClub(){
   const lie = lieOf(), d = pinDist();
   if(lie==='green'){ S.club = 5; return; }
@@ -601,7 +745,7 @@ function finishHole(capped){
   const h = hole();
   S.mode = 'result'; S.fl = null; S.vel = null; S.h = 0;
   S.scores[S.hi] = S.strokes;
-  try { localStorage.setItem('birdie-rush-round', JSON.stringify(S.scores)); } catch(e){}
+  try { localStorage.setItem(skey('round'), JSON.stringify(S.scores)); } catch(e){}
   hud();
   if(!capped){ sfx.cup(); burst(h.pin.x,h.pin.y,0xffd447,1.5); }
   $('resName').textContent = capped ? '홀 아웃' : resultName(S.strokes, h.par);
@@ -613,7 +757,7 @@ function finishHole(capped){
 }
 function endRound(){
   S.mode = 'end';
-  try { localStorage.removeItem('birdie-rush-round'); } catch(e){}
+  try { localStorage.removeItem(skey('round')); } catch(e){}
   let total = 0, par = 0, rows = '<tr><th>홀</th><th>파</th><th>타수</th><th>결과</th></tr>';
   HOLES.forEach((h,i) => {
     const s = S.scores[i]; total += s; par += h.par;
@@ -622,12 +766,13 @@ function endRound(){
   });
   rows += '<tr><td class="big">합계</td><td>'+par+'</td><td class="big">'+total+'</td><td class="big">'+relTxt(total-par)+'</td></tr>';
   $('card').innerHTML = rows;
+  $('endTitle').textContent = '스코어카드 · '+COURSES[S.course].name;
   let best = null;
-  try { const v = localStorage.getItem('birdie-rush-best'); if(v!==null) best = parseInt(v,10); } catch(e){}
+  try { const v = localStorage.getItem(skey('best')); if(v!==null) best = parseInt(v,10); } catch(e){}
   let txt = '';
   if(best===null || isNaN(best) || total<best){
     txt = (best===null || isNaN(best)) ? '첫 라운드 기록이 저장됐습니다.' : '최고 기록 경신. 이전 기록은 '+best+'타였습니다.';
-    try { localStorage.setItem('birdie-rush-best', String(total)); } catch(e){ txt = ''; }
+    try { localStorage.setItem(skey('best'), String(total)); } catch(e){ txt = ''; }
   } else txt = '이 기기의 최고 기록은 '+best+'타입니다.';
   $('bestTxt').textContent = txt;
   $('endSheet').classList.add('on');
@@ -650,7 +795,7 @@ function shoot(){
   } else {
     const d = c.max*power*lieFactor(lie,c), T = 0.9+d/130, k = S.wind.s*T*1.4;
     S.fl = {x0:S.ball.x, y0:S.ball.y, x1:S.ball.x+cs*d, y1:S.ball.y+sn*d,
-            wx:Math.cos(S.wind.a)*k, wy:Math.sin(S.wind.a)*k, t:0, T:T, apex:d*0.16, roll:d*c.roll};
+            wx:Math.cos(S.wind.a)*k, wy:Math.sin(S.wind.a)*k, t:0, T:T, apex:d*0.16, roll:d*c.roll, H0:gh(S.ball.x,S.ball.y)};
     S.mode = 'flight'; sfx.swing(power);
     if(lie==='sand') burst(S.ball.x,S.ball.y,0xefdcaa,0.8);
   }
@@ -678,16 +823,17 @@ function step(dt){
     $('needle').style.left = (50+S.needle*48)+'%';
   }
   if(S.mode==='flight'){
-    const f = S.fl; f.t = Math.min(1, f.t+dt/f.T);
+    const f = S.fl; f.t += dt/f.T;
     const t = f.t;
     S.ball.x = f.x0+(f.x1-f.x0)*t+f.wx*t*t;
     S.ball.y = f.y0+(f.y1-f.y0)*t+f.wy*t*t;
     S.h = 4*f.apex*t*(1-t);
     if(trailN<TRAIL){
-      trailPos[trailN*3] = S.ball.x; trailPos[trailN*3+1] = S.h+0.75; trailPos[trailN*3+2] = -S.ball.y;
+      trailPos[trailN*3] = S.ball.x; trailPos[trailN*3+1] = f.H0+S.h+0.75; trailPos[trailN*3+2] = -S.ball.y;
       trailN++; trailGeo.setDrawRange(0,trailN); trailGeo.attributes.position.needsUpdate = true;
     }
-    if(t>=1) land();
+    // 내리막이면 더 날고 오르막이면 일찍 떨어진다
+    if((t>0.15 && S.h <= gh(S.ball.x,S.ball.y)-f.H0) || t>=2.5) land();
   } else if(S.mode==='roll'){
     const h = hole(), N = 4, sdt = dt/N;
     for(let i=0;i<N;i++){
@@ -700,6 +846,7 @@ function step(dt){
       const ns = sp-FRICTION[ter]*sdt;
       if(ns<=0 || sp<0.01){ S.vel = null; return readyShot(); }
       S.vel.x *= ns/sp; S.vel.y *= ns/sp;
+      if(h.elev) S.vel.y -= 55*(prof(S.ball.y+1)-prof(S.ball.y-1))/2*sdt; // 경사 따라 구름
       S.ball.x += S.vel.x*sdt; S.ball.y += S.vel.y*sdt;
     }
   }
@@ -707,7 +854,7 @@ function step(dt){
     pLife -= dt;
     for(let i=0;i<PN;i++){
       pVel[i*3+1] -= 30*dt;
-      pPos[i*3] += pVel[i*3]*dt; pPos[i*3+1] = Math.max(0.1, pPos[i*3+1]+pVel[i*3+1]*dt); pPos[i*3+2] += pVel[i*3+2]*dt;
+      pPos[i*3] += pVel[i*3]*dt; pPos[i*3+1] = Math.max(pFloor+0.1, pPos[i*3+1]+pVel[i*3+1]*dt); pPos[i*3+2] += pVel[i*3+2]*dt;
     }
     pGeo.attributes.position.needsUpdate = true;
     pMat.opacity = clamp(pLife/0.4, 0, 1);
@@ -719,23 +866,25 @@ const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), gp = new THRE
 function camGoal(){
   const fx = Math.cos(S.head), fy = Math.sin(S.head);
   if(S.mode==='flight' || S.mode==='roll' || S.mode==='result' || S.mode==='end'){
-    const b = S.camBack;
-    gp.set(S.ball.x-fx*b, S.camH+S.h*0.55, -(S.ball.y-fy*b));
-    gl.set(S.ball.x, S.h*0.9, -S.ball.y);
+    const b = S.camBack, g0 = S.fl ? S.fl.H0 : gh(S.ball.x,S.ball.y);
+    gp.set(S.ball.x-fx*b, g0+S.camH+S.h*0.55, -(S.ball.y-fy*b));
+    gl.set(S.ball.x, g0+S.h*0.9, -S.ball.y);
   } else if(S.mode==='aim' && S.drag){
     // 조준 중: 공에서 낙하 지점까지 내려다보는 항공 시점 (진행 방향이 화면 위쪽)
     const c = CLUBS[S.club], lf = c.id==='P' ? 1 : lieFactor(lieOf(),c);
-    const span = clamp(Math.min(c.max*lf*1.12, pinDist()*1.3+18), 26, 290);
+    const span = clamp(Math.min(c.max*lf*1.25, pinDist()*1.3+18), 26, 310);
     const ht = span*1.25/2/Math.tan(camera.fov*Math.PI/360);
-    const mx = S.ball.x+fx*span*0.45, my = S.ball.y+fy*span*0.45;
-    gp.set(mx-fx*span*0.2, ht, -(my-fy*span*0.2));
-    gl.set(mx, 0, -my);
+    const mx = S.ball.x+fx*span*0.45, my = S.ball.y+fy*span*0.45, gm = gh(mx,my);
+    gp.set(mx-fx*span*0.2, gm+ht, -(my-fy*span*0.2));
+    gl.set(mx, gm, -my);
   } else {
     const d = pinDist(), back = clamp(d*0.45+8, 10, 30), ht = back*0.46, la = clamp(d*0.6, 4, 70);
     S.camBack = back; S.camH = ht;
-    gp.set(S.ball.x-fx*back, ht, -(S.ball.y-fy*back));
-    gl.set(S.ball.x+fx*la, 0, -(S.ball.y+fy*la));
+    const lx = S.ball.x+fx*la, ly = S.ball.y+fy*la;
+    gp.set(S.ball.x-fx*back, gh(S.ball.x,S.ball.y)+ht, -(S.ball.y-fy*back));
+    gl.set(lx, gh(lx,ly), -ly);
   }
+  gp.y = Math.max(gp.y, gh(gp.x,-gp.z)+3);
 }
 function camStep(dt){
   camGoal();
@@ -748,33 +897,41 @@ function camStep(dt){
 /* ---------- 그리기 ---------- */
 const dummy = new THREE.Object3D();
 let clock = 0;
+function aimLand(c){
+  const putt = c.id==='P', d = c.max*S.power*(putt?1:lieFactor(lieOf(),c));
+  if(putt) return {d, apex:0, tl:1, putt, H0:0};
+  const apex = d*0.16, H0 = gh(S.ball.x,S.ball.y); let tl = 2.5;
+  for(let t=0.16; t<2.5; t+=0.02){
+    if(4*apex*t*(1-t) <= gh(S.ball.x+S.aim.dx*d*t, S.ball.y+S.aim.dy*d*t)-H0){ tl = t; break; }
+  }
+  return {d, apex, tl, putt, H0};
+}
 function draw(dt){
   clock += dt;
-  const az = clamp(camPos.y/55, 1, 4.5); // 항공 시점에서 공과 표식이 보이도록 키움
+  const az = clamp((camPos.y-gh(camPos.x,-camPos.z))/55, 1, 4.5); // 항공 시점에서 공과 표식이 보이도록 키움
+  const bg = gh(S.ball.x,S.ball.y), by = S.fl ? S.fl.H0+S.h : bg, lift = Math.max(0, by-bg);
   ballMesh.scale.setScalar(az);
-  ballMesh.position.set(S.ball.x, 0.75*az+S.h, -S.ball.y);
+  ballMesh.position.set(S.ball.x, by+0.75*az, -S.ball.y);
   ballMesh.visible = !(S.mode==='result' || S.mode==='end') || !!S.fl;
-  blob.position.x = S.ball.x; blob.position.z = -S.ball.y;
+  blob.position.set(S.ball.x, bg+0.08, -S.ball.y);
   blob.visible = ballMesh.visible;
-  const s = (1+S.h*0.03)*az; blob.scale.set(s,1,s); blob.material.opacity = 0.35/(1+S.h*0.06);
-  // 깃발 살랑임
+  const s = (1+lift*0.03)*az; blob.scale.set(s,1,s); blob.material.opacity = 0.35/(1+lift*0.06);
   const flag = holeGroup && holeGroup.getObjectByName('flag');
   if(flag) flag.rotation.y = -(S.wind.a) + Math.sin(clock*3)*0.18*(0.3+S.wind.s/7);
-  // 조준 표시
   const c = CLUBS[S.club];
-  const aiming = S.mode==='aim' && S.drag && S.power>0.02;
+  const aiming = S.mode==='aim' && !!S.drag && S.power>0.02;
   ring.visible = ringDot.visible = dots.visible = pinMark.visible = aiming;
-  if(aiming){ const hp = hole().pin; pinMark.position.x = hp.x; pinMark.position.z = -hp.y; pinMark.scale.set(az,1,az); }
   if(aiming){
-    const putt = c.id==='P';
-    const d = c.max*S.power*(putt?1:lieFactor(lieOf(),c)), apex = putt?0:d*0.16;
-    const tx = S.ball.x+S.aim.dx*d, ty = S.ball.y+S.aim.dy*d;
-    const rs = (putt ? 0.35 : clamp(d/90, 0.6, 1.6))*Math.max(1, az*0.6);
-    ring.position.set(tx,0.1,-ty); ring.scale.set(rs,1,rs);
-    ringDot.position.set(tx,0.11,-ty); ringDot.scale.set(rs,1,rs);
+    const hp = hole().pin; pinMark.position.set(hp.x, gh(hp.x,hp.y)+0.12, -hp.y); pinMark.scale.set(az,1,az);
+    const a = aimLand(c); S.tl = a.tl;
+    const tx = S.ball.x+S.aim.dx*a.d*a.tl, ty = S.ball.y+S.aim.dy*a.d*a.tl, tg = gh(tx,ty);
+    const rs = (a.putt ? 0.35 : clamp(a.d/90, 0.6, 1.6))*Math.max(1, az*0.6);
+    ring.position.set(tx,tg+0.15,-ty); ring.scale.set(rs,1,rs);
+    ringDot.position.set(tx,tg+0.16,-ty); ringDot.scale.set(rs,1,rs);
+    const ds = (a.putt ? 0.5 : clamp(a.d/120, 0.7, 1.5))*Math.max(1, az*0.7);
     for(let i=0;i<DOTS;i++){
-      const t = (i+1)/(DOTS+1), ds = (putt ? 0.5 : clamp(d/120, 0.7, 1.5))*Math.max(1, az*0.7);
-      dummy.position.set(S.ball.x+S.aim.dx*d*t, (putt?0.4:0.75)+4*apex*t*(1-t), -(S.ball.y+S.aim.dy*d*t));
+      const t = a.tl*(i+1)/(DOTS+1), px = S.ball.x+S.aim.dx*a.d*t, py = S.ball.y+S.aim.dy*a.d*t;
+      dummy.position.set(px, a.putt ? gh(px,py)+0.4 : a.H0+0.75+4*a.apex*t*(1-t), -py);
       dummy.scale.set(ds,ds,ds); dummy.updateMatrix(); dots.setMatrixAt(i,dummy.matrix);
     }
     dots.instanceMatrix.needsUpdate = true;
@@ -791,7 +948,7 @@ function drawMap(){
   if(S.mode==='aim' && S.drag && S.power>0.02){
     const c = CLUBS[S.club], d = c.max*S.power*(c.id==='P'?1:lieFactor(lieOf(),c));
     mctx.strokeStyle = '#fff'; mctx.lineWidth = 1.5*u; mctx.beginPath();
-    mctx.moveTo(mx(S.ball.x),my(S.ball.y)); mctx.lineTo(mx(S.ball.x+S.aim.dx*d), my(S.ball.y+S.aim.dy*d)); mctx.stroke();
+    mctx.moveTo(mx(S.ball.x),my(S.ball.y)); mctx.lineTo(mx(S.ball.x+S.aim.dx*d*S.tl), my(S.ball.y+S.aim.dy*d*S.tl)); mctx.stroke();
   }
   mctx.fillStyle = '#ff5a36'; mctx.beginPath(); mctx.arc(mx(p.x),my(p.y),3*u,0,Math.PI*2); mctx.fill();
   mctx.fillStyle = '#fff'; mctx.strokeStyle = '#0e2418'; mctx.lineWidth = 1*u;
@@ -829,28 +986,50 @@ function release(e, cancel){
 cv.addEventListener('pointerup', e => release(e,false));
 cv.addEventListener('pointercancel', e => release(e,true));
 
+let saved = null;
+function refreshResume(){
+  saved = null;
+  try {
+    const v = JSON.parse(localStorage.getItem(skey('round')) || 'null');
+    if(Array.isArray(v) && v.length>0 && v.length<HOLES.length && v.every(n => Number.isInteger(n) && n>0 && n<30)) saved = v;
+  } catch(e){}
+  $('resumeBtn').style.display = saved ? '' : 'none';
+  if(saved) $('resumeBtn').textContent = (saved.length+1)+'번 홀부터 이어하기';
+  $('startBtn').textContent = saved ? '새 라운드' : '티오프';
+}
+function selectCourse(i){
+  S.course = i; HOLES = COURSES[i].holes; S.scores = [];
+  [...$('courses').children].forEach((b,j) => b.classList.toggle('on', j===i));
+  refreshResume();
+  startHole(0, true);
+}
+COURSES.forEach((c,i) => {
+  const par = c.holes.reduce((a,h) => a+h.par, 0);
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'course'; b.id = 'course-'+c.id;
+  b.innerHTML = '<b>'+c.name+'</b>'+c.desc+'<br>'+c.holes.length+'홀 · 파 '+par;
+  b.addEventListener('click', () => selectCourse(i));
+  $('courses').appendChild(b);
+});
+function openMenu(){
+  $('holeSheet').classList.remove('on'); $('endSheet').classList.remove('on');
+  $('startSheet').classList.add('on');
+  selectCourse(S.course);
+}
 $('startBtn').addEventListener('click', () => {
   audioOn(); $('startSheet').classList.remove('on'); S.scores = [];
-  try { localStorage.removeItem('birdie-rush-round'); } catch(e){}
+  try { localStorage.removeItem(skey('round')); } catch(e){}
   S.mode = 'aim'; hud();
 });
-let saved = null;
-try {
-  const v = JSON.parse(localStorage.getItem('birdie-rush-round') || 'null');
-  if(Array.isArray(v) && v.length>0 && v.length<HOLES.length && v.every(n => Number.isInteger(n) && n>0 && n<30)) saved = v;
-} catch(e){}
-if(saved){
-  $('resumeBtn').style.display = ''; $('resumeBtn').textContent = (saved.length+1)+'번 홀부터 이어하기';
-  $('startBtn').textContent = '새 라운드';
-}
 $('resumeBtn').addEventListener('click', () => {
   audioOn(); $('startSheet').classList.remove('on'); S.scores = saved.slice(); startHole(saved.length);
 });
+$('courseBtn').addEventListener('click', () => { if(!S.drag) openMenu(); });
 $('nextBtn').addEventListener('click', () => {
   $('holeSheet').classList.remove('on');
   if(S.hi===HOLES.length-1) endRound(); else startHole(S.hi+1);
 });
-$('againBtn').addEventListener('click', () => { $('endSheet').classList.remove('on'); S.scores = []; startHole(0); });
+$('againBtn').addEventListener('click', openMenu);
 
 /* ---------- 루프 ---------- */
 function resize(){
@@ -869,7 +1048,7 @@ function frame(ts){
   requestAnimationFrame(frame);
 }
 resize();
-startHole(0, true);
+selectCourse(0);
 window.__game = S; window.__go = startHole; // 디버깅용
 requestAnimationFrame(frame);
 </script>
