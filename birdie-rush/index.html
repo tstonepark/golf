@@ -77,12 +77,18 @@ button:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
 #gearList{display:flex;flex-direction:column;gap:6px}
 #gearList h3{font-family:var(--font-display);font-weight:400;font-size:17px;margin-top:6px}
 #gearList .none{font-size:13px;color:var(--chalk-dim)}
-.item{display:flex;justify-content:space-between;gap:10px;align-items:center;background:var(--ink-2);color:var(--chalk);border:2px solid #2a5540;border-radius:4px;padding:8px 10px;text-align:left;font-family:var(--font-body);font-size:13px;line-height:1.35;cursor:pointer}
+.item{background:var(--ink-2);color:var(--chalk);border:2px solid #2a5540;border-left-width:6px;border-radius:4px;padding:8px 10px;font-size:13px;line-height:1.35;cursor:pointer}
+.item .row{display:flex;justify-content:space-between;gap:10px;align-items:center}
 .item small{display:block;color:var(--chalk-dim);font-size:12px}
-.item em{font-style:normal;font-size:12px;white-space:nowrap;color:var(--chalk-dim)}
-.item.on{border-color:var(--sun)}
-.item.on em{color:var(--sun)}
-.item.r1 b{color:#7fc4ff}.item.r2 b{color:#d9a6ff}
+.item small .neg{color:#ff9d85}
+.item em{font-style:normal;font-size:12px;white-space:nowrap;color:var(--sun)}
+.item.on{border-top-color:var(--sun);border-right-color:var(--sun);border-bottom-color:var(--sun)}
+.item.sel{background:#1f4a37}
+.panel{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #2a5540}
+.panel .xp{font-size:12px;color:var(--chalk-dim)}
+.act{background:var(--chalk);color:var(--ink);border:0;border-radius:4px;font-family:var(--font-body);font-size:13px;padding:8px 10px;cursor:pointer;text-align:left}
+.act:disabled{background:#2a5540;color:var(--chalk-dim);cursor:default}
+.act.feed{white-space:nowrap;background:none;border:1px solid var(--chalk-dim);color:var(--chalk);padding:5px 8px;font-size:12px}
 #courses{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .course{background:rgba(23,56,42,.85);color:var(--chalk-dim);border:2px solid #2a5540;border-radius:4px;padding:10px 10px 9px;text-align:left;font-family:var(--font-body);font-size:12px;line-height:1.4;cursor:pointer}
 .course b{display:block;font-family:var(--font-display);font-weight:400;font-size:20px;color:var(--chalk)}
@@ -120,7 +126,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
     <canvas id="cv"></canvas>
     <canvas id="map"></canvas>
     <div id="toast"></div>
-    <div id="ver">v0.5 · 11.10 22:30</div>
+    <div id="ver">v0.6 · 11.10 22:50</div>
     <div id="hint">화면을 누르면 항공 시점이 됩니다. 아래로 당겼다가 바늘이 초록에 올 때 놓으세요</div>
     <div id="err">이 브라우저에서 3D 그래픽(WebGL)을 열 수 없습니다. 다른 브라우저로 열어 보세요.</div>
   </div>
@@ -147,7 +153,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
       <button class="cta" id="resumeBtn" style="display:none">이어하기</button>
       <button class="cta" id="startBtn">티오프</button>
     </div>
-    <p style="font-size:12px">버전 v0.5 (2026-11-10 22:30) · 거리 오차, 아이템 줍기와 장비</p>
+    <p style="font-size:12px">버전 v0.6 (2026-11-10 22:50) · 5등급 장비, 부옵션, 레벨업, 강화, 골드</p>
   </div>
 
   <div class="sheet" id="holeSheet">
@@ -159,7 +165,9 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
 
   <div class="sheet" id="gearSheet">
     <h2>장비</h2>
-    <p>코스 위 상자에 공을 떨어뜨리거나 굴려 지나가면 아이템을 줍습니다. 버디 이상도 보상을 줍니다. 같은 아이템을 2개, 4개 모으면 강화됩니다.</p>
+    <p id="goldTxt" style="font-family:var(--font-display);font-size:20px;color:var(--sun)"></p>
+    <p>상자와 버디 보상으로 장비를, 홀 스코어로 골드를 얻습니다. 장비를 누르면 장착·강화·레벨업을 할 수 있습니다. 강화는 실패해도 내려가거나 깨지지 않습니다.</p>
+    <p id="gearMsg" style="color:var(--chalk);min-height:1.5em"></p>
     <div id="statList"></div>
     <div id="gearList"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -389,35 +397,82 @@ function lieOf(){
 }
 /* ---------- 장비와 능력치 ---------- */
 const SLOTS = [['club','클럽'],['ball','공'],['glove','장갑'],['shoes','신발']];
-const RAR = ['일반','희귀','영웅'];
+const TIER = ['일반','고급','희귀','영웅','전설'];
+const TIER_COL = ['#f6f1df','#7ed957','#7fc4ff','#d9a6ff','#ffd447'];
+const T_BASE = [1.0,1.2,1.5,2.0,2.6];   // 등급별 기본 스탯 배율
+const T_MAXLV = [5,6,7,8,10];           // 등급별 최대 레벨 (레벨당 +6%)
+const T_SUBS = [0,1,2,3,4];             // 등급별 부옵션 개수
+const T_XP = [10,20,45,110,280];        // 재료로 쓸 때 주는 경험치
+const T_GOLD = [30,60,150,400,1200];    // 가방이 가득 찼을 때 대신 받는 골드
+const MAX_ENH = 5;
+const ENH_P = [1,1,1,0.7,0.4];          // +1~+3은 100%, +4는 70%, +5는 40%. 실패해도 하락·파괴 없음
+const ENH_COST = [100,200,400,800,1500], T_COST = [1,1.2,1.5,2,3];
+const PITY_STEP = 0.15;                 // 강화 실패 1번마다 그 장비의 다음 확률 +15%p
+const DROP_PITY = 30;                   // 영웅 이상이 30번 연속 안 나오면 영웅 확정
+const INV_MAX = 40;
 const STAT_NAME = {dist:'거리 정확도', dir:'방향 정확도', pow:'비거리', wind:'바람 저항', time:'타이밍', lie:'트러블 탈출', putt:'퍼팅'};
-const ITEMS = [
-  {id:'c1', slot:'club',  r:0, name:'연습용 샤프트',   b:{dist:1}},
-  {id:'c2', slot:'club',  r:1, name:'카본 샤프트',     b:{pow:2, dist:1}},
-  {id:'c3', slot:'club',  r:2, name:'티타늄 헤드',     b:{pow:3, dist:2}},
-  {id:'b1', slot:'ball',  r:0, name:'투피스 볼',       b:{wind:1}},
-  {id:'b2', slot:'ball',  r:1, name:'저스핀 볼',       b:{wind:2, dist:1}},
-  {id:'b3', slot:'ball',  r:2, name:'투어 볼',         b:{wind:2, putt:2, dist:1}},
-  {id:'g1', slot:'glove', r:0, name:'면 장갑',         b:{dir:1}},
-  {id:'g2', slot:'glove', r:1, name:'양피 장갑',       b:{dir:2, time:1}},
-  {id:'g3', slot:'glove', r:2, name:'프로 장갑',       b:{dir:3, time:2}},
-  {id:'s1', slot:'shoes', r:0, name:'스파이크리스',    b:{lie:1}},
-  {id:'s2', slot:'shoes', r:1, name:'소프트 스파이크', b:{lie:2, putt:1}},
-  {id:'s3', slot:'shoes', r:2, name:'투어 스파이크',   b:{lie:3, putt:2, time:1}}
-];
-const ITEM = Object.fromEntries(ITEMS.map(it => [it.id, it]));
-// 같은 아이템을 2개 모으면 Lv.2, 4개 모으면 Lv.3 (효과 1 / 1.5 / 2배)
-const levelOf = n => n>=4 ? 3 : n>=2 ? 2 : 1;
-const LV_MULT = [0, 1, 1.5, 2];
-const G = {inv:{}, eq:{}, fresh:false};
+const SLOT_MAIN = {club:{pow:0.8,dist:0.8}, ball:{wind:1,putt:0.5}, glove:{dir:1,time:0.5}, shoes:{lie:1,putt:0.5}};
+// 전설은 주 스탯이 압도적인 대신 약점이 하나씩 있다
+const LEG_PEN = {club:{dir:-1}, ball:{lie:-0.8}, glove:{pow:-0.6}, shoes:{time:-0.8}};
+const NAMES = {
+  club:['연습용 샤프트','스틸 샤프트','카본 샤프트','티타늄 헤드','마스터 드라이버'],
+  ball:['레인지 볼','투피스 볼','저스핀 볼','투어 볼','골든 볼'],
+  glove:['면 장갑','합성 장갑','양피 장갑','프로 장갑','챔피언 장갑'],
+  shoes:['스파이크리스','러버 스파이크','소프트 스파이크','투어 스파이크','레전드 스파이크']};
+const ODDS = {box:[0.5,0.3,0.15,0.04,0.01], bonus:[0.2,0.35,0.3,0.12,0.03], birdie:[0.5,0.3,0.15,0.04,0.01], eagle:[0,0.2,0.5,0.25,0.05], hio:[0,0,0,0.7,0.3]};
+const G = {items:[], eq:{}, gold:0, pity:0, seq:1, fresh:false, sel:0, msg:''};
+function mkItem(slot, tier, lv, enh, noSubs){
+  const keys = Object.keys(STAT_NAME).filter(k => !(k in SLOT_MAIN[slot])), subs = [];
+  if(!noSubs) for(let i=0;i<T_SUBS[tier];i++){
+    const k = keys.splice(Math.floor(Math.random()*keys.length),1)[0];
+    subs.push([k, Math.round((0.4+Math.random()*0.4)*10)/10]);
+  }
+  return {uid:G.seq++, slot, tier, lv:lv||1, xp:0, spent:0, enh:enh||0, fail:0, subs};
+}
+const itemName = it => NAMES[it.slot][it.tier];
+const mainMult = it => T_BASE[it.tier]*(1+0.06*(it.lv-1))*(1+0.1*it.enh);
+function itemStats(it){
+  const o = {}, m = mainMult(it);
+  for(const k in SLOT_MAIN[it.slot]) o[k] = (o[k]||0)+SLOT_MAIN[it.slot][k]*m;
+  for(const [k,v] of it.subs) o[k] = (o[k]||0)+v;
+  if(it.tier===4) for(const k in LEG_PEN[it.slot]) o[k] = (o[k]||0)+LEG_PEN[it.slot][k];
+  return o;
+}
+const itemScore = it => Object.values(itemStats(it)).reduce((a,b) => a+b, 0);
+const xpNeed = it => Math.round(10*it.lv*(1+0.5*it.tier));
+const fodderXp = it => T_XP[it.tier]+Math.floor(it.spent*0.6);
+const enhChance = it => Math.min(1, ENH_P[it.enh]+it.fail*PITY_STEP);
+const enhCost = it => Math.round(ENH_COST[it.enh]*T_COST[it.tier]);
+const equipped = slot => G.items.find(it => it.uid===G.eq[slot]);
 try {
-  const v = JSON.parse(localStorage.getItem('birdie-rush-gear') || 'null');
-  if(v && typeof v==='object'){
-    for(const id in (v.inv||{})) if(ITEM[id] && Number.isInteger(v.inv[id]) && v.inv[id]>0) G.inv[id] = Math.min(4, v.inv[id]);
-    for(const [slot] of SLOTS){ const id = v.eq && v.eq[slot]; if(id && G.inv[id] && ITEM[id].slot===slot) G.eq[slot] = id; }
+  const v = JSON.parse(localStorage.getItem('birdie-rush-gear2') || 'null');
+  if(v && Array.isArray(v.items)){
+    for(const it of v.items){
+      if(!it || !SLOT_MAIN[it.slot] || !(it.tier>=0 && it.tier<=4) || !Number.isInteger(it.uid)) continue;
+      G.items.push({uid:it.uid, slot:it.slot, tier:it.tier|0, lv:Math.max(1, Math.min(T_MAXLV[it.tier|0], it.lv|0)), xp:Math.max(0, +it.xp||0), spent:Math.max(0, +it.spent||0),
+        enh:Math.max(0, Math.min(MAX_ENH, it.enh|0)), fail:Math.max(0, it.fail|0),
+        subs:(Array.isArray(it.subs)?it.subs:[]).filter(x => Array.isArray(x) && STAT_NAME[x[0]] && x[1]>0 && x[1]<=1).slice(0,4)});
+      G.seq = Math.max(G.seq, it.uid+1);
+    }
+    G.items = G.items.slice(0, INV_MAX);
+    for(const [slot] of SLOTS){ const it = G.items.find(x => x.uid===(v.eq||{})[slot] && x.slot===slot); if(it) G.eq[slot] = it.uid; }
+    G.gold = Math.max(0, Math.floor(+v.gold||0)); G.pity = Math.max(0, v.pity|0);
+  } else {
+    // v0.5 장비(개수 방식)를 새 방식으로 옮김: 일반→일반, 희귀→희귀, 영웅→영웅
+    const o = JSON.parse(localStorage.getItem('birdie-rush-gear') || 'null');
+    if(o && o.inv){
+      const slotOf = {c:'club', b:'ball', g:'glove', s:'shoes'}, tierOf = {1:0, 2:2, 3:3};
+      for(const id in o.inv){
+        const slot = slotOf[id[0]], tier = tierOf[id[1]], n = o.inv[id]|0;
+        if(!slot || tier===undefined || n<1) continue;
+        const it = mkItem(slot, tier, n>=4 ? 5 : n>=2 ? 3 : 1, 0);
+        G.items.push(it);
+        if(o.eq && o.eq[slot]===id) G.eq[slot] = it.uid;
+      }
+    }
   }
 } catch(e){}
-function saveGear(){ try { localStorage.setItem('birdie-rush-gear', JSON.stringify({inv:G.inv, eq:G.eq})); } catch(e){} }
+function saveGear(){ try { localStorage.setItem('birdie-rush-gear2', JSON.stringify({items:G.items, eq:G.eq, gold:G.gold, pity:G.pity})); } catch(e){} }
 // 밸런스 상수 (봇 시뮬레이션으로 맞춘 값)
 // 봇 10라운드 평균(파 71): 장비 없음 약 +3, 희귀 장비 약 -2, 영웅 최고 레벨 약 -10
 const TUNE = {spread:0.13, putt:0.16, puttNoise:2.2, dirNoise:0.5, capR:0.5, capV:5};
@@ -425,11 +480,11 @@ let ST = null;
 function calcStats(){
   const p = {dist:0, dir:0, pow:0, wind:0, time:0, lie:0, putt:0};
   for(const [slot] of SLOTS){
-    const id = G.eq[slot]; if(!id) continue;
-    const m = LV_MULT[levelOf(G.inv[id])];
-    for(const k in ITEM[id].b) p[k] += ITEM[id].b[k]*m;
+    const it = equipped(slot); if(!it) continue;
+    const st = itemStats(it);
+    for(const k in st) p[k] += st[k];
   }
-  for(const k in p) p[k] = Math.min(6, p[k]);
+  for(const k in p) p[k] = Math.max(-2, Math.min(6, p[k])); // 상한 6점: 등급·강화가 쌓여도 타수 밸런스가 깨지지 않게
   // 장비 없는 기본 실력은 일부러 낮다. 6점을 채우면 투어 프로 수준.
   ST = {p,
     pow: 0.94+0.02*p.pow,
@@ -452,29 +507,29 @@ function lieFactor(lie, club){
 // 지금 파워로 기대하는 거리(오차 적용 전)
 function effD(c){ return c.id==='P' ? c.max*S.power : c.max*ST.pow*S.power*lieFactor(lieOf(),c); }
 const tri = () => Math.random()+Math.random()-1; // -1..1, 가운데가 잦은 난수
-function rollItem(odds){
-  let r = Math.random(), rar = 0;
-  if(r<odds[2]) rar = 2; else if(r<odds[2]+odds[1]) rar = 1;
-  let pool = ITEMS.filter(it => it.r===rar && (G.inv[it.id]||0)<4);
-  if(!pool.length) pool = ITEMS.filter(it => (G.inv[it.id]||0)<4);
-  if(!pool.length) return null;
-  const it = pool[Math.floor(Math.random()*pool.length)];
-  const before = G.inv[it.id] ? levelOf(G.inv[it.id]) : 0;
-  G.inv[it.id] = (G.inv[it.id]||0)+1;
-  const lv = levelOf(G.inv[it.id]);
-  let note = before===0 ? '새 아이템' : lv>before ? 'Lv.'+lv+' 강화' : '조각 +1';
-  if(!G.eq[it.slot]){ G.eq[it.slot] = it.id; note += ' · 장착'; }
-  else if(before===0) G.fresh = true;
-  saveGear(); calcStats();
-  return {it, note};
+function rollTier(kind){
+  const o = ODDS[kind]; let r = Math.random(), t = 0;
+  for(let i=4;i>=0;i--){ if(r<o[i]){ t = i; break; } r -= o[i]; }
+  if(t<3 && G.pity>=DROP_PITY-1) t = 3; // 천장
+  G.pity = t>=3 ? 0 : G.pity+1;
+  return t;
 }
-function grant(odds, why){
-  const g = rollItem(odds);
-  if(!g){ toast('모든 장비가 최고 레벨입니다', 1500); return; }
-  S.holeLoot.push(g.it.name+' ['+RAR[g.it.r]+'] '+g.note);
-  toast((why?why+' · ':'')+g.it.name+' ['+RAR[g.it.r]+'] '+g.note, 2200);
+function grant(kind, why){
+  const tier = rollTier(kind), slot = SLOTS[Math.floor(Math.random()*4)][0];
+  let txt;
+  if(G.items.length>=INV_MAX){
+    G.gold += T_GOLD[tier]; txt = '가방이 가득 차 골드 +'+T_GOLD[tier];
+  } else {
+    const it = mkItem(slot, tier); G.items.push(it);
+    txt = itemName(it)+' ['+TIER[tier]+']';
+    if(!G.eq[slot]){ G.eq[slot] = it.uid; txt += ' · 장착'; } else G.fresh = true;
+  }
+  saveGear(); calcStats();
+  S.holeLoot.push(txt);
+  toast((why?why+' · ':'')+txt, 2200);
   sfx.perfect(); hud();
 }
+function addGold(n){ G.gold += n; saveGear(); }
 const pinDist = () => hyp(hole().pin.x-S.ball.x, hole().pin.y-S.ball.y);
 function resultName(strokes, par){
   if(strokes===1) return '홀인원';
@@ -893,11 +948,14 @@ function finishHole(capped){
     sfx.cup(); burst(h.pin.x,h.pin.y,0xffd447,1.5);
     // 좋은 스코어에는 장비 보상
     const df = S.strokes-h.par;
-    if(S.strokes===1) grant([0,0,1], '홀인원 보상');
-    else if(df<=-2) grant([0,0.6,0.4], '이글 보상');
-    else if(df===-1) grant([0.55,0.33,0.12], '버디 보상');
+    if(S.strokes===1) grant('hio', '홀인원 보상');
+    else if(df<=-2) grant('eagle', '이글 보상');
+    else if(df===-1) grant('birdie', '버디 보상');
   }
-  $('lootTxt').textContent = S.holeLoot.length ? '획득: '+S.holeLoot.join(' / ') : '이번 홀에서 얻은 장비가 없습니다.';
+  // 스코어에 따른 골드 (강화 비용으로 쓴다)
+  const dg = S.strokes-h.par, gold = capped ? 10 : S.strokes===1 ? 500 : dg<=-2 ? 220 : dg===-1 ? 120 : dg===0 ? 70 : dg===1 ? 40 : 20;
+  addGold(gold); S.holeLoot.push('골드 +'+gold);
+  $('lootTxt').textContent = '획득: '+S.holeLoot.join(' / ');
   $('resName').textContent = capped ? '홀 아웃' : resultName(S.strokes, h.par);
   $('resTxt').textContent = capped
     ? '최대 타수('+S.strokes+'타)에 도달해 이 홀을 마칩니다.'
@@ -961,7 +1019,7 @@ function pickBoxes(r){
     if(b.got || hyp(S.ball.x-b.x, S.ball.y-b.y)>r) continue;
     b.got = true; b.mesh.visible = false; b.base.visible = false;
     burst(b.x, b.y, b.bonus?0xb46bff:0xffd447, 1.4);
-    grant(b.bonus ? [0.25,0.45,0.30] : [0.55,0.33,0.12], b.bonus ? '보너스 상자' : '상자');
+    grant(b.bonus ? 'bonus' : 'box', b.bonus ? '보너스 상자' : '상자');
   }
 }
 function land(){
@@ -1198,42 +1256,93 @@ $('resumeBtn').addEventListener('click', () => {
   audioOn(); $('startSheet').classList.remove('on'); S.scores = saved.slice(); startHole(saved.length);
 });
 $('courseBtn').addEventListener('click', () => { if(!S.drag) openMenu(); });
-function bonusTxt(it, n){
-  const m = LV_MULT[levelOf(n)];
-  return Object.keys(it.b).map(k => STAT_NAME[k]+' +'+(it.b[k]*m)).join(', ');
+const fmt = v => (v>0?'+':'')+(Math.round(v*10)/10);
+function statTxt(it){
+  const st = itemStats(it);
+  return Object.keys(st).map(k => '<span'+(st[k]<0?' class="neg"':'')+'>'+STAT_NAME[k]+' '+fmt(st[k])+'</span>').join(', ');
 }
 function renderGear(){
   const p = ST.p, fx = {
     dist:'거리 오차 ±'+(ST.spread*100).toFixed(1)+'%', dir:'좌우 오차 ×'+ST.dev.toFixed(2), pow:'드라이버 '+Math.round(230*ST.pow)+' m',
     wind:'바람 영향 '+Math.round(ST.wind*100)+'%', time:'바늘 속도 '+Math.round(ST.needle*100)+'%',
     lie:'러프 비거리 '+Math.round(ST.rough*100)+'%', putt:'퍼팅 오차 ±'+(ST.puttSpread*100).toFixed(1)+'%'};
-  $('statList').innerHTML = Object.keys(STAT_NAME).map(k => '<span>'+STAT_NAME[k]+'</span><i><u style="width:'+(p[k]/6*100)+'%"></u></i><span>'+fx[k]+'</span>').join('');
+  $('goldTxt').textContent = G.gold.toLocaleString()+' G · 가방 '+G.items.length+'/'+INV_MAX;
+  $('gearMsg').textContent = G.msg;
+  $('statList').innerHTML = Object.keys(STAT_NAME).map(k => '<span>'+STAT_NAME[k]+' '+fmt(p[k])+'</span><i><u style="width:'+Math.max(0,p[k])/6*100+'%"></u></i><span>'+fx[k]+'</span>').join('');
+  const target = G.items.find(it => it.uid===G.sel);
+  const canFeed = target && target.lv<T_MAXLV[target.tier];
   let html = '';
   for(const [slot, label] of SLOTS){
     html += '<h3>'+label+'</h3>';
-    const own = ITEMS.filter(it => it.slot===slot && G.inv[it.id]);
+    const own = G.items.filter(it => it.slot===slot).sort((a,b) => (G.eq[slot]===b.uid)-(G.eq[slot]===a.uid) || itemScore(b)-itemScore(a));
     if(!own.length){ html += '<div class="none">아직 없습니다.</div>'; continue; }
     for(const it of own){
-      const n = G.inv[it.id], lv = levelOf(n), on = G.eq[slot]===it.id;
-      html += '<button type="button" class="item r'+it.r+(on?' on':'')+'" id="item-'+it.id+'" data-id="'+it.id+'"><span><b>'+it.name+'</b> ['+RAR[it.r]+'] Lv.'+lv
-        +'<small>'+bonusTxt(it,n)+(lv<3 ? ' · 다음 강화까지 '+((lv===1?2:4)-n)+'개' : ' · 최고 레벨')+'</small></span><em>'+(on?'장착 중':'장착하기')+'</em></button>';
+      const on = G.eq[slot]===it.uid, sel = G.sel===it.uid, mx = T_MAXLV[it.tier];
+      html += '<div class="item'+(on?' on':'')+(sel?' sel':'')+'" id="item-'+it.uid+'" data-uid="'+it.uid+'" style="border-left-color:'+TIER_COL[it.tier]+'">'
+        +'<div class="row"><span><b style="color:'+TIER_COL[it.tier]+'">'+itemName(it)+(it.enh?' +'+it.enh:'')+'</b> ['+TIER[it.tier]+'] Lv.'+it.lv+'/'+mx
+        +'<small>'+statTxt(it)+'</small></span>'
+        +(canFeed && !sel && !on ? '<button type="button" class="act feed" data-feed="'+it.uid+'">'+(G.arm===it.uid?'한 번 더':'재료 +'+fodderXp(it))+'</button>' : '<em>'+(on?'장착 중':'')+'</em>')+'</div>';
+      if(sel){
+        const fod = G.items.filter(x => x.uid!==it.uid && x.tier<=1 && !Object.values(G.eq).includes(x.uid));
+        html += '<div class="panel">';
+        html += '<span class="xp">'+(it.lv<mx ? '경험치 '+Math.floor(it.xp)+'/'+xpNeed(it)+' · 다른 장비의 [재료] 버튼을 누르면 이 장비가 성장합니다' : '최대 레벨')+'</span>';
+        html += '<button type="button" class="act" data-act="equip">'+(on?'해제':'장착')+'</button>';
+        if(it.enh<MAX_ENH){
+          const c = enhCost(it), ok = G.gold>=c;
+          html += '<button type="button" class="act" data-act="enh"'+(ok?'':' disabled')+'>강화 +'+it.enh+'→+'+(it.enh+1)+' · 성공 '+Math.round(enhChance(it)*100)+'% · '+c.toLocaleString()+' G'+(ok?'':' (골드 부족)')+'</button>';
+        } else html += '<span class="xp">강화 최대 (+'+MAX_ENH+')</span>';
+        if(it.lv<mx && fod.length) html += '<button type="button" class="act" data-act="bulk">미장착 일반·고급 '+fod.length+'개 모두 재료로 (+'+fod.reduce((a,x) => a+fodderXp(x), 0)+')</button>';
+        html += '</div>';
+      }
+      html += '</div>';
     }
   }
   $('gearList').innerHTML = html;
 }
+function addXp(it, xp){
+  it.spent += xp; it.xp += xp;
+  while(it.lv<T_MAXLV[it.tier] && it.xp>=xpNeed(it)){ it.xp -= xpNeed(it); it.lv++; }
+  if(it.lv>=T_MAXLV[it.tier]) it.xp = 0;
+}
+function gearChanged(){ saveGear(); calcStats(); renderGear(); if(S.mode==='aim') autoClub(); hud(); }
 $('gearList').addEventListener('click', e => {
-  const b = e.target.closest('.item'); if(!b) return;
-  const it = ITEM[b.dataset.id];
-  if(G.eq[it.slot]===it.id) delete G.eq[it.slot]; else G.eq[it.slot] = it.id;
-  saveGear(); calcStats(); renderGear(); if(S.mode==='aim') autoClub(); hud();
+  const feedBtn = e.target.closest('[data-feed]'), actBtn = e.target.closest('[data-act]'), row = e.target.closest('.item');
+  const target = G.items.find(it => it.uid===G.sel);
+  if(feedBtn && target){
+    const f = G.items.find(it => it.uid===+feedBtn.dataset.feed); if(!f || f.uid===target.uid || Object.values(G.eq).includes(f.uid)) return;
+    // 희귀 이상이나 키운 장비는 두 번 눌러야 재료로 들어간다
+    if((f.tier>=2 || f.enh>0 || f.lv>1) && G.arm!==f.uid){ G.arm = f.uid; G.msg = itemName(f)+'을(를) 재료로 쓰면 사라집니다. 한 번 더 누르면 진행합니다.'; renderGear(); return; }
+    const before = target.lv; addXp(target, fodderXp(f));
+    G.items = G.items.filter(it => it.uid!==f.uid); G.arm = 0;
+    G.msg = itemName(target)+' 경험치 +'+fodderXp(f)+(target.lv>before ? ' · Lv.'+target.lv+' 달성' : '');
+    return gearChanged();
+  }
+  if(actBtn && target){
+    const act = actBtn.dataset.act; G.arm = 0;
+    if(act==='equip'){ if(G.eq[target.slot]===target.uid) delete G.eq[target.slot]; else G.eq[target.slot] = target.uid; G.msg = ''; }
+    if(act==='enh' && target.enh<MAX_ENH){
+      const c = enhCost(target); if(G.gold<c) return;
+      G.gold -= c;
+      if(Math.random()<enhChance(target)){ target.enh++; target.fail = 0; G.msg = '강화 성공 · '+itemName(target)+' +'+target.enh; sfx.perfect(); }
+      else { target.fail++; G.msg = '강화 실패 · 장비는 그대로입니다. 다음 성공 확률 '+Math.round(enhChance(target)*100)+'%'; sfx.out(); }
+    }
+    if(act==='bulk'){
+      const fod = G.items.filter(x => x.uid!==target.uid && x.tier<=1 && !Object.values(G.eq).includes(x.uid));
+      const before = target.lv, gain = fod.reduce((a,x) => a+fodderXp(x), 0);
+      addXp(target, gain); const ids = new Set(fod.map(x => x.uid)); G.items = G.items.filter(it => !ids.has(it.uid));
+      G.msg = itemName(target)+' 경험치 +'+gain+(target.lv>before ? ' · Lv.'+target.lv+' 달성' : '');
+    }
+    return gearChanged();
+  }
+  if(row){ const uid = +row.dataset.uid; G.sel = G.sel===uid ? 0 : uid; G.arm = 0; G.msg = ''; renderGear(); }
 });
-$('gearBtn').addEventListener('click', () => { if(S.drag) return; G.fresh = false; renderGear(); $('gearSheet').classList.add('on'); hud(); });
+$('gearBtn').addEventListener('click', () => { if(S.drag) return; audioOn(); G.fresh = false; G.msg = ''; G.arm = 0; renderGear(); $('gearSheet').classList.add('on'); hud(); });
 $('gearClose').addEventListener('click', () => $('gearSheet').classList.remove('on'));
 let resetArm = 0;
 $('gearReset').addEventListener('click', () => {
   // 실수 방지: 3초 안에 두 번 눌러야 지워진다
-  if(Date.now()-resetArm<3000){ G.inv = {}; G.eq = {}; saveGear(); calcStats(); renderGear(); hud(); $('gearReset').textContent = '장비 초기화'; resetArm = 0; }
-  else { resetArm = Date.now(); $('gearReset').textContent = '한 번 더 누르면 모두 삭제'; }
+  if(Date.now()-resetArm<3000){ G.items = []; G.eq = {}; G.gold = 0; G.pity = 0; G.sel = 0; G.msg = '장비와 골드를 모두 지웠습니다.'; $('gearReset').textContent = '장비 초기화'; resetArm = 0; gearChanged(); }
+  else { resetArm = Date.now(); $('gearReset').textContent = '한 번 더 누르면 장비·골드 모두 삭제'; }
 });
 $('nextBtn').addEventListener('click', () => {
   $('holeSheet').classList.remove('on');
@@ -1261,7 +1370,8 @@ resize();
 calcStats();
 selectCourse(0);
 window.__game = S; window.__go = startHole; window.__grant = grant; window.__stats = () => ST;
-window.__dbg = {TUNE, aimLand, calcStats, shoot, step, hole, terrain, autoClub, effD, CLUBS, ITEMS, lieOf, lieFactor, setGear(inv,eq){ G.inv = inv; G.eq = eq; calcStats(); }}; // 디버깅용
+window.__dbg = {G, TUNE, aimLand, calcStats, shoot, step, hole, terrain, autoClub, effD, CLUBS, lieOf, lieFactor, mkItem, enhChance, enhCost,
+  setGear(items){ G.items = items; G.eq = {}; for(const it of items) G.eq[it.slot] = it.uid; calcStats(); }}; // 디버깅용
 requestAnimationFrame(frame);
 </script>
 </body>
