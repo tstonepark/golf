@@ -70,7 +70,7 @@ button:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
 #gearSheet{justify-content:flex-start;gap:12px;padding-top:20px}
 #gearSheet h2{font-size:34px}
 #gearSheet p{font-size:13px;line-height:1.5}
-#statList{display:grid;grid-template-columns:auto 1fr auto;gap:5px 10px;align-items:center;font-size:13px}
+#statList{display:grid;grid-template-columns:auto minmax(30px,1fr) auto;gap:5px 10px;align-items:center;font-size:13px}
 #statList i{display:block;height:8px;background:#2a5540;border-radius:2px;overflow:hidden}
 #statList i u{display:block;height:100%;background:var(--sun)}
 #statList span:nth-child(3n){color:var(--chalk-dim);font-variant-numeric:tabular-nums;text-align:right}
@@ -126,7 +126,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
     <canvas id="cv"></canvas>
     <canvas id="map"></canvas>
     <div id="toast"></div>
-    <div id="ver">v0.7 · 11.10 23:30</div>
+    <div id="ver">v0.8 · 11.11 02:20</div>
     <div id="hint">화면을 누르면 항공 시점이 됩니다. 아래로 당겼다가 바늘이 초록에 올 때 놓으세요</div>
     <div id="err">이 브라우저에서 3D 그래픽(WebGL)을 열 수 없습니다. 다른 브라우저로 열어 보세요.</div>
   </div>
@@ -153,7 +153,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
       <button class="cta" id="resumeBtn" style="display:none">이어하기</button>
       <button class="cta" id="startBtn">티오프</button>
     </div>
-    <p style="font-size:12px">버전 v0.7 (2026-11-10 23:30) · 자동 장착, 퍼팅 홀인 판정 수정</p>
+    <p style="font-size:12px">버전 v0.8 (2026-11-11 02:20) · 짧은 퍼트 수정, 컨시드, 장비 효과 강화</p>
   </div>
 
   <div class="sheet" id="holeSheet">
@@ -485,10 +485,22 @@ function equipBest(){
 if(G.auto) equipBest();
 function saveGear(){ try { localStorage.setItem('birdie-rush-gear2', JSON.stringify({items:G.items, eq:G.eq, gold:G.gold, pity:G.pity, auto:G.auto})); } catch(e){} }
 // 밸런스 상수 (봇 시뮬레이션으로 맞춘 값)
-// 봇 8라운드 평균(파 71): 장비 없음 약 -1, 희귀 약 -3, 영웅 최대 약 -11, 전설 최대 약 -13
-// capR은 그려진 홀컵 반지름과 같다: 공 중심이 홀컵 위에 있고 너무 빠르지 않으면 들어간다
-const TUNE = {spread:0.13, putt:0.26, puttNoise:3.2, dirNoise:0.5, capR:0.9, capV:6};
-let ST = null;
+// capR은 그려진 홀컵 반지름과 같다: 공 중심이 홀컵 위에 있고 너무 빠르지 않으면 들어간다. gimme 안에 멈추면 컨시드(+1타).
+const TUNE = {spread:0.16, putt:0.2, puttNoise:2.6, dirNoise:0.5, capR:0.9, capV:8, gimme:1.2};
+let ST = null, ST0 = null;
+// 능력치 점수 → 실제 효과. 기본 실력은 일부러 낮고, 1점마다 눈에 띄게 달라진다(6점이 상한).
+function statsFrom(p){
+  return {p,
+    pow: 0.88+0.035*p.pow,                       // 드라이버 202 m → 251 m
+    spread: TUNE.spread*(1-0.138*p.dist),        // 거리 오차 ±16% → ±2.8%
+    dev: 1.3*(1-0.085*p.dir),                    // 좌우 오차 배율 1.30 → 0.64
+    wind: 1-0.1*p.wind,                          // 바람 영향 100% → 40%
+    needle: 1.2-0.07*p.time,                     // 바늘 속도 120% → 78%
+    perfect: 0.09+0.02*p.time,                   // 퍼펙트 구간 반폭 0.09 → 0.21
+    rough: 0.72+0.04*p.lie, sand: 0.5+0.06*p.lie, sandW: 0.82+0.025*p.lie,
+    lieDev: 1-0.12*p.lie,
+    puttSpread: TUNE.putt*(1-0.125*p.putt), puttDev: 1.15*(1-0.1*p.putt), puttNoise: TUNE.puttNoise*(1-0.125*p.putt)};
+}
 function calcStats(){
   const p = {dist:0, dir:0, pow:0, wind:0, time:0, lie:0, putt:0};
   for(const [slot] of SLOTS){
@@ -497,17 +509,7 @@ function calcStats(){
     for(const k in st) p[k] += st[k];
   }
   for(const k in p) p[k] = Math.max(-2, Math.min(6, p[k])); // 상한 6점: 등급·강화가 쌓여도 타수 밸런스가 깨지지 않게
-  // 장비 없는 기본 실력은 일부러 낮다. 6점을 채우면 투어 프로 수준.
-  ST = {p,
-    pow: 0.94+0.02*p.pow,
-    spread: TUNE.spread*(1-0.105*p.dist),    // 거리 오차: 6점이면 기본의 37%
-    dev: 1.2*(1-0.07*p.dir),                 // 좌우 오차 배율 1.20 → 0.70
-    wind: 1-0.08*p.wind,                     // 바람 영향 100% → 52%
-    needle: 1.12-0.05*p.time,                // 바늘 속도 112% → 82%
-    perfect: 0.10+0.012*p.time,              // 퍼펙트 구간 반폭
-    rough: 0.78+0.03*p.lie, sand: 0.55+0.05*p.lie, sandW: 0.86+0.02*p.lie,
-    lieDev: 1-0.1*p.lie,
-    puttSpread: TUNE.putt*(1-0.1*p.putt), puttDev: 1.15*(1-0.08*p.putt), puttNoise: TUNE.puttNoise*(1-0.1*p.putt)};
+  ST = statsFrom(p); ST0 = statsFrom({dist:0, dir:0, pow:0, wind:0, time:0, lie:0, putt:0});
   const z = ST.perfect*48;
   $('gauge').style.background = 'linear-gradient(90deg,#b23b2a 0%,#d9a23a 30%,#d9a23a '+(50-z)+'%,#7ed957 '+(50-z)+'%,#7ed957 '+(50+z)+'%,#d9a23a '+(50+z)+'%,#d9a23a 70%,#b23b2a 100%)';
 }
@@ -517,7 +519,9 @@ function lieFactor(lie, club){
   return 1;
 }
 // 지금 파워로 기대하는 거리(오차 적용 전)
-function effD(c){ return c.id==='P' ? c.max*S.power : c.max*ST.pow*S.power*lieFactor(lieOf(),c); }
+// 퍼터 최대 거리는 남은 거리의 2.5배(6~40 m). 예전에는 항상 40 m라 2.4 m보다 짧게 칠 수 없어 짧은 퍼트가 홀을 지나쳤다.
+const puttMax = () => clamp(pinDist()*2.5, 6, 40);
+function effD(c){ return c.id==='P' ? puttMax()*S.power : c.max*ST.pow*S.power*lieFactor(lieOf(),c); }
 const tri = () => Math.random()+Math.random()-1; // -1..1, 가운데가 잦은 난수
 function rollTier(kind){
   const o = ODDS[kind]; let r = Math.random(), t = 0;
@@ -896,7 +900,7 @@ function hud(){
     const de = Math.round(gh(h.pin.x,h.pin.y)-gh(S.ball.x,S.ball.y));
     $('elevBox').style.display = ''; $('elevTxt').textContent = (de>0?'+':'')+de+' m';
   } else $('elevBox').style.display = 'none';
-  [...clubsEl.children].forEach((b,i) => { b.classList.toggle('on', i===S.club); b.firstChild.textContent = i<5 ? Math.round(CLUBS[i].max*ST.pow) : CLUBS[i].max; });
+  [...clubsEl.children].forEach((b,i) => { b.classList.toggle('on', i===S.club); b.firstChild.textContent = i<5 ? Math.round(CLUBS[i].max*ST.pow) : Math.round(puttMax()); });
   $('gearBtn').textContent = G.fresh ? '장비 •' : '장비';
   const c = CLUBS[S.club];
   if(S.drag){
@@ -1021,7 +1025,7 @@ function shoot(){
   if(perfect){ toast('퍼펙트!', 900); sfx.perfect(); }
   else if(Math.abs(n)>0.7) toast(n>0?'오른쪽으로 밀렸습니다':'왼쪽으로 감겼습니다', 1100);
   if(c.id==='P'){
-    const v0 = Math.sqrt(2*FRICTION.green*c.max*power*dm);
+    const v0 = Math.sqrt(2*FRICTION.green*puttMax()*power*dm);
     S.vel = {x:cs*v0, y:sn*v0}; S.mode = 'roll'; sfx.putt();
   } else {
     const d = c.max*ST.pow*power*lieFactor(lie,c)*dm, T = 0.9+d/130, k = S.wind.s*T*1.4*ST.wind;
@@ -1085,7 +1089,13 @@ function step(dt){
       const dp = hyp(S.ball.x-h.pin.x,S.ball.y-h.pin.y);
       if(dp<TUNE.capR && sp<TUNE.capV){ S.ball = {x:h.pin.x,y:h.pin.y}; return finishHole(false); }
       const ns = sp-FRICTION[ter]*sdt;
-      if(ns<=0 || sp<0.01){ S.vel = null; return readyShot(); }
+      if(ns<=0 || sp<0.01){
+        S.vel = null;
+        if(dp<=TUNE.gimme && ter==='green'){ // 홀 바로 옆에 멈추면 컨시드
+          S.strokes++; S.ball = {x:h.pin.x,y:h.pin.y}; toast('컨시드 · +1타', 1300); return finishHole(false);
+        }
+        return readyShot();
+      }
       S.vel.x *= ns/sp; S.vel.y *= ns/sp;
       if(h.elev) S.vel.y -= 55*(prof(S.ball.y+1)-prof(S.ball.y-1))/2*sdt; // 경사 따라 구름
       S.ball.x += S.vel.x*sdt; S.ball.y += S.vel.y*sdt;
@@ -1283,10 +1293,12 @@ function statTxt(it){
   return Object.keys(st).map(k => '<span'+(st[k]<0?' class="neg"':'')+'>'+STAT_NAME[k]+' '+fmt(st[k])+'</span>').join(', ');
 }
 function renderGear(){
-  const p = ST.p, fx = {
-    dist:'거리 오차 ±'+(ST.spread*100).toFixed(1)+'%', dir:'좌우 오차 ×'+ST.dev.toFixed(2), pow:'드라이버 '+Math.round(230*ST.pow)+' m',
-    wind:'바람 영향 '+Math.round(ST.wind*100)+'%', time:'바늘 속도 '+Math.round(ST.needle*100)+'%',
-    lie:'러프 비거리 '+Math.round(ST.rough*100)+'%', putt:'퍼팅 오차 ±'+(ST.puttSpread*100).toFixed(1)+'%'};
+  const p = ST.p, pc = v => (v*100).toFixed(1)+'%', arrow = (a,b) => a===b ? b : a+' → '+b;
+  const fx = { // 장비 없을 때 → 지금
+    dist:'거리 오차 '+arrow('±'+pc(ST0.spread), '±'+pc(ST.spread)), dir:'좌우 오차 '+arrow('×'+ST0.dev.toFixed(2), '×'+ST.dev.toFixed(2)),
+    pow:'드라이버 '+arrow(Math.round(230*ST0.pow)+' m', Math.round(230*ST.pow)+' m'),
+    wind:'바람 영향 '+arrow('100%', Math.round(ST.wind*100)+'%'), time:'바늘 속도 '+arrow(Math.round(ST0.needle*100)+'%', Math.round(ST.needle*100)+'%'),
+    lie:'러프 비거리 '+arrow(Math.round(ST0.rough*100)+'%', Math.round(ST.rough*100)+'%'), putt:'퍼팅 오차 '+arrow('±'+pc(ST0.puttSpread), '±'+pc(ST.puttSpread))};
   $('goldTxt').textContent = G.gold.toLocaleString()+' G · 가방 '+G.items.length+'/'+INV_MAX;
   $('gearMsg').textContent = G.msg;
   $('autoBtn').textContent = G.auto ? '자동 장착 켬' : '자동 장착 끔';
