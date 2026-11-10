@@ -38,7 +38,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--chalk);f
 #stage{flex:1;position:relative;min-height:0;background:#bfe0ea;overflow:hidden}
 #cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
 #map{position:absolute;right:10px;top:10px;width:76px;border:2px solid var(--ink);border-radius:4px;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}
-#toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:var(--ink);color:var(--chalk);font-family:var(--font-display);font-size:18px;padding:8px 16px;border-radius:4px;border-left:5px solid var(--flag);opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
+#toast{position:absolute;left:12px;right:96px;top:44px;background:var(--ink);color:var(--chalk);font-family:var(--font-display);font-size:18px;padding:8px 16px;border-radius:4px;border-left:5px solid var(--flag);opacity:0;transition:opacity .25s;pointer-events:none;line-height:1.3}
 #toast.on{opacity:1}
 #hint{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:14px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.75);pointer-events:none;padding:0 16px}
 #ver{position:absolute;left:10px;top:10px;font-size:11px;color:#fff;background:rgba(14,36,24,.6);padding:2px 7px;border-radius:3px;pointer-events:none;font-variant-numeric:tabular-nums}
@@ -126,7 +126,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
     <canvas id="cv"></canvas>
     <canvas id="map"></canvas>
     <div id="toast"></div>
-    <div id="ver">v0.6 · 11.10 22:50</div>
+    <div id="ver">v0.7 · 11.10 23:30</div>
     <div id="hint">화면을 누르면 항공 시점이 됩니다. 아래로 당겼다가 바늘이 초록에 올 때 놓으세요</div>
     <div id="err">이 브라우저에서 3D 그래픽(WebGL)을 열 수 없습니다. 다른 브라우저로 열어 보세요.</div>
   </div>
@@ -153,7 +153,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
       <button class="cta" id="resumeBtn" style="display:none">이어하기</button>
       <button class="cta" id="startBtn">티오프</button>
     </div>
-    <p style="font-size:12px">버전 v0.6 (2026-11-10 22:50) · 5등급 장비, 부옵션, 레벨업, 강화, 골드</p>
+    <p style="font-size:12px">버전 v0.7 (2026-11-10 23:30) · 자동 장착, 퍼팅 홀인 판정 수정</p>
   </div>
 
   <div class="sheet" id="holeSheet">
@@ -166,12 +166,13 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
   <div class="sheet" id="gearSheet">
     <h2>장비</h2>
     <p id="goldTxt" style="font-family:var(--font-display);font-size:20px;color:var(--sun)"></p>
-    <p>상자와 버디 보상으로 장비를, 홀 스코어로 골드를 얻습니다. 장비를 누르면 장착·강화·레벨업을 할 수 있습니다. 강화는 실패해도 내려가거나 깨지지 않습니다.</p>
+    <p>상자와 버디 보상으로 장비를, 홀 스코어로 골드를 얻습니다. 더 좋은 장비를 주우면 자동으로 장착됩니다. 장비를 누르면 직접 장착·강화·레벨업을 할 수 있습니다. 강화는 실패해도 내려가거나 깨지지 않습니다.</p>
     <p id="gearMsg" style="color:var(--chalk);min-height:1.5em"></p>
     <div id="statList"></div>
     <div id="gearList"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <button class="cta" id="gearClose">닫기</button>
+      <button type="button" class="mini" id="autoBtn">자동 장착 켬</button>
       <button type="button" class="mini" id="gearReset">장비 초기화</button>
     </div>
   </div>
@@ -420,7 +421,7 @@ const NAMES = {
   glove:['면 장갑','합성 장갑','양피 장갑','프로 장갑','챔피언 장갑'],
   shoes:['스파이크리스','러버 스파이크','소프트 스파이크','투어 스파이크','레전드 스파이크']};
 const ODDS = {box:[0.5,0.3,0.15,0.04,0.01], bonus:[0.2,0.35,0.3,0.12,0.03], birdie:[0.5,0.3,0.15,0.04,0.01], eagle:[0,0.2,0.5,0.25,0.05], hio:[0,0,0,0.7,0.3]};
-const G = {items:[], eq:{}, gold:0, pity:0, seq:1, fresh:false, sel:0, msg:''};
+const G = {items:[], eq:{}, gold:0, pity:0, seq:1, auto:true, fresh:false, sel:0, msg:''};
 function mkItem(slot, tier, lv, enh, noSubs){
   const keys = Object.keys(STAT_NAME).filter(k => !(k in SLOT_MAIN[slot])), subs = [];
   if(!noSubs) for(let i=0;i<T_SUBS[tier];i++){
@@ -456,7 +457,7 @@ try {
     }
     G.items = G.items.slice(0, INV_MAX);
     for(const [slot] of SLOTS){ const it = G.items.find(x => x.uid===(v.eq||{})[slot] && x.slot===slot); if(it) G.eq[slot] = it.uid; }
-    G.gold = Math.max(0, Math.floor(+v.gold||0)); G.pity = Math.max(0, v.pity|0);
+    G.gold = Math.max(0, Math.floor(+v.gold||0)); G.pity = Math.max(0, v.pity|0); G.auto = v.auto!==false;
   } else {
     // v0.5 장비(개수 방식)를 새 방식으로 옮김: 일반→일반, 희귀→희귀, 영웅→영웅
     const o = JSON.parse(localStorage.getItem('birdie-rush-gear') || 'null');
@@ -472,10 +473,21 @@ try {
     }
   }
 } catch(e){}
-function saveGear(){ try { localStorage.setItem('birdie-rush-gear2', JSON.stringify({items:G.items, eq:G.eq, gold:G.gold, pity:G.pity})); } catch(e){} }
+// 칸마다 스탯 합이 가장 높은 장비를 장착
+function equipBest(){
+  let changed = false;
+  for(const [slot] of SLOTS){
+    const best = G.items.filter(it => it.slot===slot).sort((a,b) => itemScore(b)-itemScore(a))[0];
+    if(best && G.eq[slot]!==best.uid){ G.eq[slot] = best.uid; changed = true; }
+  }
+  return changed;
+}
+if(G.auto) equipBest();
+function saveGear(){ try { localStorage.setItem('birdie-rush-gear2', JSON.stringify({items:G.items, eq:G.eq, gold:G.gold, pity:G.pity, auto:G.auto})); } catch(e){} }
 // 밸런스 상수 (봇 시뮬레이션으로 맞춘 값)
-// 봇 10라운드 평균(파 71): 장비 없음 약 +3, 희귀 장비 약 -2, 영웅 최고 레벨 약 -10
-const TUNE = {spread:0.13, putt:0.16, puttNoise:2.2, dirNoise:0.5, capR:0.5, capV:5};
+// 봇 8라운드 평균(파 71): 장비 없음 약 -1, 희귀 약 -3, 영웅 최대 약 -11, 전설 최대 약 -13
+// capR은 그려진 홀컵 반지름과 같다: 공 중심이 홀컵 위에 있고 너무 빠르지 않으면 들어간다
+const TUNE = {spread:0.13, putt:0.26, puttNoise:3.2, dirNoise:0.5, capR:0.9, capV:6};
 let ST = null;
 function calcStats(){
   const p = {dist:0, dir:0, pow:0, wind:0, time:0, lie:0, putt:0};
@@ -522,11 +534,17 @@ function grant(kind, why){
   } else {
     const it = mkItem(slot, tier); G.items.push(it);
     txt = itemName(it)+' ['+TIER[tier]+']';
-    if(!G.eq[slot]){ G.eq[slot] = it.uid; txt += ' · 장착'; } else G.fresh = true;
+    const cur = equipped(slot);
+    if(!cur || (G.auto && itemScore(it)>itemScore(cur))){
+      // 더 좋은 장비는 바로 장착하고, 무엇이 올랐는지 알려 준다
+      const st = itemStats(it), old = cur ? itemStats(cur) : {};
+      const up = Object.keys(st).map(k => [k, st[k]-(old[k]||0)]).filter(x => Math.abs(x[1])>=0.05).map(x => STAT_NAME[x[0]]+' '+(x[1]>0?'+':'')+(Math.round(x[1]*10)/10)).join(', ');
+      G.eq[slot] = it.uid; txt += ' · 자동 장착'+(up ? ' ('+up+')' : '');
+    } else { G.fresh = true; txt += ' · 가방으로'; }
   }
   saveGear(); calcStats();
   S.holeLoot.push(txt);
-  toast((why?why+' · ':'')+txt, 2200);
+  toast((why?why+' · ':'')+txt, 3200);
   sfx.perfect(); hud();
 }
 function addGold(n){ G.gold += n; saveGear(); }
@@ -805,7 +823,7 @@ function buildHole(){
     }
   }
   // 깃대, 깃발, 홀컵
-  const cup = new THREE.Mesh(new THREE.CircleGeometry(0.8,20).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0x08140d}));
+  const cup = new THREE.Mesh(new THREE.CircleGeometry(0.9,24).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0x08140d}));
   const pg = gh(h.pin.x,h.pin.y);
   cup.position.set(h.pin.x, pg+0.06, -h.pin.y);
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,11,6), new THREE.MeshLambertMaterial({color:0xf6f1df}));
@@ -1133,12 +1151,14 @@ function draw(dt){
   clock += dt;
   const az = clamp((camPos.y-gh(camPos.x,-camPos.z))/55, 1, 4.5); // 항공 시점에서 공과 표식이 보이도록 키움
   const bg = gh(S.ball.x,S.ball.y), by = S.fl ? S.fl.H0+S.h : bg, lift = Math.max(0, by-bg);
-  ballMesh.scale.setScalar(az);
-  ballMesh.position.set(S.ball.x, by+0.75*az, -S.ball.y);
+  const onGreen = !S.fl && hyp(S.ball.x-hole().pin.x, S.ball.y-hole().pin.y)<=hole().greenR+3;
+  const bsz = az*(onGreen ? 0.45 : 1); // 그린에서는 공을 홀컵보다 작게
+  ballMesh.scale.setScalar(bsz);
+  ballMesh.position.set(S.ball.x, by+0.75*bsz, -S.ball.y);
   ballMesh.visible = !(S.mode==='result' || S.mode==='end') || !!S.fl;
   blob.position.set(S.ball.x, bg+0.08, -S.ball.y);
   blob.visible = ballMesh.visible;
-  const s = (1+lift*0.03)*az; blob.scale.set(s,1,s); blob.material.opacity = 0.35/(1+lift*0.06);
+  const s = (1+lift*0.03)*bsz; blob.scale.set(s,1,s); blob.material.opacity = 0.35/(1+lift*0.06);
   const flag = holeGroup && holeGroup.getObjectByName('flag');
   if(flag) flag.rotation.y = -(S.wind.a) + Math.sin(clock*3)*0.18*(0.3+S.wind.s/7);
   for(const b of S.boxes){
@@ -1151,6 +1171,7 @@ function draw(dt){
   const c = CLUBS[S.club];
   const aiming = S.mode==='aim' && !!S.drag && S.power>0.02;
   ring.visible = ringDot.visible = dots.visible = pinMark.visible = aiming;
+  if(c.id==='P') pinMark.visible = false; // 퍼팅 때는 홀컵이 가려지지 않게
   if(aiming){
     const hp = hole().pin; pinMark.position.set(hp.x, gh(hp.x,hp.y)+0.12, -hp.y); pinMark.scale.set(az,1,az);
     const a = aimLand(c); S.tl = a.tl;
@@ -1268,6 +1289,7 @@ function renderGear(){
     lie:'러프 비거리 '+Math.round(ST.rough*100)+'%', putt:'퍼팅 오차 ±'+(ST.puttSpread*100).toFixed(1)+'%'};
   $('goldTxt').textContent = G.gold.toLocaleString()+' G · 가방 '+G.items.length+'/'+INV_MAX;
   $('gearMsg').textContent = G.msg;
+  $('autoBtn').textContent = G.auto ? '자동 장착 켬' : '자동 장착 끔';
   $('statList').innerHTML = Object.keys(STAT_NAME).map(k => '<span>'+STAT_NAME[k]+' '+fmt(p[k])+'</span><i><u style="width:'+Math.max(0,p[k])/6*100+'%"></u></i><span>'+fx[k]+'</span>').join('');
   const target = G.items.find(it => it.uid===G.sel);
   const canFeed = target && target.lv<T_MAXLV[target.tier];
@@ -1337,6 +1359,11 @@ $('gearList').addEventListener('click', e => {
   if(row){ const uid = +row.dataset.uid; G.sel = G.sel===uid ? 0 : uid; G.arm = 0; G.msg = ''; renderGear(); }
 });
 $('gearBtn').addEventListener('click', () => { if(S.drag) return; audioOn(); G.fresh = false; G.msg = ''; G.arm = 0; renderGear(); $('gearSheet').classList.add('on'); hud(); });
+$('autoBtn').addEventListener('click', () => {
+  G.auto = !G.auto;
+  G.msg = G.auto ? (equipBest() ? '자동 장착을 켜고, 칸마다 가장 좋은 장비로 바꿨습니다.' : '자동 장착을 켰습니다.') : '자동 장착을 껐습니다. 주운 장비는 가방에만 들어갑니다.';
+  gearChanged();
+});
 $('gearClose').addEventListener('click', () => $('gearSheet').classList.remove('on'));
 let resetArm = 0;
 $('gearReset').addEventListener('click', () => {
