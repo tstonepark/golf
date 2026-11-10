@@ -130,6 +130,8 @@ button:disabled{opacity:.4}
     <label for="c-sway">골반 스웨이 · 엉덩이 전진 허용 (%)</label><input id="c-sway" type="number" inputmode="numeric" min="1" max="100">
     <label for="c-spine">축 변화 · 일어섬 허용 (°)</label><input id="c-spine" type="number" inputmode="numeric" min="1" max="45">
     <label for="c-knee">오른 무릎 펴짐 허용 (°)</label><input id="c-knee" type="number" inputmode="numeric" min="1" max="45">
+    <label for="c-plane">손 경로 바깥 허용 (%, 후방)</label><input id="c-plane" type="number" inputmode="numeric" min="1" max="60">
+    <label for="c-fps">카메라 요청 fps (30/60/120 · 새로고침 필요)</label><input id="c-fps" type="number" inputmode="numeric" min="15" max="240">
     <label for="c-handTol">탑 손 높이 허용 오차 (±%)</label><input id="c-handTol" type="number" inputmode="numeric" min="1" max="60">
     <label for="c-turnTol">탑 어깨 회전 허용 오차 (±°)</label><input id="c-turnTol" type="number" inputmode="numeric" min="1" max="90">
     <label for="c-ghost">목표 탑 가이드(초록 고스트) 표시</label><input id="c-ghost" type="checkbox" style="width:24px;height:24px">
@@ -142,7 +144,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v25</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v26</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">카메라 시작</button>
     <p id="err" style="color:var(--warn)"></p>
@@ -239,13 +241,13 @@ const ema={};
 
 function setStatus(text,cls){ $("stxt").textContent=text; $("dot").className=cls||""; }
 
-let cams=[], camIdx=-1;   // 카메라 목록 (권한 허용 후에 라벨이 채워짐)
+let cams=[], camIdx=-1, camFps=null;   // 카메라 목록 (권한 허용 후에 라벨이 채워짐)
 async function listCams(){
   try{ cams=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput"); }catch(e){ cams=[]; }
 }
 async function startCamera(deviceId){
   if(stream) stream.getTracks().forEach(t=>t.stop());
-  const v={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}};
+  const v={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:cfg.fps||30}};
   if(deviceId) v.deviceId={exact:deviceId}; else v.facingMode=facing;
   stream=await navigator.mediaDevices.getUserMedia({audio:false,video:v});
   video.srcObject=stream; await video.play();
@@ -256,7 +258,8 @@ async function startCamera(deviceId){
   else if(st.label){ facing=/front|user|전면/i.test(st.label)?"user":"environment"; }
   const name=st.label||("카메라 "+(camIdx+1));
   $("flip").textContent= cams.length>1 ? name.replace(/camera/i,"").trim().slice(0,10)||"카메라" : "카메라";
-  dlog("카메라: "+name+" "+(set.width||"")+"x"+(set.height||"")+" "+(facing));
+  camFps=set.frameRate||null;
+  dlog("카메라: "+name+" "+(set.width||"")+"x"+(set.height||"")+" "+(camFps?Math.round(camFps)+"fps ":"")+(facing));
   // 센터 스테이지 등 자동 프레이밍이 켜져 있으면 측정이 흔들리므로 끌 수 있으면 끔
   try{ if(st.getCapabilities&&st.getCapabilities().zoom) await st.applyConstraints({advanced:[{zoom:1}]}); }catch(e){}
 }
@@ -402,6 +405,8 @@ function measure(lm,wl,w,h){
     if(ref){
       m.head=(noseR.x-ref.noseR.x)/ref.UR*100;
       m.sway=(hipR.x-ref.hipR.x)/ref.UR*100;
+      m.headUp=(ref.noseR.y-noseR.y)/ref.UR*100;         // +면 위로
+      m.shW=m.UR/ref.UR;                                 // 어깨 폭 비율. 몸이 타깃 쪽으로 돌수록 작아짐(1=정면, 0=옆모습)
       if(m.shDir!=null&&ref.shDir!=null){
         m.shTurn=Math.abs(wrap(m.shDir-ref.shDir));
         m.hipTurn=Math.abs(wrap(m.hipDir-ref.hipDir));
@@ -420,12 +425,15 @@ function measure(lm,wl,w,h){
       m.headUp=(ref.noseR.y-noseR.y)/ref.UR*100;         // +면 위로
       m.headFwd=(noseR.x-ref.noseR.x)*ref.f/ref.UR*100;  // +면 공 쪽으로
       if(m.knee!=null&&ref.knee!=null) m.kneeD=m.knee-ref.knee;
+      if(m.wrist){ const wR=rectify(m.wrist,w,h); m.handX=(wR.x-hipR.x)*ref.f/ref.UR*100; }   // 손이 골반보다 공 쪽으로 나간 정도
     }
   }
   return m;
 }
 function makeRef(m){ return {nose:m.nose,hip:m.hip,sh:m.sh,U:m.U,noseR:m.noseR,hipR:m.hipR,shR:m.shR,UR:m.UR,shDir:m.shDir,hipDir:m.hipDir,spine:m.spine,hand:m.hand,
-  bend:m.bend,f:m.f,knee:m.knee}; }
+  bend:m.bend,f:m.f,knee:m.knee,weight:m.weight}; }
+const tdir=()=>rightHanded?1:-1;                        // 정면 원본 영상에서 타깃 방향의 x 부호 (우타=오른쪽)
+const trailFoot=()=>rightHanded?"오른발":"왼발", leadFoot=()=>rightHanded?"왼발":"오른발";
 
 // ---------- 화면 ----------
 function fit(){
@@ -495,7 +503,7 @@ function onResults(res){
   }
   lostFrames=0;
   const lowCam = m.hip.y>ih*0.72 && (m.hip.y-m.sh.y)<ih*0.2;   // 사람이 아래쪽에 작게 = 카메라가 낮고 위를 봄
-  setStatus(lowCam?"폰이 너무 낮습니다. 가슴 높이에 똑바로 세워 주세요":"추적 중 · "+fps+"fps", lowCam?"":"on");
+  setStatus(lowCam?"폰이 너무 낮습니다. 가슴 높이에 똑바로 세워 주세요":"추적 중 · "+fps+"fps"+(camFps&&camFps>31?" (카메라 "+Math.round(camFps)+")":""), lowCam?"":"on");
   $("setref").disabled=counting; $("settop").disabled=counting||!ref;
 
   // 뼈대
@@ -536,9 +544,12 @@ function onResults(res){
     const sw=smooth("sway",m.sway);   gauge("g-sway",sw,"%", sw==null?"":side(sw), need);
     const st=smooth("sh",m.shTurn);   gauge("g-sh",st,"°","어드레스 대비", ref?"깊이값 없음":need);
     const ht=smooth("hip",m.hipTurn); gauge("g-hip",ht,"°","어드레스 대비", ref?"깊이값 없음":need);
-    const xf=smooth("xf",m.xf);       gauge("g-x",xf,"°","어깨 − 골반", ref?"깊이값 없음":need);
+    const wt=smooth("weight",m.weight,0.6); gauge("g-x",wt,"%", wt==null?"":(wt>55?trailFoot()+" 쪽":wt<45?leadFoot()+" 쪽":"가운데"), "발목이 안 보임");
     const kd=smooth("kneeD",m.kneeD); gauge("g-arm",kd,"°", kd==null?"":(Math.abs(kd)<1?"유지":kd>0?"펴짐":"더 굽힘"), ref?"무릎이 안 보임":need);
-    lastV={hand:hf, head:hd, sway:sw, shTurn:st, spineD:(ref&&ref.spine!=null&&sp!=null)? sp-ref.spine : null, kneeD:kd, weight:smooth("weight",m.weight,0.6)};
+    const spD=(ref&&ref.spine!=null&&sp!=null)? sp-ref.spine : null;
+    lastV={hand:hf, head:hd, sway:sw, shTurn:st, spineD:spD, kneeD:kd, weight:wt,
+           lean: spD==null?null:spD*tdir(),                 // +면 상체가 타깃 쪽으로 기움
+           headUp:smooth("headUp",m.headUp,0.6), shW:smooth("shW",m.shW,0.6)};
   }else{
     const fb=v=>Math.abs(v)<1?"제자리":(v>0?"공 쪽":"뒤쪽");
     const bd=smooth("bend",m.bend);     gauge("g-spine",bd,"°","수직 대비");
@@ -548,7 +559,7 @@ function onResults(res){
     const hw=smooth("headFwd",m.headFwd); gauge("g-hip",hw,"%", hw==null?"":fb(hw), need);
     const kn=smooth("knee",m.knee);     gauge("g-x",kn,"°","180°=펴짐","무릎이 안 보임");
     const kd=smooth("kneeD",m.kneeD);   gauge("g-arm",kd,"°", kd==null?"":(Math.abs(kd)<1?"유지":kd>0?"펴짐":"더 굽힘"), ref?"무릎이 안 보임":need);
-    lastV={hand:hf, bendD:dd, hipFwd:hp, headMove:(hu==null||hw==null)?null:Math.hypot(hu,hw), shTurn:null};
+    lastV={hand:hf, bendD:dd, hipFwd:hp, headMove:(hu==null||hw==null)?null:Math.hypot(hu,hw), shTurn:null, handX:smooth("handX",m.handX,0.7)};
   }
   coach.step(lastV,now); showPhase();
 }
@@ -589,7 +600,7 @@ function saveTop(){
 }
 
 // ---------- 판정 ----------
-const CFG_DEF={head:15,sway:15,spine:8,knee:12,handTol:10,turnTol:15,voice:true,view:"face",auto:true,vfov:70};
+const CFG_DEF={head:15,sway:15,spine:8,knee:12,plane:12,fps:30,handTol:10,turnTol:15,voice:true,view:"face",auto:true,vfov:70};
 function load(k,d){ try{ const v=JSON.parse(localStorage.getItem("swing."+k)); return v==null?d:v; }catch(e){ return d; } }
 function store(k,v){ try{ localStorage.setItem("swing."+k,JSON.stringify(v)); }catch(e){} }
 let cfg=Object.assign({},CFG_DEF,load("cfg",{})), lastV=null;
@@ -632,12 +643,17 @@ const pos=x=>x==null?null:Math.max(0,x), ab=x=>x==null?null:Math.abs(x);
 const ITEMS={
   face:[{k:"head",say:"머리",thr:"head",lab:"머리 최대",u:"%",val:v=>ab(v.head)},
         {k:"sway",say:"골반 밀림",thr:"sway",lab:"스웨이 최대",u:"%",val:v=>ab(v.sway)},
-        {k:"spineD",say:"축",thr:"spine",lab:"축 변화 최대",u:"°",val:v=>ab(v.spineD)},
+        // 역피벗: 백스윙에서 상체가 타깃 쪽으로 기울고 체중이 뒷발로 안 넘어감
+        {k:"rev",say:"역피벗",thr:"spine",lab:"타깃 쪽 기울기 최대",u:"°",val:v=>revCase(v)?pos(v.lean):null},
+        {k:"spineD",say:"축",thr:"spine",lab:"축 변화 최대",u:"°",val:v=>revCase(v)?null:ab(v.spineD)},
+        // 헤드업: 다운스윙~임팩트 직후에 머리가 들림 (탑에서의 머리 높이 대비)
+        {k:"hup",say:"헤드업",thr:"head",lab:"임팩트 머리 들림",u:"%",down:true,downOnly:true,val:v=>pos(v.headUpD)},
         {k:"kneeF",say:"무릎",thr:"knee",lab:"오른 무릎 펴짐 최대",u:"°",val:v=>pos(v.kneeD)}],
   dtl: [{k:"rise",say:"일어섬",thr:"spine",lab:"일어섬 최대",u:"°",down:true,val:v=>pos(v.bendD==null?null:-v.bendD)},
         {k:"hipF",say:"엉덩이",thr:"sway",lab:"엉덩이 전진 최대",u:"%",down:true,val:v=>pos(v.hipFwd)},
         {k:"headM",say:"머리",thr:"head",lab:"머리 이동 최대",u:"%",down:true,val:v=>ab(v.headMove)}]
 };
+const revCase=v=>v.lean!=null&&v.lean>0&&(v.weight==null||v.weight<60);
 // 벗어난 항목 중 가장 심한 것 (get: 항목→값)
 function worstOf(get,onlyDown){
   const c=ITEMS[view].filter(it=>!onlyDown||it.down).map(it=>[it.say,get(it),cfg[it.thr]])
@@ -672,26 +688,36 @@ const coach={
     }
     if(this.phase==="ready"){
       if(v.hand>b+25){ this.phase="back"; this.startT=t; if(replay.open) replay.close(); this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null;
-        this.peak={}; }
+        this.peak={}; this.wt={addr:ref?ref.weight:null}; this.fin=null; this.path=null; this.pb=[]; this.pd=[]; this.hup0=null; this.downSaid=false; }
       return;
     }
+    if(this.hup0!=null&&v.headUp!=null) v.headUpD=v.headUp-this.hup0;
+    const inDown=this.phase==="down"||(this.phase==="follow"&&t-this.followT<250);   // 임팩트 직후 0.25초까지 포함
     for(const it of ITEMS[view]){ const x=it.val(v);
-      if(x!=null&&(this.phase==="back"||(this.phase==="down"&&it.down))) this.peak[it.k]=Math.max(this.peak[it.k]||0,x); }
+      if(x!=null&&((this.phase==="back"&&!it.downOnly)||(inDown&&it.down))) this.peak[it.k]=Math.max(this.peak[it.k]||0,x); }
+    // 후방: 같은 높이에서 백스윙과 다운스윙의 손 위치 비교용 표본
+    if(v.handX!=null){ if(this.phase==="back") this.pb.push([v.hand,v.handX]); else if(this.phase==="down") this.pd.push([v.hand,v.handX]); }
     if(this.phase==="down"){
       // 다운스윙: 손이 내려올 때까지(최대 0.7초) 지켜봄. 최고 속도로 진짜 스윙인지 구분
       this.maxSpd=Math.max(this.maxSpd,speed);
       if(v.hand<b+15||t-this.downT>700){
         if(this.maxSpd<200){ this.reset(); return; }           // 느리게 내려놓음 = 연습 테이크백, 스윙 아님
-        if(!this.alerted){ const w=worstOf(it=>this.peak[it.k],true); if(w) say(w,"bad"); }
+        this.wt.imp=v.weight;                                   // 손이 바닥을 지나는 시점 = 임팩트 부근
         this.phase="follow"; this.followT=t; this.stillAt=null; this.ft=false;
       }
       return;
     }
     if(this.phase==="follow"){
       // 피니시: 손이 다시 올라가(팔로스루) 멈추면 종료. 안 올라가면 3초 뒤 폐기
+      if(!this.downSaid&&t-this.followT>=250){ this.downSaid=true;      // 다운스윙·임팩트 구간 판정을 임팩트 직후에 알림
+        if(!this.alerted){ const w=worstOf(it=>this.peak[it.k],true); if(w) say(w,"bad"); } }
       if(v.hand>60) this.ft=true;
-      if(this.ft&&still){ if(this.stillAt==null) this.stillAt=t; } else this.stillAt=null;
-      if(this.ft&&this.stillAt!=null&&t-this.stillAt>500){ showResult(this.atMax,this.peak,this.catPair); this.reset(); return; }
+      if(this.ft&&still){ if(this.stillAt==null){ this.stillAt=t; this.fs=null; }
+        if(v.sway!=null) this.fs= this.fs ? [Math.min(this.fs[0],v.sway),Math.max(this.fs[1],v.sway)] : [v.sway,v.sway];
+      } else this.stillAt=null;
+      if(this.ft&&this.stillAt!=null&&t-this.stillAt>500){
+        this.wt.fin=v.weight; this.fin=evalFinish(this,v); this.path=handPath(this.pb,this.pd);
+        showResult(this.atMax,this.peak,this.catPair,null,this); this.reset(); return; }
       if(t-this.followT>3000) this.reset();
       return;
     }
@@ -706,7 +732,7 @@ const coach={
       if(v.hand<b+15){ this.reset(); return; }                         // 중간에 내려놓음
       const dropped=v.hand<this.max-12, held=t-this.maxT>500&&this.max>b+40;
       if(dropped||held){
-        this.phase="top"; const c=topCat(this.atMax);
+        this.phase="top"; this.wt.top=this.atMax.weight; const c=topCat(this.atMax);
         this.cat=c?c[0]:null; this.catPair=c; this.catSince=null;
         if(c&&!(this.alerted&&performance.now()-lastSay.at<700)) say(c[0],c[1]);
         showResult(this.atMax,this.peak,c,"탑 확인");
@@ -714,7 +740,7 @@ const coach={
       return;
     }
     if(this.phase==="top"){
-      if(v.hand<this.max-25||v.hand<b+25){ this.phase="down"; this.downT=t; this.maxSpd=0; return; }   // 다운스윙 시작
+      if(v.hand<this.max-25||v.hand<b+25){ this.phase="down"; this.downT=t; this.maxSpd=0; this.hup0=v.headUp; return; }   // 다운스윙 시작
       // 탑에서 멈춘 채 조정하면 바뀐 판정을 다시 알려줌
       const c=topCat(v);
       if(c&&still&&c[0]!==this.cat){
@@ -728,25 +754,47 @@ const coach={
 function autoRef(){
   if(counting||!last) return;
   ref=makeRef(last);
-  for(const k of ["head","sway","sh","hip","xf","headUp","headFwd","hipFwd","bendD","kneeD"]) delete ema[k];
+  for(const k of ["head","sway","sh","hip","xf","headUp","headFwd","hipFwd","bendD","kneeD","shW","handX"]) delete ema[k];
   // 준비 신호 "띠릭": 어드레스가 잡혀 다음 스윙을 받을 수 있음
   if(cfg.voice){ beep(880,.07); setTimeout(()=>beep(1320,.12),90); }
 }
+// 피니시 평가(정면): 체중이 앞발로 넘어갔는지, 몸이 타깃 쪽으로 돌았는지, 멈춘 동안 흔들리지 않았는지
+function evalFinish(c,v){
+  if(view!=="face") return null;
+  const f={weight:v.weight, shW:v.shW, wobble:c.fs?c.fs[1]-c.fs[0]:null, fails:[]};
+  if(f.weight!=null&&f.weight>30) f.fails.push("체중이 "+trailFoot()+"에 남음");
+  if(f.shW!=null&&f.shW>0.7) f.fails.push("회전이 덜 됨");
+  if(f.wobble!=null&&f.wobble>10) f.fails.push("균형이 흔들림");
+  f.measured=f.weight!=null||f.shW!=null;
+  return f;
+}
+// 손 경로(후방): 손 높이 60%·85% 지점에서 다운스윙 손 위치 − 백스윙 손 위치. +면 다운스윙이 바깥(공 쪽)
+function handPath(pb,pd){
+  const at=(a,h)=>{ for(let i=1;i<a.length;i++){ const [h0,x0]=a[i-1],[h1,x1]=a[i];
+      if((h0-h)*(h1-h)<=0&&h0!==h1) return x0+(x1-x0)*(h-h0)/(h1-h0); } return null; };
+  const d=[60,85].map(h=>{ const b=at(pb,h), dn=at(pd,h); return b==null||dn==null?null:dn-b; }).filter(x=>x!=null);
+  return d.length? d.reduce((a,b)=>a+b,0)/d.length : null;
+}
 // 스윙 직후 화면에 남는 결과 (측정된 값만 표시)
-function showResult(v,pk,c,label){
+function showResult(v,pk,c,label,sw){
   const r=x=>Math.round(x), row=[];
   row.push("탑 손 높이 <b>"+r(v.hand)+"%</b>"+(target?" / 목표 "+r(target.hand)+"%":""));
   if(v.shTurn!=null) row.push("어깨 회전 <b>"+r(v.shTurn)+"°</b>"+(target&&target.shTurn!=null?" / 목표 "+r(target.shTurn)+"°":""));
-  if(v.weight!=null) row.push("탑 체중 "+(rightHanded?"오른발":"왼발")+" <b>"+r(v.weight)+"%</b><span class=\"t\">(추정)</span>");
+  if(sw&&sw.wt&&[sw.wt.top,sw.wt.imp,sw.wt.fin].some(x=>x!=null)){
+    const w=x=>x==null?"–":r(x);
+    row.push(trailFoot()+" 체중<span class=\"t\">(추정)</span> 어드레스 <b>"+w(sw.wt.addr)+"</b> → 탑 <b>"+w(sw.wt.top)+"</b> → 임팩트 <b>"+w(sw.wt.imp)+"</b> → 피니시 <b>"+w(sw.wt.fin)+"%</b>");
+  }else if(v.weight!=null) row.push("탑 체중 "+trailFoot()+" <b>"+r(v.weight)+"%</b><span class=\"t\">(추정)</span>");
+  if(sw&&sw.fin&&sw.fin.measured) row.push("피니시 "+(sw.fin.fails.length?"<b>"+sw.fin.fails.join(", ")+"</b>":"<b>좋음</b>"));
+  if(sw&&sw.path!=null) row.push("손 경로 다운스윙이 <b>"+(Math.abs(sw.path)<4?"같은 길":sw.path>0?"바깥 "+r(sw.path)+"%":"안쪽 "+r(-sw.path)+"%")+"</b>");
   if(ref){ const ps=ITEMS[view].filter(it=>pk[it.k]!=null).map(it=>it.lab+" <b>"+r(pk[it.k])+it.u+"</b>"); if(ps.length) row.push(ps.join(" · ")); }
   const el=$("result"); el.hidden=false;
-  el.innerHTML='<span class="t">'+(label||"스윙 "+(coach.n+1))+(c?" · "+c[0]:target?"":" · 목표 탑 없음")+"</span> &nbsp; "+row.join(" &nbsp;·&nbsp; ");
+  el.innerHTML='<span class="t">'+(label||"스윙 "+(coach.n+1))+(c?" · 탑 "+c[0]:target?"":" · 목표 탑 없음")+"</span> &nbsp; "+row.join(" &nbsp;·&nbsp; ");
 }
 // ---------- 녹화 / 리플레이 ----------
 const rec={
   buf:[], keepMs:9000, oc:document.createElement("canvas"), busy:false, last:null, lastT:0,
   push(img,iw,ih,lm,t){
-    if(this.busy||t-this.lastT<60) return; this.busy=true; this.lastT=t;
+    if(this.busy||t-this.lastT<(cfg.fps>30?30:60)) return; this.busy=true; this.lastT=t;
     const w=360, h=Math.round(ih*w/iw); if(this.oc.width!==w||this.oc.height!==h){ this.oc.width=w; this.oc.height=h; }
     this.oc.getContext("2d").drawImage(img,0,0,w,h);
     const L2=lm?lm.map(p=>({x:p.x,y:p.y,v:p.visibility})):null;
@@ -855,6 +903,11 @@ const TIPS={
   "일어섬":  {say:"일어섰어요. 엉덩이를 뒤에 두세요.", tip:"스윙 중 상체가 일어나 척추 각이 풀렸습니다. 엉덩이를 뒤에 둔 채 가슴만 돌리세요. 엉덩이를 벽이나 의자에 댄 채 스윙하는 연습이 효과적입니다."},
   "엉덩이":  {say:"엉덩이가 앞으로 나왔어요. 벽에 대고 연습하세요.", tip:"다운스윙에서 엉덩이가 공 쪽으로 나오는 얼리 익스텐션입니다. 왼쪽 엉덩이를 뒤로 돌린다는 느낌으로. 엉덩이를 벽에 댄 채 벽에서 떨어지지 않게 스윙하세요."},
   "무릎":    {say:"오른 무릎이 펴졌어요. 무릎 각도를 지키세요.", tip:"백스윙에서 오른 무릎이 펴졌습니다. 무릎이 펴지면 골반이 옆으로 밀리고(스웨이) 머리가 따라갑니다. 어드레스의 무릎 각도를 유지한 채 오른발 안쪽에 체중을 느끼며 돌리세요. 오른발을 바깥쪽으로 조금 벌려 서면 회전이 쉬워집니다."},
+  "역피벗":  {say:"상체가 타깃 쪽으로 기울었어요. 체중을 뒷발에 실으세요.", tip:"백스윙에서 상체가 타깃 쪽으로 기울고 체중이 뒷발로 넘어가지 않는 역피벗입니다. 탑에서 왼어깨가 오른발 안쪽 위에 오도록, 체중은 오른발 안쪽에 실리게 하세요. 두 발을 모으고 하는 스윙이나 오른발 한 발로 백스윙하는 연습이 도움이 됩니다."},
+  "헤드업":  {say:"머리가 들렸어요. 임팩트까지 공 자리를 보세요.", tip:"다운스윙에서 임팩트 직후 사이에 머리가 들렸습니다. 공이 떠난 자리를 한 박자 더 본다는 느낌으로, 턱이 오른어깨에 밀려 돌아갈 때까지 기다리세요."},
+  "체중":    {say:"체중이 뒤에 남았어요. 왼발로 밀어 주세요.", tip:"임팩트 때 체중이 뒷발에 남아 있습니다(추정). 다운스윙을 왼발을 디디는 것으로 시작하세요. 임팩트에서 벨트 버클이 타깃 쪽으로 이동해 있어야 합니다. 스텝 스윙(왼발을 내디디며 치기) 연습이 효과적입니다."},
+  "아웃인":  {say:"손이 바깥으로 내려왔어요. 오른 팔꿈치를 옆구리로 내리세요.", tip:"다운스윙의 손 경로가 백스윙보다 바깥(공 쪽)으로 내려왔습니다. 상체가 먼저 덤비는 아웃-인 궤도의 신호입니다. 탑에서 하체부터 움직이고 오른 팔꿈치를 옆구리에 붙여 내리세요. 30fps에서는 다운스윙 표본이 적어 참고값입니다."},
+  "피니시":  {say:"피니시가 덜 됐어요.", tip:""},
   "좋아요":  {say:"좋아요. 그 느낌 기억하세요.", tip:"기준 범위 안입니다. 같은 느낌으로 반복하세요."}
 };
 function finishSwing(c){
@@ -863,10 +916,18 @@ function finishSwing(c){
   const pk=c.peak||{}, topV=c.catPair?c.catPair[0]:null;
   // 어드레스 대비 이탈 중 가장 심한 것 > 탑 판정 순
   const dev=worstOf(it=>pk[it.k]);
-  const issue= dev || (topV&&topV!=="좋아요"?topV:null) || (topV==="좋아요"?"좋아요":null);
-  session.push({n:c.n,view,issue,hand:c.atMax.hand,shTurn:c.atMax.shTurn,peak:Object.assign({},pk)});
+  const wt=c.wt||{}, fin=c.fin, finBad=fin&&fin.fails.length>0;
+  // 우선순위: 어드레스 대비 이탈 > 손 경로 > 임팩트 체중 > 탑 판정 > 피니시 > 문제 없음
+  const issue= dev
+    || (c.path!=null&&c.path>cfg.plane?"아웃인":null)
+    || (wt.imp!=null&&wt.imp>55?"체중":null)
+    || (topV&&topV!=="좋아요"?topV:null)
+    || (finBad?"피니시":null)
+    || ((topV==="좋아요"||!target)&&ref?"좋아요":null);
+  session.push({n:c.n,view,issue,hand:c.atMax.hand,shTurn:c.atMax.shTurn,peak:Object.assign({},pk),wt:Object.assign({},wt),path:c.path,fin:fin?fin.fails.slice():null});
   if(!issue) return;
-  const tp=TIPS[issue]; if(!tp) return;
+  let tp=TIPS[issue]; if(!tp) return;
+  if(issue==="피니시") tp={say:"피니시에서 "+fin.fails[0]+".", tip:"피니시: "+fin.fails.join(", ")+". 체중을 "+leadFoot()+"에 다 싣고, 벨트 버클과 가슴이 타깃을 향한 채 3초간 멈춰 서는 것을 목표로 하세요. 피니시에서 균형을 잡을 수 있는 속도로만 스윙하는 연습이 도움이 됩니다."};
   $("coach").hidden=false; $("coach").textContent=tp.tip;
   if(cfg.voice&&cfg.tips!==false) setTimeout(()=>say(tp.say,issue==="좋아요"?"good":"bad"),600);
 }
@@ -879,7 +940,11 @@ function showSummary(){
   const r=[]; r.push("<p>스윙 <b>"+sw.length+"</b>회 · 탑 손 높이 평균 <b>"+(avg("hand")??"–")+"%</b>"+(target?" (목표 "+Math.round(target.hand)+"%)":"")+
     (avg("shTurn")!=null?" · 어깨 회전 평균 <b>"+avg("shTurn")+"°</b>":"")+"</p>");
   r.push("<p>"+top.map(([k,v])=>k+" <b>"+v+"</b>회").join(" · ")+"</p>");
-  if(top.length&&top[0][0]!=="좋아요") r.push("<p>가장 많이 나온 문제: <b>"+top[0][0]+"</b></p><p>"+TIPS[top[0][0]].tip+"</p>");
+  const av=(f)=>{ const v=sw.map(f).filter(x=>x!=null); return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null; };
+  const wi=av(x=>x.wt&&x.wt.imp), wtp=av(x=>x.wt&&x.wt.top), pth=av(x=>x.path);
+  if(wtp!=null||wi!=null) r.push("<p>"+trailFoot()+" 체중 평균(추정): 탑 <b>"+(wtp??"–")+"%</b> · 임팩트 <b>"+(wi??"–")+"%</b></p>");
+  if(pth!=null) r.push("<p>손 경로 평균: 다운스윙이 <b>"+(pth>0?"바깥 ":"안쪽 ")+Math.abs(pth)+"%</b></p>");
+  if(top.length&&top[0][0]!=="좋아요"&&TIPS[top[0][0]].tip) r.push("<p>가장 많이 나온 문제: <b>"+top[0][0]+"</b></p><p>"+TIPS[top[0][0]].tip+"</p>");
   el.innerHTML=r.join("");
   el.innerHTML+='<details style="margin-top:8px"><summary style="color:var(--dim);font-size:12px">진단 정보</summary><pre style="font-size:11px;white-space:pre-wrap;color:var(--dim)">'
     +[navigator.userAgent, "엔진 "+engineName+" · fps "+fps+" · 단계 "+coach.phase+" · 버퍼 "+rec.buf.length+"장 · 저장 "+(rec.last?rec.last.length:0)+"장 · 기준 "+(ref?"있음":"없음")+" · 목표 "+(target?"있음":"없음")].concat(diag).join("\n").replace(/</g,"&lt;")+'</pre></details>';
@@ -889,7 +954,7 @@ $("sumclose").onclick=()=>{ $("summary").hidden=true; };
 
 const PHASE={wait:"어드레스 대기",ready:"준비됨",back:"백스윙",top:"탑",down:"다운스윙",follow:"피니시"};
 const LABELS={
-  face:{"g-spine":"척추 기울기","g-head":"머리 이동 (%)","g-sway":"골반 스웨이 (%)","g-sh":"어깨 회전(추정)","g-hip":"골반 회전(추정)","g-x":"꼬임 차이","g-arm":"오른 무릎 변화"},
+  face:{"g-spine":"척추 기울기","g-head":"머리 이동 (%)","g-sway":"골반 스웨이 (%)","g-sh":"어깨 회전(추정)","g-hip":"골반 회전(추정)","g-x":"뒷발 체중 (추정)","g-arm":"오른 무릎 변화"},
   dtl:{"g-spine":"척추 숙임","g-head":"머리 상하 (%)","g-sway":"엉덩이 전후 (%)","g-sh":"숙임 변화","g-hip":"머리 전후 (%)","g-x":"뒤 무릎 각","g-arm":"무릎 변화"}
 };
 function setView(v){
@@ -915,7 +980,7 @@ function showTarget(){
   $("settop").textContent= target ? "목표 탑 다시 저장 (10초)" : "목표 탑 저장 (10초)";
 }
 function showVoice(){ $("voice").textContent=cfg.voice?"음성 켬":"음성 끔"; $("voice").classList.toggle("off",!cfg.voice); }
-for(const k of ["head","sway","spine","knee","handTol","turnTol","vfov"]){
+for(const k of ["head","sway","spine","knee","plane","fps","handTol","turnTol","vfov"]){
   const el=$("c-"+k); el.value=cfg[k];
   el.onchange=()=>{ const n=Number(el.value); if(n>0){ cfg[k]=n; store("cfg",cfg); } else el.value=cfg[k]; };
 }
