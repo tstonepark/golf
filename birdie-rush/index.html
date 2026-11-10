@@ -67,12 +67,14 @@ button:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
 .sheet p{font-size:15px;line-height:1.6;color:var(--chalk-dim);max-width:34em}
 .sheet ol{font-size:15px;line-height:1.7;color:var(--chalk);padding-left:20px;display:flex;flex-direction:column;gap:4px}
 .cta{align-self:flex-start;background:var(--flag);color:#fff;border:0;border-radius:4px;font-family:var(--font-display);font-size:22px;padding:12px 28px;cursor:pointer}
-table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:15px}
-th,td{padding:7px 4px;text-align:center;border-bottom:1px solid #2a5540}
+#endSheet{justify-content:flex-start;gap:12px;padding-top:20px}
+#endSheet h2{font-size:34px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{padding:3px 4px;text-align:center;border-bottom:1px solid #2a5540}
 th{color:var(--chalk-dim);font-weight:400;font-size:13px}
 td:first-child,th:first-child{text-align:left}
 td.under{color:#7ed957}td.over{color:#ff9d85}
-.big{font-family:var(--font-display);font-size:28px}
+.big{font-family:var(--font-display);font-size:22px}
 </style>
 </head>
 <body>
@@ -94,7 +96,7 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
     <canvas id="cv"></canvas>
     <canvas id="map"></canvas>
     <div id="toast"></div>
-    <div id="hint">화면을 아래로 당겼다가, 바늘이 초록에 올 때 놓으세요</div>
+    <div id="hint">화면을 누르면 항공 시점이 됩니다. 아래로 당겼다가 바늘이 초록에 올 때 놓으세요</div>
     <div id="err">이 브라우저에서 3D 그래픽(WebGL)을 열 수 없습니다. 다른 브라우저로 열어 보세요.</div>
   </div>
 
@@ -108,13 +110,16 @@ td.under{color:#7ed957}td.over{color:#ff9d85}
 
   <div class="sheet on" id="startSheet">
     <h1>버디<br><span>러시</span></h1>
-    <p>5홀 스트로크 플레이. 바람을 읽고, 타이밍을 맞추고, 파보다 적게 치세요.</p>
+    <p>18홀 스트로크 플레이. 바람을 읽고, 타이밍을 맞추고, 파보다 적게 치세요.</p>
     <ol>
-      <li>화면을 아래로 당겨 방향과 파워를 정합니다.</li>
+      <li>화면을 누르면 항공 시점으로 바뀝니다. 아래로 당겨 방향과 파워를 정합니다.</li>
       <li>바늘이 가운데 초록 구간에 올 때 손을 뗍니다.</li>
       <li>바람은 미리보기에 반영되지 않습니다. 직접 보정하세요.</li>
     </ol>
-    <button class="cta" id="startBtn">티오프</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="cta" id="resumeBtn" style="display:none">이어하기</button>
+      <button class="cta" id="startBtn">티오프</button>
+    </div>
   </div>
 
   <div class="sheet" id="holeSheet">
@@ -165,7 +170,65 @@ const HOLES = [
   {par:4, tee:{x:0,y:0}, pin:{x:0,y:290}, greenR:20,
    fair:[{w:50, pts:[[0,0],[0,125]]},{w:50, pts:[[0,178],[0,290]]}],
    sand:[{x:-28,y:284,rx:9,ry:8},{x:28,y:294,rx:9,ry:8}],
-   water:[{x:0,y:151,rx:112,ry:17}]}
+   water:[{x:0,y:151,rx:112,ry:17}]},
+  // 6: 아일랜드 그린 파3
+  {par:3, tee:{x:0,y:0}, pin:{x:15,y:120}, greenR:18,
+   fair:[{w:30, pts:[[0,0],[0,30]]}],
+   sand:[], water:[{x:15,y:120,rx:31,ry:28}]},
+  // 7: 긴 직선 파4, 양쪽 벙커
+  {par:4, tee:{x:0,y:0}, pin:{x:0,y:380}, greenR:20,
+   fair:[{w:44, pts:[[0,0],[0,380]]}],
+   sand:[{x:-30,y:215,rx:10,ry:14},{x:30,y:235,rx:10,ry:14},{x:-25,y:372,rx:8,ry:9},{x:25,y:388,rx:8,ry:9}], water:[]},
+  // 8: 더블 도그렉 파5
+  {par:5, tee:{x:0,y:0}, pin:{x:10,y:500}, greenR:21,
+   fair:[{w:50, pts:[[0,0],[30,150],[-30,320],[10,500]]}],
+   sand:[{x:40,y:300,rx:12,ry:10},{x:-22,y:488,rx:9,ry:9},{x:40,y:508,rx:9,ry:8}],
+   water:[{x:-55,y:170,rx:20,ry:45}]},
+  // 9: 물을 끼고 도는 오른쪽 도그렉
+  {par:4, tee:{x:0,y:0}, pin:{x:50,y:300}, greenR:20,
+   fair:[{w:48, pts:[[0,0],[-10,160],[50,300]]}],
+   sand:[{x:21,y:300,rx:8,ry:9}], water:[{x:46,y:170,rx:26,ry:34}]},
+  // 10
+  {par:4, tee:{x:0,y:0}, pin:{x:-40,y:340}, greenR:20,
+   fair:[{w:48, pts:[[0,0],[-30,170],[-40,340]]}],
+   sand:[{x:-2,y:180,rx:11,ry:10},{x:-68,y:330,rx:8,ry:10}], water:[]},
+  // 11: 긴 파3
+  {par:3, tee:{x:0,y:0}, pin:{x:20,y:175}, greenR:20,
+   fair:[{w:30, pts:[[0,0],[0,35]]},{w:40, pts:[[20,150],[20,175]]}],
+   sand:[{x:-7,y:172,rx:9,ry:11},{x:47,y:180,rx:8,ry:10}], water:[{x:-40,y:110,rx:24,ry:18}]},
+  // 12: 그린 앞 개울이 있는 파5
+  {par:5, tee:{x:0,y:0}, pin:{x:0,y:520}, greenR:21,
+   fair:[{w:54, pts:[[0,0],[0,200],[40,360],[0,520]]}],
+   sand:[{x:-34,y:210,rx:11,ry:12},{x:68,y:350,rx:10,ry:12}],
+   water:[{x:10,y:450,rx:70,ry:11}]},
+  // 13: 짧은 파4, 원온 도전
+  {par:4, tee:{x:0,y:0}, pin:{x:10,y:260}, greenR:19,
+   fair:[{w:46, pts:[[0,0],[0,140]]},{w:40, pts:[[10,200],[10,260]]}],
+   sand:[{x:-16,y:248,rx:9,ry:8},{x:36,y:252,rx:8,ry:9},{x:10,y:232,rx:9,ry:6}],
+   water:[{x:-50,y:180,rx:22,ry:28}]},
+  // 14: 왼쪽 도그렉
+  {par:4, tee:{x:0,y:0}, pin:{x:-40,y:400}, greenR:20,
+   fair:[{w:46, pts:[[0,0],[20,200],[-40,400]]}],
+   sand:[{x:50,y:215,rx:11,ry:12},{x:-13,y:392,rx:8,ry:9}],
+   water:[{x:-62,y:300,rx:18,ry:36}]},
+  // 15: 벙커에 둘러싸인 파3
+  {par:3, tee:{x:0,y:0}, pin:{x:-20,y:140}, greenR:19,
+   fair:[{w:30, pts:[[0,0],[0,30]]},{w:40, pts:[[-20,125],[-20,140]]}],
+   sand:[{x:-46,y:140,rx:8,ry:10},{x:6,y:146,rx:8,ry:9},{x:-20,y:113,rx:10,ry:6}], water:[]},
+  // 16: 물이 두 번 나오는 파5
+  {par:5, tee:{x:0,y:0}, pin:{x:30,y:480}, greenR:21,
+   fair:[{w:50, pts:[[0,0],[-40,180],[-20,340],[30,480]]}],
+   sand:[{x:-54,y:330,rx:10,ry:10},{x:58,y:474,rx:8,ry:10}],
+   water:[{x:20,y:200,rx:24,ry:44},{x:-62,y:410,rx:18,ry:30}]},
+  // 17: 호수를 넘기는 파3
+  {par:3, tee:{x:0,y:0}, pin:{x:0,y:195}, greenR:21,
+   fair:[{w:30, pts:[[0,0],[0,35]]},{w:44, pts:[[0,165],[0,195]]}],
+   sand:[{x:-28,y:198,rx:8,ry:10},{x:28,y:198,rx:8,ry:10}], water:[{x:0,y:100,rx:80,ry:45}]},
+  // 18: 오른쪽이 물인 마지막 홀
+  {par:4, tee:{x:0,y:0}, pin:{x:20,y:420}, greenR:20,
+   fair:[{w:48, pts:[[0,0],[-20,210],[20,420]]}],
+   sand:[{x:-48,y:225,rx:11,ry:12},{x:-7,y:414,rx:8,ry:9},{x:47,y:428,rx:8,ry:9}],
+   water:[{x:58,y:330,rx:26,ry:60}]}
 ];
 const FRICTION = {green:18, fairway:45, tee:45, rough:130, sand:420};
 const LIE_NAME = {green:'그린', fairway:'페어웨이', rough:'러프', sand:'벙커', tee:'티'};
@@ -304,6 +367,8 @@ const ring = new THREE.Mesh(new THREE.RingGeometry(3.1,4.1,40).rotateX(-Math.PI/
 ring.position.y = 0.1; ring.visible = false; scene.add(ring);
 const ringDot = new THREE.Mesh(new THREE.CircleGeometry(1,20).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0xff5a36, depthWrite:false}));
 ringDot.position.y = 0.11; ringDot.visible = false; scene.add(ringDot);
+const pinMark = new THREE.Mesh(new THREE.RingGeometry(1.6,2.6,28).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0xff5a36, depthWrite:false}));
+pinMark.position.y = 0.12; pinMark.visible = false; scene.add(pinMark);
 const DOTS = 20;
 const dots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45,8,6), new THREE.MeshBasicMaterial({color:0xffffff}), DOTS);
 dots.frustumCulled = false; dots.visible = false; scene.add(dots);
@@ -533,6 +598,7 @@ function finishHole(capped){
   const h = hole();
   S.mode = 'result'; S.fl = null; S.vel = null; S.h = 0;
   S.scores[S.hi] = S.strokes;
+  try { localStorage.setItem('birdie-rush-round', JSON.stringify(S.scores)); } catch(e){}
   hud();
   if(!capped){ sfx.cup(); burst(h.pin.x,h.pin.y,0xffd447,1.5); }
   $('resName').textContent = capped ? '홀 아웃' : resultName(S.strokes, h.par);
@@ -544,6 +610,7 @@ function finishHole(capped){
 }
 function endRound(){
   S.mode = 'end';
+  try { localStorage.removeItem('birdie-rush-round'); } catch(e){}
   let total = 0, par = 0, rows = '<tr><th>홀</th><th>파</th><th>타수</th><th>결과</th></tr>';
   HOLES.forEach((h,i) => {
     const s = S.scores[i]; total += s; par += h.par;
@@ -652,6 +719,14 @@ function camGoal(){
     const b = S.camBack;
     gp.set(S.ball.x-fx*b, S.camH+S.h*0.55, -(S.ball.y-fy*b));
     gl.set(S.ball.x, S.h*0.9, -S.ball.y);
+  } else if(S.mode==='aim' && S.drag){
+    // 조준 중: 공에서 낙하 지점까지 내려다보는 항공 시점 (진행 방향이 화면 위쪽)
+    const c = CLUBS[S.club], lf = c.id==='P' ? 1 : lieFactor(lieOf(),c);
+    const span = clamp(Math.min(c.max*lf*1.12, pinDist()*1.3+18), 26, 290);
+    const ht = span*1.25/2/Math.tan(camera.fov*Math.PI/360);
+    const mx = S.ball.x+fx*span*0.45, my = S.ball.y+fy*span*0.45;
+    gp.set(mx-fx*span*0.2, ht, -(my-fy*span*0.2));
+    gl.set(mx, 0, -my);
   } else {
     const d = pinDist(), back = clamp(d*0.45+8, 10, 30), ht = back*0.46, la = clamp(d*0.6, 4, 70);
     S.camBack = back; S.camH = ht;
@@ -661,9 +736,10 @@ function camGoal(){
 }
 function camStep(dt){
   camGoal();
-  const k = reduceMotion ? 1 : 1-Math.exp(-dt*4.2);
+  const k = reduceMotion ? 1 : 1-Math.exp(-dt*(S.drag ? 7 : 4.2));
   camPos.lerp(gp,k); camLook.lerp(gl,k);
   camera.position.copy(camPos); camera.lookAt(camLook);
+  scene.fog.near = 260+camPos.y*1.3; scene.fog.far = 1100+camPos.y*1.6;
 }
 
 /* ---------- 그리기 ---------- */
@@ -671,27 +747,30 @@ const dummy = new THREE.Object3D();
 let clock = 0;
 function draw(dt){
   clock += dt;
-  ballMesh.position.set(S.ball.x, 0.75+S.h, -S.ball.y);
+  const az = clamp(camPos.y/55, 1, 4.5); // 항공 시점에서 공과 표식이 보이도록 키움
+  ballMesh.scale.setScalar(az);
+  ballMesh.position.set(S.ball.x, 0.75*az+S.h, -S.ball.y);
   ballMesh.visible = !(S.mode==='result' || S.mode==='end') || !!S.fl;
   blob.position.x = S.ball.x; blob.position.z = -S.ball.y;
   blob.visible = ballMesh.visible;
-  const s = 1+S.h*0.03; blob.scale.set(s,1,s); blob.material.opacity = 0.35/(1+S.h*0.06);
+  const s = (1+S.h*0.03)*az; blob.scale.set(s,1,s); blob.material.opacity = 0.35/(1+S.h*0.06);
   // 깃발 살랑임
   const flag = holeGroup && holeGroup.getObjectByName('flag');
   if(flag) flag.rotation.y = -(S.wind.a) + Math.sin(clock*3)*0.18*(0.3+S.wind.s/7);
   // 조준 표시
   const c = CLUBS[S.club];
   const aiming = S.mode==='aim' && S.drag && S.power>0.02;
-  ring.visible = ringDot.visible = dots.visible = aiming;
+  ring.visible = ringDot.visible = dots.visible = pinMark.visible = aiming;
+  if(aiming){ const hp = hole().pin; pinMark.position.x = hp.x; pinMark.position.z = -hp.y; pinMark.scale.set(az,1,az); }
   if(aiming){
     const putt = c.id==='P';
     const d = c.max*S.power*(putt?1:lieFactor(lieOf(),c)), apex = putt?0:d*0.16;
     const tx = S.ball.x+S.aim.dx*d, ty = S.ball.y+S.aim.dy*d;
-    const rs = putt ? 0.35 : clamp(d/90, 0.6, 1.6);
+    const rs = (putt ? 0.35 : clamp(d/90, 0.6, 1.6))*Math.max(1, az*0.6);
     ring.position.set(tx,0.1,-ty); ring.scale.set(rs,1,rs);
     ringDot.position.set(tx,0.11,-ty); ringDot.scale.set(rs,1,rs);
     for(let i=0;i<DOTS;i++){
-      const t = (i+1)/(DOTS+1), ds = putt ? 0.5 : clamp(d/120, 0.7, 1.5);
+      const t = (i+1)/(DOTS+1), ds = (putt ? 0.5 : clamp(d/120, 0.7, 1.5))*Math.max(1, az*0.7);
       dummy.position.set(S.ball.x+S.aim.dx*d*t, (putt?0.4:0.75)+4*apex*t*(1-t), -(S.ball.y+S.aim.dy*d*t));
       dummy.scale.set(ds,ds,ds); dummy.updateMatrix(); dots.setMatrixAt(i,dummy.matrix);
     }
@@ -747,7 +826,23 @@ function release(e, cancel){
 cv.addEventListener('pointerup', e => release(e,false));
 cv.addEventListener('pointercancel', e => release(e,true));
 
-$('startBtn').addEventListener('click', () => { audioOn(); $('startSheet').classList.remove('on'); S.scores = []; S.mode = 'aim'; hud(); });
+$('startBtn').addEventListener('click', () => {
+  audioOn(); $('startSheet').classList.remove('on'); S.scores = [];
+  try { localStorage.removeItem('birdie-rush-round'); } catch(e){}
+  S.mode = 'aim'; hud();
+});
+let saved = null;
+try {
+  const v = JSON.parse(localStorage.getItem('birdie-rush-round') || 'null');
+  if(Array.isArray(v) && v.length>0 && v.length<HOLES.length && v.every(n => Number.isInteger(n) && n>0 && n<30)) saved = v;
+} catch(e){}
+if(saved){
+  $('resumeBtn').style.display = ''; $('resumeBtn').textContent = (saved.length+1)+'번 홀부터 이어하기';
+  $('startBtn').textContent = '새 라운드';
+}
+$('resumeBtn').addEventListener('click', () => {
+  audioOn(); $('startSheet').classList.remove('on'); S.scores = saved.slice(); startHole(saved.length);
+});
 $('nextBtn').addEventListener('click', () => {
   $('holeSheet').classList.remove('on');
   if(S.hi===HOLES.length-1) endRound(); else startHole(S.hi+1);
@@ -772,7 +867,7 @@ function frame(ts){
 }
 resize();
 startHole(0, true);
-window.__game = S; // 디버깅용 상태 엿보기
+window.__game = S; window.__go = startHole; // 디버깅용
 requestAnimationFrame(frame);
 </script>
 </body>
