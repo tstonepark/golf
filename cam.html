@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>스윙 코치 카메라</title>
+<style>
+/* 폰 = 카메라 전용. 화면에는 연결 코드와 수평계만 크게 */
+:root{
+  color-scheme:dark;
+  --bg:#0c1512; --panel:#13201b; --line:#294238; --ink:#eaf2ec; --dim:#8fa69a;
+  --axis:#ffd23f; --ok:#58d68d; --warn:#ff8a5b;
+  --num:"Barlow Condensed","Roboto Condensed",system-ui,sans-serif;
+  --txt:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:18px/1.45 var(--txt);display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+[hidden]{display:none!important}
+#top{padding:16px 16px 8px;display:flex;flex-direction:column;gap:6px}
+#top h1{margin:0;font-size:20px;color:var(--dim);font-weight:600}
+#code{font:700 64px/1 var(--num);letter-spacing:.08em;color:var(--axis);font-variant-numeric:tabular-nums}
+#state{font-size:20px;font-weight:700}
+#state.ok{color:var(--ok)} #state.bad{color:var(--warn)}
+#level{font:600 22px var(--num);color:var(--dim);font-variant-numeric:tabular-nums}
+#level.bad{color:var(--warn)} #level.ok{color:var(--ok)}
+#stage{position:relative;flex:1;min-height:0;background:#000}
+#v{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#guide{position:absolute;inset:0;pointer-events:none}
+#bar{display:flex;gap:10px;padding:12px 16px;background:var(--panel);border-top:1px solid var(--line);flex-wrap:wrap}
+button{font:700 18px var(--txt);color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;
+  padding:14px 12px;min-height:56px;flex:1 1 30%;cursor:pointer}
+button.main{background:var(--axis);border-color:var(--axis);color:#1a1400;flex:1 1 100%}
+button:focus-visible{outline:3px solid var(--axis);outline-offset:2px}
+#err{color:var(--warn);font-size:16px;padding:0 16px}
+</style>
+</head>
+<body>
+<div id="top">
+  <h1>스윙 코치 카메라 · 아이패드에 아래 번호를 입력하세요</h1>
+  <div id="code">------</div>
+  <div id="state">준비 중</div>
+  <div id="level"></div>
+</div>
+<div id="stage">
+  <video id="v" playsinline muted autoplay></video>
+  <canvas id="guide"></canvas>
+</div>
+<p id="err"></p>
+<div id="bar">
+  <button class="main" id="start">카메라 켜기</button>
+  <button id="lens" disabled>렌즈 바꾸기</button>
+  <button id="newcode">번호 바꾸기</button>
+</div>
+<script src="vendor/peerjs/peerjs.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const PFX="adn-golfcoach-";
+// 중개 서버: 기본은 PeerJS 공개 서버. 주소 뒤에 ?peer=호스트:포트 를 붙이면 그 서버를 씀(자체 서버·시험용)
+function peerOpts(){ const v=new URLSearchParams(location.search).get("peer"); if(!v) return {};
+  const m=v.match(/^([A-Za-z0-9.-]+):(\d{1,5})$/); if(!m) return {};
+  return {host:m[1],port:+m[2],path:"/",secure:location.protocol==="https:"}; }                 // 공개 중개 서버에서 다른 서비스와 겹치지 않게 붙이는 접두어
+const FPS=Number(new URLSearchParams(location.search).get("fps"))||30;
+let stream=null, peer=null, conn=null, call=null, cams=[], camIdx=-1, code=null, wake=null;
+const tilt={pitch:null,roll:null};
+
+function load(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function save(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function state(t,cls){ $("state").textContent=t; $("state").className=cls||""; }
+function newCode(){ return String(Math.floor(100000+Math.random()*900000)); }   // 6자리: 남이 맞혀 들어오기 어렵게
+
+// ---------- 카메라 ----------
+async function openCam(deviceId){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  const v={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:FPS}};
+  if(deviceId) v.deviceId={exact:deviceId}; else v.facingMode={ideal:"environment"};
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:v});
+  const tr=stream.getVideoTracks()[0]; try{ tr.contentHint="motion"; }catch(e){}
+  $("v").srcObject=stream;
+  try{ cams=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput"); }catch(e){ cams=[]; }
+  const set=tr.getSettings?tr.getSettings():{};
+  camIdx=cams.findIndex(c=>c.deviceId===set.deviceId);
+  $("lens").disabled=cams.length<2;
+  $("lens").textContent= tr.label ? "렌즈: "+tr.label.replace(/camera/i,"").trim().slice(0,12) : "렌즈 바꾸기";
+  // 이미 연결 중이면 보내는 영상만 바꿔 끼움 (연결은 유지)
+  if(call&&call.peerConnection){
+    const s=call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==="video");
+    if(s) try{ await s.replaceTrack(tr); }catch(e){}
+  }
+  sendInfo();
+}
+async function nextLens(){
+  if(cams.length<2) return;
+  camIdx=(camIdx+1)%cams.length;
+  try{ await openCam(cams[camIdx].deviceId); }catch(e){ $("err").textContent="렌즈를 바꾸지 못했습니다 ("+e.name+")"; }
+}
+
+// ---------- 수평계 (아이패드로도 보냄: 기울기 보정용) ----------
+window.addEventListener("deviceorientation",e=>{
+  if(e.beta==null) return;
+  const portrait=!(screen.orientation&&/landscape/.test(screen.orientation.type));
+  if(portrait){ tilt.pitch=e.beta-90; tilt.roll=e.gamma; } else { tilt.pitch=Math.abs(e.gamma)-90; tilt.roll=e.beta; }
+  const bad=Math.abs(tilt.pitch)>10||Math.abs(tilt.roll)>3;
+  $("level").className=bad?"bad":"ok";
+  $("level").textContent=(tilt.pitch>0?"위로 ":"아래로 ")+Math.abs(Math.round(tilt.pitch))+"° · 좌우 "+Math.round(Math.abs(tilt.roll))+"° "+(bad?"기울어짐":"수평");
+});
+// 0.1초마다 기울기, 기울기 센서가 없어도 1초마다 생존 신호 (아이패드가 끊김을 빨리 알아채도록)
+let hbT=0;
+setInterval(()=>{ if(!(conn&&conn.open)) return; const now=Date.now();
+  try{ if(tilt.pitch!=null) conn.send({t:"tilt",pitch:tilt.pitch,roll:tilt.roll}); else if(now-hbT>1000){ hbT=now; conn.send({t:"hb"}); } }catch(e){} },100);
+function sendInfo(){
+  if(!(conn&&conn.open&&stream)) return;
+  const tr=stream.getVideoTracks()[0], s=tr.getSettings?tr.getSettings():{};
+  try{ conn.send({t:"info",label:tr.label||"",w:s.width,h:s.height,fps:s.frameRate}); }catch(e){}
+}
+
+// ---------- 연결 (공개 중개 서버로 처음에 서로 찾기만 하고, 영상은 와이파이 안에서 직접 보냄) ----------
+function startPeer(){
+  if(peer&&!peer.destroyed) peer.destroy();
+  $("code").textContent=code; state("아이패드 연결 기다리는 중");
+  peer=new Peer(PFX+code,peerOpts());
+  peer.on("open",()=>state("아이패드 연결 기다리는 중"));
+  peer.on("error",e=>{
+    if(e.type==="unavailable-id"){ code=newCode(); save("golfcam.code",code); startPeer(); return; }   // 번호가 이미 쓰이는 중
+    if(e.type==="network"||e.type==="server-error"||e.type==="socket-error"){ state("중개 서버에 연결하지 못했습니다. 인터넷을 확인해 주세요","bad"); return; }
+    state("연결 오류 ("+e.type+")","bad");
+  });
+  peer.on("disconnected",()=>{ setTimeout(()=>{ try{ if(!peer.destroyed) peer.reconnect(); }catch(e){} },2000); });
+  peer.on("connection",c=>{
+    // 새 연결이 오면 그쪽으로 바꿈 (아이패드가 다시 붙는 경우). 번호를 아는 기기만 들어올 수 있음
+    c.on("open",()=>{
+      if(conn&&conn!==c){ try{ conn.close(); }catch(e){} }
+      if(call){ try{ call.close(); }catch(e){} call=null; }
+      conn=c; state("아이패드에 연결됨","ok");
+      call=peer.call(c.peer,stream);
+      call.on("close",()=>{ if(conn===c) state("연결 끊김 · 아이패드가 다시 붙기를 기다리는 중","bad"); });
+      tuneSender();
+      sendInfo();
+    });
+    c.on("data",d=>{ if(d&&d.t==="lens") nextLens(); });
+    c.on("close",()=>{ if(conn===c){ conn=null; state("연결 끊김 · 아이패드가 다시 붙기를 기다리는 중","bad"); } });
+  });
+}
+// 화질보다 프레임 수를 지키도록 (스윙 분석은 끊기지 않는 게 중요)
+function tuneSender(){
+  setTimeout(()=>{ try{
+    const s=call&&call.peerConnection&&call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==="video");
+    if(!s) return; const p=s.getParameters(); if(!p.encodings||!p.encodings.length) p.encodings=[{}];
+    p.encodings[0].maxBitrate=4000000; p.encodings[0].maxFramerate=FPS; p.degradationPreference="maintain-framerate";
+    s.setParameters(p).catch(()=>{});
+  }catch(e){} },1500);
+}
+
+async function start(){
+  $("err").textContent="";
+  if(location.protocol!=="https:"&&!["localhost","127.0.0.1"].includes(location.hostname)){ $("err").textContent="https:// 주소로 열어야 카메라를 쓸 수 있습니다."; return; }
+  if(typeof Peer==="undefined"){ $("err").textContent="연결 모듈을 불러오지 못했습니다. 새로고침해 주세요."; return; }
+  $("start").disabled=true;
+  try{ await openCam(); }
+  catch(e){ $("start").disabled=false; $("err").textContent= e.name==="NotAllowedError" ? "카메라 권한이 거부되었습니다. 주소창 왼쪽 아이콘에서 카메라를 허용해 주세요." : "카메라를 열지 못했습니다 ("+e.name+")."; return; }
+  $("start").hidden=true;
+  try{ if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function") await DeviceOrientationEvent.requestPermission(); }catch(e){}
+  try{ wake=await navigator.wakeLock.request("screen"); }catch(e){}
+  startPeer();
+}
+document.addEventListener("visibilitychange",async()=>{ if(document.visibilityState==="visible"&&stream){ try{ wake=await navigator.wakeLock.request("screen"); }catch(e){} } });
+
+// 화면 가운데 세로선: 골퍼를 화면 중앙에 맞추는 기준
+function drawGuide(){
+  const c=$("guide"), r=c.getBoundingClientRect(); c.width=r.width; c.height=r.height;
+  const g=c.getContext("2d"); g.strokeStyle="rgba(255,210,63,.5)"; g.setLineDash([8,8]); g.lineWidth=2;
+  g.beginPath(); g.moveTo(r.width/2,0); g.lineTo(r.width/2,r.height); g.stroke();
+}
+window.addEventListener("resize",drawGuide); drawGuide();
+
+code=load("golfcam.code"); if(!/^\d{6}$/.test(code||"")){ code=newCode(); save("golfcam.code",code); }
+$("code").textContent=code;
+$("start").onclick=start;
+$("lens").onclick=nextLens;
+$("newcode").onclick=()=>{ code=newCode(); save("golfcam.code",code); if(stream) startPeer(); else $("code").textContent=code; };
+</script>
+</body>
+</html>
