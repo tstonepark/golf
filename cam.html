@@ -42,6 +42,7 @@ button:focus-visible{outline:3px solid var(--axis);outline-offset:2px}
   <div id="code">------</div>
   <div id="state">준비 중</div>
   <div id="level"></div>
+  <div id="net" style="font-size:16px;color:var(--dim)"></div>
 </div>
 <div id="stage">
   <video id="v" playsinline muted autoplay></video>
@@ -74,8 +75,11 @@ function newCode(){ return String(Math.floor(100000+Math.random()*900000)); }   
 async function openCam(deviceId){
   if(stream) stream.getTracks().forEach(t=>t.stop());
   const v={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:FPS}};
-  if(deviceId) v.deviceId={exact:deviceId}; else v.facingMode={ideal:"environment"};
-  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:v});
+  if(deviceId){ v.deviceId={exact:deviceId}; stream=await navigator.mediaDevices.getUserMedia({audio:false,video:v}); }
+  else{
+    try{ stream=await navigator.mediaDevices.getUserMedia({audio:false,video:Object.assign({facingMode:{exact:"environment"}},v)}); }
+    catch(e){ if(e.name==="NotAllowedError") throw e; stream=await navigator.mediaDevices.getUserMedia({audio:false,video:Object.assign({facingMode:"environment"},v)}); }
+  }
   const tr=stream.getVideoTracks()[0]; try{ tr.contentHint="motion"; }catch(e){}
   $("v").srcObject=stream;
   try{ cams=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput"); }catch(e){ cams=[]; }
@@ -123,17 +127,23 @@ function startPeer(){
   peer.on("open",()=>state("아이패드 연결 기다리는 중"));
   peer.on("error",e=>{
     if(e.type==="unavailable-id"){ code=newCode(); save("golfcam.code",code); startPeer(); return; }   // 번호가 이미 쓰이는 중
-    if(e.type==="network"||e.type==="server-error"||e.type==="socket-error"){ state("중개 서버에 연결하지 못했습니다. 인터넷을 확인해 주세요","bad"); return; }
+    if(e.type==="network"||e.type==="server-error"||e.type==="socket-error"||e.type==="socket-closed"){ state("중개 서버(0.peerjs.com)에 연결하지 못했습니다. 인터넷을 확인해 주세요","bad"); return; }
     state("연결 오류 ("+e.type+")","bad");
   });
   peer.on("disconnected",()=>{ setTimeout(()=>{ try{ if(!peer.destroyed) peer.reconnect(); }catch(e){} },2000); });
   peer.on("connection",c=>{
     // 새 연결이 오면 그쪽으로 바꿈 (아이패드가 다시 붙는 경우). 번호를 아는 기기만 들어올 수 있음
+    state("아이패드가 접속함 · 영상 보내는 중");
     c.on("open",()=>{
       if(conn&&conn!==c){ try{ conn.close(); }catch(e){} }
       if(call){ try{ call.close(); }catch(e){} call=null; }
-      conn=c; state("아이패드에 연결됨","ok");
+      conn=c;
       call=peer.call(c.peer,stream);
+      const pc=call.peerConnection;
+      if(pc) pc.addEventListener("iceconnectionstatechange",()=>{ const st=pc.iceConnectionState;
+        if(st==="connected"||st==="completed") state("아이패드에 연결됨","ok");
+        else if(st==="checking") state("아이패드 접속 · 영상 경로 찾는 중");
+        else if(st==="failed") state("영상 경로가 막혔습니다. 두 기기를 같은 와이파이(또는 폰 핫스팟)에 연결하세요","bad"); });
       call.on("close",()=>{ if(conn===c) state("연결 끊김 · 아이패드가 다시 붙기를 기다리는 중","bad"); });
       tuneSender();
       sendInfo();
@@ -174,6 +184,10 @@ function drawGuide(){
 }
 window.addEventListener("resize",drawGuide); drawGuide();
 
+// 폰이 모바일 데이터면 아이패드와 직접 연결이 안 되는 경우가 많음 → 미리 알림
+try{ const cn=navigator.connection; const chk=()=>{ const t=cn&&cn.type;
+  $("net").textContent= t==="cellular" ? "⚠ 폰이 모바일 데이터입니다. 아이패드와 같은 와이파이에 연결하세요" : t==="wifi" ? "와이파이 연결됨" : ""; };
+  if(cn){ chk(); cn.addEventListener("change",chk); } }catch(e){}
 code=load("golfcam.code"); if(!/^\d{6}$/.test(code||"")){ code=newCode(); save("golfcam.code",code); }
 $("code").textContent=code;
 $("start").onclick=start;

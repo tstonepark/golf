@@ -147,7 +147,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v27</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v28</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -157,6 +157,7 @@ button:disabled{opacity:.4}
         <input id="rcode" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6자리 번호" autocomplete="off" aria-label="폰 화면의 번호">
         <button class="main" id="rconnect" style="flex:none;padding:14px 22px">폰 연결</button>
       </div>
+      <p id="rstate" style="color:var(--axis);font-size:16px;margin:0"></p>
     </div>
     <p id="err" style="color:var(--warn)"></p>
   </div>
@@ -251,7 +252,7 @@ let last=null, lastLm=null; // 가장 최근 측정값 / 관절
 let lostFrames=0, frames=0, fpsT=performance.now(), fps=0;
 const ema={};
 
-function setStatus(text,cls){ if(remoteCode&&!remoteUp&&running&&!/^폰/.test(text)) return;   // 폰이 끊긴 동안에는 끊김 안내를 유지
+function setStatus(text,cls){ if(remoteCode&&!remoteUp&&running&&!/^폰 연결/.test(text)) return;   // 폰이 끊긴 동안에는 끊김 안내를 유지
   $("stxt").textContent=text; $("dot").className=cls||""; }
 
 let cams=[], camIdx=-1, camFps=null;   // 카메라 목록 (권한 허용 후에 라벨이 채워짐)
@@ -291,8 +292,9 @@ async function boot(remote){
   beep(660,.05);                                         // 누른 순간에 소리 권한을 열어 둠
   try{ if(cfg.voice&&window.speechSynthesis){ const u=new SpeechSynthesisUtterance("시작합니다"); u.lang="ko-KR"; speechSynthesis.speak(u); } }catch(e){}
   if(remote){
-    try{ await remoteConnect(remote,15000); }
-    catch(e){ $("start").disabled=false; $("rconnect").disabled=false; setStatus("폰 연결 실패","bad"); $("err").textContent=e.message; return; }
+    try{ await remoteConnect(remote,20000); }
+    catch(e){ remoteReset(); $("start").disabled=false; $("rconnect").disabled=false; $("rstate").textContent="";
+      setStatus("폰 연결 실패","bad"); $("err").textContent=e.message; return; }
   }
   else try{ await startCamera(); }
   catch(e){
@@ -354,32 +356,51 @@ function peerOpts(){ const v=new URLSearchParams(location.search).get("peer"); i
 var rpeer=null, rconn=null, remoteCode=null, remoteRetry=null, remoteUp=false, remoteLast=0;
 // 폰이 꺼지거나 페이지가 닫혀도 WebRTC는 한참 뒤에야 끊김을 알려 줌 → 폰의 생존 신호가 4초 없으면 끊긴 것으로 봄
 setInterval(()=>{ if(remoteCode&&remoteUp&&Date.now()-remoteLast>4000) remoteLost(); },1000);
+// 연결 단계: server(중개 서버 접속) → find(폰 찾기) → media(영상 연결) → up
+let rstage="";
+function rstep(stage,text){ rstage=stage; const m="폰 연결 · "+text; setStatus(m, stage==="up"?"on":""); if(!running) $("err").textContent=""; $("rstate").textContent=text; dlog(m); }
 function remoteConnect(code,timeout){
   return new Promise((resolve,reject)=>{
     if(typeof Peer==="undefined") return reject(new Error("연결 모듈을 불러오지 못했습니다. 새로고침해 주세요."));
     let done=false; const ok=()=>{ if(!done){ done=true; resolve(); } }, fail=m=>{ if(!done){ done=true; reject(new Error(m)); } };
     if(!rpeer||rpeer.destroyed){
+      rstep("server","중개 서버 접속 중");
       rpeer=new Peer(peerOpts());
+      rpeer.on("open",()=>{ if(rstage==="server") rstep("find","폰 찾는 중"); });
       rpeer.on("call",call=>{
+        rstep("media","폰 찾음 · 영상 연결 중");
         call.answer();
+        const pc=call.peerConnection;
+        if(pc) pc.addEventListener("iceconnectionstatechange",()=>{
+          const st=pc.iceConnectionState; dlog("영상 경로: "+st);
+          if(st==="checking") rstep("media","폰 찾음 · 영상 경로 찾는 중");
+          if(st==="failed") rpeer._fail&&rpeer._fail("ice-failed");
+        });
         call.on("stream",st=>{ video.srcObject=st; video.play().catch(()=>{}); remoteUp=true; remoteLast=Date.now(); facing="environment";
-          if(running) setStatus("폰 다시 연결됨","on"); dlog("폰 영상 수신"); clearInterval(remoteRetry); remoteRetry=null; rpeer._ok&&rpeer._ok(); });
+          rstep("up","연결됨"); clearInterval(remoteRetry); remoteRetry=null; rpeer._ok&&rpeer._ok(); });
         call.on("close",remoteLost);
       });
-      rpeer.on("error",e=>{ dlog("연결 오류: "+e.type); rpeer._fail&&rpeer._fail(e.type); });
+      rpeer.on("error",e=>{ dlog("연결 오류: "+e.type+" "+(e.message||"")); rpeer._fail&&rpeer._fail(e.type); });
       rpeer.on("disconnected",()=>{ setTimeout(()=>{ try{ if(!rpeer.destroyed) rpeer.reconnect(); }catch(x){} },2000); });
-    }
+    }else rstep("find","폰 찾는 중");
     rpeer._ok=ok;
-    rpeer._fail=t=>fail(t==="peer-unavailable"?"폰을 찾지 못했습니다. 폰에서 cam.html을 열고 '카메라 켜기'를 눌렀는지, 번호가 맞는지 확인해 주세요."
-      : t==="network"||t==="server-error"||t==="socket-error" ? "중개 서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요." : "연결 오류 ("+t+")");
+    rpeer._fail=t=>fail(
+        t==="peer-unavailable" ? "폰을 찾지 못했습니다. 폰에서 cam.html을 열고 '카메라 켜기'를 누른 뒤, 폰 화면에 '아이패드 연결 기다리는 중'이 보이는지와 번호가 맞는지 확인해 주세요."
+      : t==="ice-failed" ? "폰은 찾았지만 영상 경로가 막혔습니다. 두 기기를 같은 와이파이에 연결하세요(폰이 LTE/5G면 안 됩니다). 연습장 와이파이가 기기끼리 통신을 막으면 폰 핫스팟을 켜고 아이패드를 거기에 연결하세요."
+      : t==="network"||t==="server-error"||t==="socket-error"||t==="socket-closed" ? "중개 서버(0.peerjs.com)에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."
+      : "연결 오류 ("+t+")");
     const go=()=>{
       if(rconn) try{ rconn.close(); }catch(x){}
       rconn=rpeer.connect(PFX+code,{serialization:"json"});
+      rconn.on("open",()=>{ if(rstage==="find") rstep("media","폰 찾음 · 영상 기다리는 중"); });
       rconn.on("data",onRemoteData);
       rconn.on("close",remoteLost);
     };
     if(rpeer.open) go(); else rpeer.once("open",go);
-    setTimeout(()=>fail("폰에서 영상이 오지 않습니다. 두 기기가 같은 와이파이인지 확인해 주세요. 연습장 와이파이가 기기끼리 통신을 막으면, 아이패드를 폰 핫스팟에 연결하세요."),timeout||15000);
+    setTimeout(()=>fail(
+        rstage==="server" ? "중개 서버(0.peerjs.com)에 접속하지 못했습니다. 인터넷 연결을 확인하거나 잠시 뒤 다시 시도해 주세요."
+      : rstage==="find" ? "폰이 응답하지 않습니다. 폰 화면이 켜져 있고 '아이패드 연결 기다리는 중'이 보이는지 확인해 주세요."
+      : "폰은 찾았지만 영상이 오지 않습니다. 두 기기를 같은 와이파이에 연결하세요(폰이 LTE/5G면 안 됩니다). 안 되면 폰 핫스팟에 아이패드를 연결하세요."),timeout||20000);
   });
 }
 function onRemoteData(d){
@@ -389,11 +410,18 @@ function onRemoteData(d){
   else if(d.t==="info"){ camFps=isFinite(d.fps)?+d.fps:null; $("flip").textContent="폰 렌즈";
     dlog("폰 카메라: "+String(d.label||"").slice(0,40)+" "+(d.w|0)+"x"+(d.h|0)+" "+(camFps?Math.round(camFps)+"fps":"")); }
 }
+function remoteReset(){   // 폰 모드를 완전히 끄고 이 기기 카메라를 쓸 수 있게 되돌림
+  remoteCode=null; remoteUp=false; clearInterval(remoteRetry); remoteRetry=null;
+  try{ if(rconn) rconn.close(); }catch(e){} rconn=null;
+  try{ if(rpeer) rpeer.destroy(); }catch(e){} rpeer=null;
+  $("flip").textContent="카메라";
+}
 function remoteLost(){
   if(!remoteCode||remoteRetry) return;
-  remoteUp=false; setStatus("폰 연결 끊김 · 다시 연결 중","bad"); dlog("폰 연결 끊김");
+  remoteUp=false; setStatus("폰 연결 · 끊김 · 다시 연결 중","bad"); dlog("폰 연결 끊김");
   coach.lost();
   remoteRetry=setInterval(()=>{ if(remoteUp){ clearInterval(remoteRetry); remoteRetry=null; return; }
+    try{ if(rpeer) rpeer.destroy(); }catch(e){} rpeer=null; rconn=null;   // 매번 새로 접속 (이전 연결 찌꺼기가 남아 막히는 것 방지)
     remoteConnect(remoteCode,6000).catch(()=>{}); },7000);
 }
 
@@ -1064,7 +1092,7 @@ $("settop").onclick=saveTop;
 $("voice").onclick=()=>{ cfg.voice=!cfg.voice; store("cfg",cfg); showVoice(); if(cfg.voice) say("음성 안내 켬","good"); else if(window.speechSynthesis) speechSynthesis.cancel(); };
 $("cfgbtn").onclick=()=>{ $("panel").hidden=!$("panel").hidden; };
 
-$("start").onclick=()=>boot();
+$("start").onclick=()=>{ remoteReset(); boot(); };
 try{ const c=localStorage.getItem("swing.rcode"); if(c) $("rcode").value=c; }catch(e){}
 $("rconnect").onclick=()=>{
   const c=$("rcode").value.replace(/\D/g,"");
