@@ -147,7 +147,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v35</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v36</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -222,24 +222,31 @@ let facing="user", rightHanded=true;
 let ref=null, noBody=null, wristS=null, wristMiss=0;
 // 폰 기울기(센서). pitch: +면 위를 봄, roll: 좌우 기울기. null이면 센서 없음
 const tilt={pitch:null,roll:null,ok:false};
-function onOrient(e){
-  if(e.beta==null) return;
-  const portrait=!(screen.orientation&&/landscape/.test(screen.orientation.type));
-  if(portrait){ tilt.pitch=e.beta-90; tilt.roll=e.gamma; }      // 세로로 세웠을 때 beta=90이 수직
-  else { tilt.pitch=Math.abs(e.gamma)-90; tilt.roll=e.beta; }
-  tilt.ok=true;
+// 기울기: 중력 방향(가속도계)으로 계산. 폰을 세워 두면 방향 센서의 좌우 값(gamma)은 짐벌 잠금 때문에
+// 엉뚱한 값이 나오므로 쓰지 않음. pitch +면 카메라가 위를 봄, roll +면 화면 기준 시계 방향으로 기욺
+const grav={x:0,y:0,z:0,n:0};
+function tiltFromMotion(e,front){
+  const a=e.accelerationIncludingGravity; if(!a||a.x==null) return null;
+  const k=grav.n<10?0.5:0.1; grav.x+=k*(a.x-grav.x); grav.y+=k*(a.y-grav.y); grav.z+=k*(a.z-grav.z); grav.n++;
+  const ang=((screen.orientation&&screen.orientation.angle)||window.orientation||0)*Math.PI/180;
+  let sx=grav.x*Math.cos(ang)-grav.y*Math.sin(ang), sy=grav.x*Math.sin(ang)+grav.y*Math.cos(ang), sz=grav.z;
+  if(sy<0){ sx=-sx; sy=-sy; sz=-sz; }        // iOS와 안드로이드는 부호가 반대 → 세워 둔 기기는 화면 위쪽이 위라고 보고 맞춤
+  const roll=Math.atan2(-sx,sy)*180/Math.PI, up=Math.atan2(sz,Math.hypot(sx,sy))*180/Math.PI;
+  // 후면 카메라: 화면이 위로 젖혀지면 카메라는 아래를 봄. 전면 카메라: 같이 위를 봄 / 전면은 좌우가 반대
+  return front ? {pitch:up,roll:-roll} : {pitch:-up,roll:roll};
 }
+function onMotion(e){ if(remoteCode) return; const t=tiltFromMotion(e,facing==="user"); if(!t) return; tilt.pitch=t.pitch; tilt.roll=t.roll; tilt.ok=true; }
 async function startTilt(){
   try{
-    if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==="function"){
-      const r=await DeviceOrientationEvent.requestPermission(); if(r!=="granted") return; }
-    window.addEventListener("deviceorientation",onOrient);
+    if(window.DeviceMotionEvent&&typeof DeviceMotionEvent.requestPermission==="function"){
+      const r=await DeviceMotionEvent.requestPermission(); if(r!=="granted") return; }
+    window.addEventListener("devicemotion",onMotion);
   }catch(e){}
 }
 // 피치 보정: 화면 좌표를 폰이 수평으로 봤을 때의 좌표로 되돌림 (세로 화각 70° 가정)
 function rectify(p,w,h){
   if(!tilt.ok||cfg.tiltfix===false) return p;
-  const f=h/(2*Math.tan((cfg.vfov||70)/2*Math.PI/180))*(remoteCode&&remoteZoom>1?remoteZoom:1), cx=w/2, cy=h/2, th=tilt.pitch*Math.PI/180, rl=-tilt.roll*Math.PI/180;
+  const f=h/(2*Math.tan((cfg.vfov||70)/2*Math.PI/180))*(remoteCode&&remoteZoom>1?remoteZoom:1), cx=w/2, cy=h/2, th=tilt.pitch*Math.PI/180, rl=tilt.roll*Math.PI/180;   // 기운 만큼 반대로 돌려 되돌림
   let X=(p.x-cx)/f, Y=(p.y-cy)/f;
   // 롤: 화면 내 회전
   const xr=X*Math.cos(rl)-Y*Math.sin(rl), yr=X*Math.sin(rl)+Y*Math.cos(rl); X=xr; Y=yr;
@@ -829,8 +836,10 @@ const coach={
     this.prev={h:v.hand,t};
     const b=this.base(), still=speed<30;
     if(this.phase==="wait"){
-      if(v.hand<b+15&&still){ if(this.stillSince==null) this.stillSince=t;
-        if(t-this.stillSince>2000){ this.phase="ready"; if(typeof autoRef==="function") autoRef(); } }
+      // 어드레스 판단: 손이 골반 근처까지 내려와 있고(골반 높이 기준 +25% 이하) 1.2초 멈춤
+      this.why= v.hand>=b+25 ? "손을 어드레스 위치로 내리세요 (손 높이 "+Math.round(v.hand)+"%)" : !still ? "어드레스에서 잠깐 멈추세요" : "";
+      if(v.hand<b+25&&still){ if(this.stillSince==null) this.stillSince=t;
+        if(t-this.stillSince>1200){ this.phase="ready"; this.why=""; if(typeof autoRef==="function") autoRef(); } }
       else this.stillSince=null;
       return;
     }
@@ -1121,7 +1130,8 @@ function showLevel(){
   el.hidden=false; el.className=bad?"bad":"";
   el.textContent=(tilt.pitch>0?"위로 ":"아래로 ")+Math.abs(Math.round(tilt.pitch))+"° · 좌우 "+Math.round(Math.abs(tilt.roll))+"°"+(bad?" 기울어짐":" 수평");
 }
-function showPhase(){ showLevel(); const el=$("phase"); el.hidden=!running; el.textContent=PHASE[coach.phase]+(target?"":" · 목표 탑 없음"); }
+function showPhase(){ showLevel(); const el=$("phase"); el.hidden=!running;
+  el.textContent=PHASE[coach.phase]+(coach.phase==="wait"&&coach.why?" · "+coach.why:"")+(target?"":" · 목표 탑 없음"); }
 function showTarget(){
   $("tinfo").textContent= target ? "저장된 목표 탑: 손 높이 "+Math.round(target.hand)+"%"+(target.shTurn!=null?", 어깨 회전 "+Math.round(target.shTurn)+"°":"")
     : "저장된 목표 탑이 없습니다. 탑 판정(조금 더/오버)은 목표를 저장해야 나옵니다.";

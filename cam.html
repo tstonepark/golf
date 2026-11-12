@@ -244,10 +244,21 @@ async function nextLens(){
 }
 
 // ---------- 수평계 (아이패드로도 보냄: 기울기 보정용) ----------
-window.addEventListener("deviceorientation",e=>{
-  if(e.beta==null) return;
-  const portrait=!(screen.orientation&&/landscape/.test(screen.orientation.type));
-  if(portrait){ tilt.pitch=e.beta-90; tilt.roll=e.gamma; } else { tilt.pitch=Math.abs(e.gamma)-90; tilt.roll=e.beta; }
+// 기울기: 중력 방향(가속도계)으로 계산. 폰을 세워 두면 방향 센서의 좌우 값(gamma)은 짐벌 잠금 때문에
+// 엉뚱한 값이 나오므로 쓰지 않음. pitch +면 카메라가 위를 봄, roll +면 화면 기준 시계 방향으로 기욺
+const grav={x:0,y:0,z:0,n:0};
+function tiltFromMotion(e,front){
+  const a=e.accelerationIncludingGravity; if(!a||a.x==null) return null;
+  const k=grav.n<10?0.5:0.1; grav.x+=k*(a.x-grav.x); grav.y+=k*(a.y-grav.y); grav.z+=k*(a.z-grav.z); grav.n++;
+  const ang=((screen.orientation&&screen.orientation.angle)||window.orientation||0)*Math.PI/180;
+  let sx=grav.x*Math.cos(ang)-grav.y*Math.sin(ang), sy=grav.x*Math.sin(ang)+grav.y*Math.cos(ang), sz=grav.z;
+  if(sy<0){ sx=-sx; sy=-sy; sz=-sz; }        // iOS와 안드로이드는 부호가 반대 → 세워 둔 기기는 화면 위쪽이 위라고 보고 맞춤
+  const roll=Math.atan2(-sx,sy)*180/Math.PI, up=Math.atan2(sz,Math.hypot(sx,sy))*180/Math.PI;
+  // 후면 카메라: 화면이 위로 젖혀지면 카메라는 아래를 봄. 전면 카메라: 같이 위를 봄 / 전면은 좌우가 반대
+  return front ? {pitch:up,roll:-roll} : {pitch:-up,roll:roll};
+}
+window.addEventListener("devicemotion",e=>{
+  const t=tiltFromMotion(e,false); if(!t) return; tilt.pitch=t.pitch; tilt.roll=t.roll;
   const bad=Math.abs(tilt.pitch)>10||Math.abs(tilt.roll)>3;
   $("level").className=bad?"bad":"ok";
   $("level").textContent=(tilt.pitch>0?"위로 ":"아래로 ")+Math.abs(Math.round(tilt.pitch))+"° · 좌우 "+Math.round(Math.abs(tilt.roll))+"° "+(bad?"기울어짐":"수평");
@@ -317,7 +328,7 @@ async function start(){
   try{ await openCam(); }
   catch(e){ $("start").disabled=false; $("err").textContent= e.name==="NotAllowedError" ? "카메라 권한이 거부되었습니다. 주소창 왼쪽 아이콘에서 카메라를 허용해 주세요." : "카메라를 열지 못했습니다 ("+e.name+")."; return; }
   $("start").hidden=true;
-  try{ if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function") await DeviceOrientationEvent.requestPermission(); }catch(e){}
+  try{ if(typeof DeviceMotionEvent!=="undefined"&&typeof DeviceMotionEvent.requestPermission==="function") await DeviceMotionEvent.requestPermission(); }catch(e){}
   try{ wake=await navigator.wakeLock.request("screen"); }catch(e){}
   startPeer();
 }
