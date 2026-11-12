@@ -82,7 +82,12 @@ button.off{color:var(--dim)}
 #replay{position:absolute;inset:0;background:#000;z-index:3;display:flex;flex-direction:column}
 #rcv{flex:1;min-height:0;width:100%;display:block}
 #rbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--panel);border-top:1px solid var(--line)}
-#rbar button{min-height:40px;padding:6px 10px;font-size:13px}
+#rbar button{min-height:44px;padding:6px 12px;font-size:16px}
+#rguide{position:absolute;left:12px;top:48px;max-width:min(560px,calc(100% - 24px));background:rgba(12,21,18,.8);border-radius:8px;padding:12px 16px;pointer-events:none}
+#rguide .h{font:700 clamp(22px,4.4vmin,40px) var(--sans,system-ui);color:var(--axis)}
+#rguide .p{font-size:clamp(15px,2.6vmin,24px);color:#eaf2ec;margin:4px 0 8px;line-height:1.35}
+#rguide .r{font-size:clamp(17px,3vmin,28px);line-height:1.45;color:#eaf2ec;white-space:nowrap}
+#rguide .ok{color:#58d68d} #rguide .bad{color:#ff8a65} #rguide .na{color:#8fa39a}
 #rbar input[type=range]{flex:1 1 100%;accent-color:var(--axis);height:28px}
 #rinfo{position:absolute;left:12px;top:10px;font:600 13px var(--num);color:var(--axis);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
 #result{cursor:pointer}
@@ -92,9 +97,9 @@ button.off{color:var(--dim)}
 table.log{border-collapse:collapse;font:500 16px var(--num);white-space:nowrap} table.log th,table.log td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right} table.log th{color:var(--dim);font-size:14px;position:sticky;top:0;background:var(--panel)} table.log td:nth-child(2){text-align:left}
 #summary button{font-size:17px;padding:12px 16px} #summary p{margin:0 0 6px} #summary b{font:600 16px var(--num);color:var(--axis)}
 #rhint{flex:1 1 100%;font-size:11px;color:var(--dim)}
-#rphases button{flex:1;padding:6px 4px;font-size:12px;color:var(--dim)} #rphases button.on{color:var(--axis);border-color:var(--axis)}
+#rphases button{flex:1;padding:10px 4px;font-size:17px;font-weight:600;color:var(--dim)} #rphases button.on{color:var(--axis);border-color:var(--axis)}
 #panel{z-index:2;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);
-  border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center}
+  border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:10px 12px;align-items:center;max-height:calc(100% - 24px);overflow-y:auto;-webkit-overflow-scrolling:touch}
 #panel h2{grid-column:1/-1;margin:0;font-size:15px}
 #panel p{grid-column:1/-1;margin:0;font-size:12px;color:var(--dim)}
 #panel label{font-size:13px}
@@ -124,6 +129,7 @@ button:disabled{opacity:.4}
   <div id="replay" hidden>
     <canvas id="rcv"></canvas>
     <div id="rinfo"></div>
+    <div id="rguide" hidden></div>
     <div id="rbar">
       <input id="rslider" type="range" min="0" max="0" value="0" aria-label="프레임">
       <button id="rprev">◀ 1칸</button>
@@ -159,13 +165,14 @@ button:disabled{opacity:.4}
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-big">문제를 큰 글씨로 화면에 표시</label><input id="c-big" type="checkbox" style="width:24px;height:24px">
     <label for="c-video">영상 저장 (끄면 수치만 기록, 리플레이 없음)</label><input id="c-video" type="checkbox" style="width:24px;height:24px">
+    <label for="c-guide">리플레이에 단계별 가이드 표시</label><input id="c-guide" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
     <p>%는 정면에서는 어깨너비, 후방에서는 몸통 길이의 3/4을 100으로 봅니다.</p>
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v38</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v39</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -640,9 +647,9 @@ function onResults(res){
   if(now-fpsT>1000){ fps=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; }
 
   const lm=res.poseLandmarks, wl=res.poseWorldLandmarks;
-  if(cfg.video!==false) rec.push(img,iw,ih,lm,now);
   noBody=null;
   const m= lm ? measure(lm,wl,iw,ih) : null;
+  rec.push(img,iw,ih,lm,now,m);
   last=m; lastLm= m&&lm ? {lm:lm.map(p=>({x:p.x*iw,y:p.y*ih,v:p.visibility})),hip:ref?ref.hip:m.hip,U:ref?ref.U:m.U} : null;
 
   // 목표 탑 고스트: 저장 당시 어드레스 골반을 지금 어드레스 골반에 맞춰 겹침
@@ -970,14 +977,20 @@ function showResult(v,pk,c,label,sw){
 // ---------- 녹화 / 리플레이 ----------
 const rec={
   buf:[], keepMs:9000, oc:document.createElement("canvas"), busy:false, last:null, lastT:0,
-  push(img,iw,ih,lm,t){
+  push(img,iw,ih,lm,t,m){
     if(this.busy||t-this.lastT<(cfg.fps>30?30:60)) return; this.busy=true; this.lastT=t;
-    const w=360, h=Math.round(ih*w/iw); if(this.oc.width!==w||this.oc.height!==h){ this.oc.width=w; this.oc.height=h; }
-    this.oc.getContext("2d").drawImage(img,0,0,w,h);
+    const w=360, h=Math.round(ih*w/iw);
     const L2=lm?lm.map(p=>({x:p.x,y:p.y,v:p.visibility})):null;
-    let url=null; try{ url=this.oc.toDataURL("image/jpeg",0.7); }catch(e){ if(!this.warned){ this.warned=1; dlog("녹화 실패: "+e.message); } }
-    this.busy=false; if(!url) return;
-    this.buf.push({url,w,h,lm:L2,t});
+    // 프레임마다 측정값도 같이 보관 → 단계별 가이드에 사용 (영상을 꺼도 뼈대·수치는 남음)
+    const V=m?{}:null; if(m) ["head","sway","headUp","spine","shTurn","weight","knee","kneeD","hand","bend","bendD","hipFwd","headFwd"].forEach(k=>{ if(m[k]!=null&&isFinite(m[k])) V[k]=m[k]; });
+    let url=null;
+    if(cfg.video!==false){
+      if(this.oc.width!==w||this.oc.height!==h){ this.oc.width=w; this.oc.height=h; }
+      this.oc.getContext("2d").drawImage(img,0,0,w,h);
+      try{ url=this.oc.toDataURL("image/jpeg",0.7); }catch(e){ if(!this.warned){ this.warned=1; dlog("녹화 실패: "+e.message); } }
+    }
+    this.busy=false;
+    this.buf.push({url,w,h,lm:L2,t,v:V});
     while(this.buf.length&&t-this.buf[0].t>this.keepMs) this.buf.shift();
   },
   freeze(startT,endT){
@@ -985,7 +998,7 @@ const rec={
     const from=(startT||0)-500, to= endT ? endT+250 : Infinity, fr=this.buf.filter(f=>f.t>=from&&f.t<=to);
     dlog("스윙 종료: 버퍼 "+this.buf.length+"장, 구간 "+fr.length+"장");
     if(fr.length<3) return;
-    this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to);
+    this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to); replay.sw=session[session.length-1]||null;
     $("replaybtn").disabled=false;
     if(cfg.auto!==false){ if(cfg.voice) beep(990,.1); replay.show(); }
   }
@@ -1017,23 +1030,68 @@ const replay={
     const hs=rec.last.map(f=>this.handAt(f)); let top=0, tv=-1e9;
     hs.forEach((h,i)=>{ if(h!=null&&h>tv){ tv=h; top=i; } });
     let imp=top, iv=1e9; for(let i=top;i<hs.length;i++){ if(hs[i]!=null&&hs[i]<iv){ iv=hs[i]; imp=i; } }
-    this.ph={"어드레스":0,"탑":top,"임팩트":imp,"피니시":rec.last.length-1};
+    // 피니시 손이 탑보다 높은 경우가 많음 → 손이 처음 크게 내려가기 직전을 탑, 그 뒤 최저점을 임팩트로
+    const i1=hs.findIndex(h=>h!=null&&h>=30);
+    if(i1>=0){ let t=i1, j=-1;
+      for(let i=i1;i<hs.length;i++){ if(hs[i]==null) continue; if(hs[i]>hs[t]) t=i; else if(hs[i]<hs[t]-60){ j=i; break; } }
+      if(j>0){ let m=j; for(let i=j;i<hs.length;i++){ if(hs[i]==null) continue; if(hs[i]<hs[m]) m=i; else if(hs[i]>hs[m]+40) break; }
+        top=t; imp=m; } }
+    // 테이크백: 탑 이전에 손이 처음 골반 높이(0%)에 닿는 프레임
+    let tb=-1; for(let i=0;i<=top;i++){ if(hs[i]!=null&&hs[i]>=0){ tb=i; break; } }
+    if(tb<=0) tb=Math.round(top/2);
+    this.ph={"어드레스":0,"테이크백":tb,"탑":top,"임팩트":imp,"피니시":rec.last.length-1};
     $("rphases").innerHTML=Object.keys(this.ph).map(k=>'<button data-k="'+k+'">'+k+'</button>').join("");
     $("rphases").querySelectorAll("button").forEach(b=>{ b.onclick=()=>this.seek(this.ph[b.dataset.k]); });
   },
   draw(){
     const f=rec.last[this.i], seq=++this.seq||(this.seq=1);
+    if(!f.url){ this.paint(f,null); return; }
     if(f.img){ this.paint(f,f.img); return; }
     const im=new Image(); im.onload=()=>{ f.img=im; if(this.seq===seq) this.paint(f,im); }; im.src=f.url;
+  },
+  // 단계별 가이드: 어드레스 프레임 기준선(머리 허용원·골반 허용선·어드레스 축) + 체크리스트
+  phaseAt(i){ if(!this.ph) return null; let k=null, best=-1; for(const [n,j] of Object.entries(this.ph)) if(j<=i&&j>best){ best=j; k=n; } return k; },
+  guide(g,f,X,Y,iw,ih,u){
+    const box=$("rguide"), k=this.phaseAt(this.i), f0=rec.last[0];
+    if(!k||cfg.guide===false){ box.hidden=true; return; }
+    const a=f0.lm, ok=(lm,i)=>lm&&lm[i]&&lm[i].v>0.5, P=(lm,i)=>({x:lm[i].x*iw,y:lm[i].y*ih});
+    let cur=null;
+    if(a&&[L.lSh,L.rSh,L.lHip,L.rHip,L.nose].every(i=>ok(a,i))){
+      const sh0=mid(P(a,L.lSh),P(a,L.rSh)), hip0=mid(P(a,L.lHip),P(a,L.rHip)), n0=P(a,L.nose);
+      const U0= view==="face" ? Math.hypot(P(a,L.lSh).x-P(a,L.rSh).x,P(a,L.lSh).y-P(a,L.rSh).y) : Math.hypot(sh0.x-hip0.x,sh0.y-hip0.y)*0.75;
+      const b=f.lm; let n1=null, hip1=null;
+      if(b&&ok(b,L.nose)) n1=P(b,L.nose);
+      if(b&&ok(b,L.lHip)&&ok(b,L.rHip)) hip1=mid(P(b,L.lHip),P(b,L.rHip));
+      const GOOD="rgba(88,214,141,.95)", BAD="rgba(255,138,101,.95)";
+      // 어드레스 축(점선)
+      const dx=sh0.x-hip0.x, dy=sh0.y-hip0.y; g.setLineDash([u*4,u*3]); g.strokeStyle="rgba(255,255,255,.8)"; g.lineWidth=u;
+      g.beginPath(); g.moveTo(X(hip0.x-dx*0.15),Y(hip0.y-dy*0.15)); g.lineTo(X(sh0.x+dx*0.25),Y(sh0.y+dy*0.25)); g.stroke(); g.setLineDash([]);
+      // 머리 허용원
+      const rH=U0*cfg.head/100, hin= n1? (view==="face"?Math.abs(n1.x-n0.x):Math.hypot(n1.x-n0.x,n1.y-n0.y))<=rH : true;
+      g.strokeStyle=hin?GOOD:BAD; g.lineWidth=u*1.4; g.beginPath(); g.arc(X(n0.x),Y(n0.y),Math.max(rH*Math.abs(X(1)-X(0)),u*3),0,Math.PI*2); g.stroke();
+      // 골반 허용선: 정면=좌우 스웨이 한계, 후방=엉덩이가 공 쪽으로 나오는 한계
+      const sw=U0*cfg.sway/100, y1=hip0.y-U0*0.6, y2=hip0.y+U0*1.3, vline=(x,c)=>{ g.strokeStyle=c; g.lineWidth=u*1.2; g.setLineDash([u*3,u*2]); g.beginPath(); g.moveTo(X(x),Y(y1)); g.lineTo(X(x),Y(y2)); g.stroke(); g.setLineDash([]); };
+      if(view==="face"){ const hinp=!hip1||Math.abs(hip1.x-hip0.x)<=sw; vline(hip0.x-sw,hinp?GOOD:BAD); vline(hip0.x+sw,hinp?GOOD:BAD); }
+      else { const fdir=n0.x>=hip0.x?1:-1, lim=hip0.x+fdir*sw, hinp=!hip1||(hip1.x-hip0.x)*fdir<=sw; vline(lim,hinp?GOOD:BAD); vline(hip0.x,"rgba(255,255,255,.5)"); }
+      // 탑: 목표 손 높이선
+      if(k==="탑"&&target&&target.hand!=null&&b&&ok(b,L.lSh)&&ok(b,L.rSh)&&ok(b,L.lHip)&&ok(b,L.rHip)){
+        const s1=mid(P(b,L.lSh),P(b,L.rSh)), h1=mid(P(b,L.lHip),P(b,L.rHip)), ty=h1.y-(h1.y-s1.y)*target.hand/100;
+        g.strokeStyle=GOOD; g.lineWidth=u*1.2; g.setLineDash([u*5,u*3]); g.beginPath(); g.moveTo(X(h1.x-U0*1.8),Y(ty)); g.lineTo(X(h1.x+U0*1.8),Y(ty)); g.stroke(); g.setLineDash([]);
+      }
+      cur=true;
+    }
+    box.hidden=false; box.innerHTML=guideHtml(k,f.v,f0.v,this.sw);
   },
   paint(f,bmp){
     const c=$("rcv"), g=c.getContext("2d");
     const r=c.getBoundingClientRect(), d=Math.min(window.devicePixelRatio||1,2);
     if(c.width!==Math.round(r.width*d)||c.height!==Math.round(r.height*d)){ c.width=Math.round(r.width*d); c.height=Math.round(r.height*d); }
-    const iw=bmp.naturalWidth||bmp.width, ih=bmp.naturalHeight||bmp.height, sc=Math.min(c.width/iw,c.height/ih), dw=iw*sc, dh=ih*sc, ox=(c.width-dw)/2, oy=(c.height-dh)/2;
+    const iw=bmp?(bmp.naturalWidth||bmp.width):f.w, ih=bmp?(bmp.naturalHeight||bmp.height):f.h, sc=Math.min(c.width/iw,c.height/ih), dw=iw*sc, dh=ih*sc, ox=(c.width-dw)/2, oy=(c.height-dh)/2;
     const mirror=facing==="user", X=x=>mirror?ox+dw-x*sc:ox+x*sc, Y=y=>oy+y*sc, u=Math.max(2,c.width/220);
     g.fillStyle="#000"; g.fillRect(0,0,c.width,c.height);
-    g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(bmp,ox,oy,dw,dh); g.restore();
+    if(bmp){ g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(bmp,ox,oy,dw,dh); g.restore(); }
+    else { g.fillStyle="#0c1512"; g.fillRect(ox,oy,dw,dh); }
+    this.guide(g,f,X,Y,iw,ih,u);
     let hand=null;
     if(f.lm){
       g.lineWidth=u*0.9; g.strokeStyle="rgba(234,242,236,.75)"; g.lineCap="round";
@@ -1067,6 +1125,48 @@ $("rspeed").onclick=()=>{ replay.si=(replay.si+1)%replay.speeds.length; $("rspee
 $("rslider").oninput=e=>replay.seek(Number(e.target.value));
 $("rcv").onclick=()=>replay.play(!replay.timer);
 
+// ---------- 단계별 가이드 ----------
+// 기준: 판정 기준값(cfg) 그대로. 수치 없는 항목은 "측정 안 됨"으로 표시 (추정 금지)
+function guideHtml(k,v,v0,sw){
+  const Ld=rightHanded?"왼":"오른", Tr=rightHanded?"오른":"왼", r=x=>Math.round(x);
+  const POINT={
+    "어드레스":"체중은 양발 반반, 무릎은 살짝 굽히고 엉덩이는 뒤로. 팔은 어깨 아래로 자연스럽게 늘어뜨리세요.",
+    "테이크백":"어깨·팔·클럽을 한 덩어리로 낮고 길게 빼세요. 손이 골반 높이일 때 클럽은 지면과 평행, 머리와 골반은 제자리.",
+    "탑":Ld+"어깨가 턱 밑, 등이 타깃을 향하게. "+Tr+" 무릎 각도는 그대로, 체중은 "+Tr+"발 안쪽.",
+    "임팩트":"체중은 "+Ld+"발로, 골반이 먼저 열리고 머리는 공 뒤에. 엉덩이는 공 쪽으로 나오지 않게.",
+    "피니시":"체중을 "+Ld+"발에 다 싣고 가슴과 벨트가 타깃을 향하게. "+Tr+"발 끝으로 서서 3초 유지."
+  };
+  const rows=[], row=(lab,val,u,good,lim)=>{
+    if(val==null||!isFinite(val)){ rows.push('<div class="r na">· '+lab+' 측정 안 됨</div>'); return; }
+    const c=good==null?"na":good?"ok":"bad", m=good==null?"·":good?"✓":"✗";
+    rows.push('<div class="r '+c+'">'+m+" "+lab+" <b>"+r(val)+u+"</b>"+(lim?' <span class="na">('+lim+')</span>':"")+"</div>"); };
+  const noRef=!ref;
+  v=v||{}; v0=v0||{};
+  const head=(lab)=>row(lab||"머리 이동",v.head!=null?Math.abs(v.head):null,"%",v.head!=null?Math.abs(v.head)<=cfg.head:null,"허용 "+cfg.head+"%");
+  const sway=()=>row("골반 스웨이",v.sway!=null?Math.abs(v.sway):null,"%",v.sway!=null?Math.abs(v.sway)<=cfg.sway:null,"허용 "+cfg.sway+"%");
+  const axis=()=>{ const d=v.spine!=null&&v0.spine!=null?Math.abs(v.spine-v0.spine):null; row("축 변화",d,"°",d!=null?d<=cfg.spine:null,"허용 "+cfg.spine+"°"); };
+  const wt=(lab,lo,hi,txt)=>row(Tr+"발 체중(추정)",v.weight,"%",v.weight!=null?v.weight>=lo&&v.weight<=hi:null,txt);
+  const rise=()=>{ const d=v.bend!=null&&v0.bend!=null?v0.bend-v.bend:null; row("일어섬",d!=null?Math.max(0,d):null,"°",d!=null?d<=cfg.spine:null,"허용 "+cfg.spine+"°"); };
+  const hipF=()=>row("엉덩이 전진",v.hipFwd!=null?Math.max(0,v.hipFwd):null,"%",v.hipFwd!=null?v.hipFwd<=cfg.sway:null,"허용 "+cfg.sway+"%");
+  const headD=()=>{ const d=v.headFwd!=null||v.headUp!=null?Math.hypot(v.headFwd||0,v.headUp||0):null; row("머리 이동",d,"%",d!=null?d<=cfg.head:null,"허용 "+cfg.head+"%"); };
+  if(view==="face"){
+    if(k==="어드레스"){ row("척추 기울기",v.spine!=null?Math.abs(v.spine):null,"°",null); wt("",40,60,"40~60%"); }
+    if(k==="테이크백"){ head(); sway(); axis(); }
+    if(k==="탑"){ if(target&&target.hand!=null&&v.hand!=null) row("손 높이",v.hand,"%",Math.abs(v.hand-target.hand)<=cfg.handTol,"목표 "+r(target.hand)+"%"); else row("손 높이",v.hand,"%",null);
+      if(target&&target.shTurn!=null&&v.shTurn!=null) row("어깨 회전(추정)",v.shTurn,"°",Math.abs(v.shTurn-target.shTurn)<=cfg.turnTol,"목표 "+r(target.shTurn)+"°"); else row("어깨 회전(추정)",v.shTurn,"°",null);
+      head(); sway(); row(Tr+" 무릎 펴짐",v.kneeD!=null?Math.max(0,v.kneeD):null,"°",v.kneeD!=null?v.kneeD<=cfg.knee:null,"허용 "+cfg.knee+"°"); wt("",55,100,"55% 이상"); }
+    if(k==="임팩트"){ head(); axis(); wt("",0,45,"45% 이하"); }
+    if(k==="피니시"){ wt("",0,15,"15% 이하"); if(sw&&sw.fin) rows.push(sw.fin.length?'<div class="r bad">✗ '+sw.fin.join(", ")+"</div>":'<div class="r ok">✓ 피니시 균형</div>'); }
+  }else{
+    if(k==="어드레스"){ row("척추 숙임",v.bend,"°",v.bend!=null?v.bend>=25&&v.bend<=50:null,"25~50°"); row(Tr+" 무릎 각",v.knee,"°",null); }
+    if(k==="테이크백"){ rise(); hipF(); headD(); }
+    if(k==="탑"){ rise(); hipF(); headD(); if(target&&target.hand!=null&&v.hand!=null) row("손 높이",v.hand,"%",Math.abs(v.hand-target.hand)<=cfg.handTol,"목표 "+r(target.hand)+"%"); }
+    if(k==="임팩트"){ rise(); hipF(); headD(); }
+    if(k==="피니시"){ if(sw&&sw.fin) rows.push(sw.fin.length?'<div class="r bad">✗ '+sw.fin.join(", ")+"</div>":'<div class="r ok">✓ 피니시 균형</div>'); else rows.push('<div class="r na">· 피니시 측정 안 됨</div>'); }
+  }
+  if(noRef&&k!=="어드레스") rows.unshift('<div class="r na">어드레스 기준이 없어 이동량은 측정 안 됨</div>');
+  return '<div class="h">'+k+'</div><div class="p">'+POINT[k]+"</div>"+rows.join("");
+}
 // ---------- 코칭 ----------
 // 측정 항목별 원인·연습법. 레슨 교과서 수준의 일반론이며 개인 체형은 반영하지 못함
 const TIPS={
@@ -1101,7 +1201,7 @@ function finishSwing(c){
     || (topV&&topV!=="좋아요"?topV:null)
     || (finBad?"피니시":null)
     || ((topV==="좋아요"||!target)&&ref?"좋아요":null);
-  session.push({n:c.n,view,issue,hand:c.atMax.hand,shTurn:c.atMax.shTurn,peak:Object.assign({},pk),wt:Object.assign({},wt),path:c.path,fin:fin?fin.fails.slice():null});
+  session.push({n:c.n,view,issue,hand:c.atMax.hand,shTurn:c.atMax.shTurn,peak:Object.assign({},pk),wt:Object.assign({},wt),path:c.path,fin:fin&&fin.measured?fin.fails.slice():null});
   const ms=(a,b)=>a!=null&&b!=null&&b>a?Math.round(b-a):null, bk=ms(c.startT,c.downT), dn=ms(c.downT,c.followT);
   const r1=x=>x==null||!isFinite(x)?null:Math.round(x*10)/10, P={}; for(const k in pk) P[k]=r1(pk[k]);
   swingLog.push({ts:Date.now(),view,issue:issue||null,hand:r1(c.atMax.hand),shTurn:r1(c.atMax.shTurn),
@@ -1230,7 +1330,8 @@ $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.t
 $("c-hq").checked=cfg.engine==="v1"; $("c-hq").onchange=e=>{ cfg.engine=e.target.checked?"v1":"v2"; store("cfg",cfg); };
 $("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
 $("c-big").checked=cfg.big!==false; $("c-big").onchange=e=>{ cfg.big=e.target.checked; store("cfg",cfg); showBig(); };
-$("c-video").checked=cfg.video!==false; $("c-video").onchange=e=>{ cfg.video=e.target.checked; store("cfg",cfg); if(!cfg.video){ rec.buf=[]; } };
+$("c-video").checked=cfg.video!==false; $("c-video").onchange=e=>{ cfg.video=e.target.checked; store("cfg",cfg); };
+$("c-guide").checked=cfg.guide!==false; $("c-guide").onchange=e=>{ cfg.guide=e.target.checked; store("cfg",cfg); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
 $("settop").onclick=saveTop;
