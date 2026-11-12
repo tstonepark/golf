@@ -249,6 +249,11 @@ window.addEventListener("resize",drawGuide); drawGuide();
 try{ const cn=navigator.connection; const chk=()=>{ const t=cn&&cn.type;
   $("net").textContent= t==="cellular" ? "⚠ 폰이 모바일 데이터입니다. 아이패드와 같은 와이파이에 연결하세요" : t==="wifi" ? "와이파이 연결됨" : ""; };
   if(cn){ chk(); cn.addEventListener("change",chk); } }catch(e){}
+// 안드로이드 크롬에서는 아이패드와 직접 연결이 안 되는 사례 확인 → 삼성 인터넷 권장
+try{ const ua=navigator.userAgent;
+  if(/Android/i.test(ua)&&/Chrome\//.test(ua)&&!/SamsungBrowser/i.test(ua))
+    $("net").innerHTML='<b style="color:var(--warn)">⚠ 크롬에서는 아이패드와 연결이 안 될 수 있습니다. <u>삼성 인터넷</u>으로 이 주소를 여세요.</b>';
+}catch(e){}
 code=load("golfcam.code"); if(!/^\d{6}$/.test(code||"")){ code=newCode(); save("golfcam.code",code); }
 state("① 아래 '카메라 켜기'를 누르세요");
 $("start").onclick=start;
