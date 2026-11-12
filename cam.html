@@ -28,6 +28,13 @@ body{background:var(--bg);color:var(--ink);font:18px/1.45 var(--txt);display:fle
 #stage{position:relative;flex:1;min-height:0;background:#000}
 #v{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 #guide{position:absolute;inset:0;pointer-events:none}
+#stage{overflow:hidden;touch-action:none}
+#v{transform-origin:50% 50%}
+#zoombar{display:flex;gap:10px;align-items:center;padding:10px 16px;background:var(--panel);border-top:1px solid var(--line)}
+#zoombar button{flex:0 0 64px;min-height:56px;font-size:26px;padding:0}
+#zoombar input{flex:1;min-width:0;height:40px;accent-color:var(--axis)}
+#zval{font:700 26px var(--num);color:var(--axis);min-width:3.2em;text-align:right;font-variant-numeric:tabular-nums}
+#zhint{font-size:15px;color:var(--dim);padding:0 16px 8px;background:var(--panel)}
 #bar{display:flex;gap:10px;padding:12px 16px;background:var(--panel);border-top:1px solid var(--line);flex-wrap:wrap}
 button{font:700 18px var(--txt);color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;
   padding:14px 12px;min-height:56px;flex:1 1 30%;cursor:pointer}
@@ -50,6 +57,14 @@ button:focus-visible{outline:3px solid var(--axis);outline-offset:2px}
 </div>
 <p id="err"></p>
 <p id="diag" style="font-size:14px;color:var(--dim);padding:0 16px;margin:0;white-space:pre-line;word-break:break-all"></p>
+<div id="zoombar" hidden>
+  <button id="zout" aria-label="축소">−</button>
+  <input id="zoom" type="range" min="1" max="4" step="0.05" value="1" aria-label="줌">
+  <button id="zin" aria-label="확대">+</button>
+  <span id="zval">1.0×</span>
+  <button id="zreset" style="flex:0 0 auto;font-size:16px;padding:0 12px">원래대로</button>
+</div>
+<div id="zhint" hidden></div>
 <div id="bar">
   <button class="main" id="start">카메라 켜기</button>
   <button id="lens" disabled>렌즈 바꾸기</button>
@@ -124,10 +139,79 @@ async function openCam(deviceId){
   // 이미 연결 중이면 보내는 영상만 바꿔 끼움 (연결은 유지)
   if(call&&call.peerConnection){
     const s=call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==="video");
-    if(s) try{ await s.replaceTrack(tr); }catch(e){}
+    if(s) try{ await s.replaceTrack(outStream().getVideoTracks()[0]); }catch(e){}
   }
+  setupZoom(tr);
   sendInfo();
 }
+// ---------- 줌: 카메라가 지원하면 진짜 줌, 아니면 화면을 잘라서 확대(손가락으로 끌어 위치 이동) ----------
+let zoom={z:1,cx:.5,cy:.5}, hwZoom=null, dig=null, sendingDig=false;
+try{ const z=JSON.parse(load("golfcam.zoom")); if(z&&z.z>=1) zoom=z; }catch(e){}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function outStream(){ return dig&&zoom.z>1.001 ? dig.stream : stream; }
+function setupZoom(tr){
+  const caps=tr.getCapabilities?tr.getCapabilities():{};
+  hwZoom= caps.zoom&&caps.zoom.max>1.05 ? caps.zoom : null;
+  const zi=$("zoom");
+  if(hwZoom){ zi.min=Math.max(1,hwZoom.min); zi.max=Math.min(hwZoom.max,10); zi.step=hwZoom.step||0.1;
+    $("zhint").textContent="카메라 줌 · 골퍼가 화면 가운데 오도록 폰 방향을 맞추세요"; }
+  else { zi.min=1; zi.max=4; zi.step=0.05;
+    $("zhint").textContent="화면 확대 · 두 손가락으로 확대, 한 손가락으로 끌어서 골퍼 위치 맞추기"; }
+  $("zoombar").hidden=false; $("zhint").hidden=false;
+  applyZoom(true);
+}
+async function applyZoom(retrack){
+  const zi=$("zoom"); zoom.z=clamp(zoom.z,+zi.min,+zi.max); zi.value=zoom.z;
+  $("zval").textContent=zoom.z.toFixed(1)+"×";
+  const v=$("v");
+  if(hwZoom){
+    zoom.cx=.5; zoom.cy=.5; v.style.transform="";
+    try{ await stream.getVideoTracks()[0].applyConstraints({advanced:[{zoom:zoom.z}]}); }catch(e){ $("err").textContent="카메라 줌을 바꾸지 못했습니다"; }
+  }else{
+    // 미리보기는 화면만 확대해서 보여 주고, 보내는 영상은 캔버스로 잘라서 만듦
+    const half=.5/zoom.z; zoom.cx=clamp(zoom.cx,half,1-half); zoom.cy=clamp(zoom.cy,half,1-half);
+    v.style.transformOrigin=(zoom.cx*100)+"% "+(zoom.cy*100)+"%";
+    v.style.transform= zoom.z>1.001 ? "scale("+zoom.z+")" : "";
+    const want=zoom.z>1.001;
+    if(want) startDigital();
+    if(retrack||want!==sendingDig){ sendingDig=want; swapTrack(); }   // 1배↔확대 바뀔 때만 보내는 영상 교체
+  }
+  save("golfcam.zoom",JSON.stringify(zoom)); sendInfo();
+}
+function startDigital(){
+  if(dig) return;
+  const c=document.createElement("canvas"), g=c.getContext("2d");
+  dig={c,stream:c.captureStream(FPS)};
+  const v=$("v");
+  const draw=()=>{ if(!dig) return;
+    const W=v.videoWidth, H=v.videoHeight;
+    if(W&&zoom.z>1.001){ if(c.width!==W||c.height!==H){ c.width=W; c.height=H; }
+      const w=W/zoom.z, h=H/zoom.z, x=clamp(zoom.cx*W-w/2,0,W-w), y=clamp(zoom.cy*H-h/2,0,H-h);
+      g.drawImage(v,x,y,w,h,0,0,W,H); }
+    if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(draw); else requestAnimationFrame(draw); };
+  draw();
+}
+async function swapTrack(){
+  if(!(call&&call.peerConnection)) return;
+  const s=call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==="video");
+  if(s) try{ await s.replaceTrack(outStream().getVideoTracks()[0]); }catch(e){}
+}
+$("zoom").oninput=e=>{ zoom.z=+e.target.value; applyZoom(); };
+$("zin").onclick=()=>{ zoom.z+=hwZoom?(+$("zoom").step||0.1)*5:0.25; applyZoom(); };
+$("zout").onclick=()=>{ zoom.z-=hwZoom?(+$("zoom").step||0.1)*5:0.25; applyZoom(); };
+$("zreset").onclick=()=>{ zoom={z:1,cx:.5,cy:.5}; applyZoom(); };
+// 손가락: 두 개로 벌리면 확대, 하나로 끌면 위치 이동(화면 확대 모드일 때)
+const ptrs=new Map(); let pinch0=null, drag0=null;
+$("stage").addEventListener("pointerdown",e=>{ ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); $("stage").setPointerCapture(e.pointerId);
+  if(ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch0={d:Math.hypot(a.x-b.x,a.y-b.y),z:zoom.z}; drag0=null; }
+  else if(ptrs.size===1) drag0={x:e.clientX,y:e.clientY,cx:zoom.cx,cy:zoom.cy}; });
+$("stage").addEventListener("pointermove",e=>{ if(!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pinch0&&ptrs.size===2){ const [a,b]=[...ptrs.values()]; zoom.z=pinch0.z*Math.hypot(a.x-b.x,a.y-b.y)/Math.max(1,pinch0.d); applyZoom(); }
+  else if(drag0&&!hwZoom&&zoom.z>1.001){ const r=$("stage").getBoundingClientRect();
+    zoom.cx=drag0.cx-(e.clientX-drag0.x)/r.width/zoom.z; zoom.cy=drag0.cy-(e.clientY-drag0.y)/r.height/zoom.z; applyZoom(); } });
+const ptrEnd=e=>{ ptrs.delete(e.pointerId); if(ptrs.size<2) pinch0=null; if(ptrs.size===0) drag0=null; };
+$("stage").addEventListener("pointerup",ptrEnd); $("stage").addEventListener("pointercancel",ptrEnd);
+
 function backCams(){
   const num=c=>{ const m=(c.label||"").match(/(\d+)/); return m?+m[1]:99; };
   return cams.filter(c=>/back|rear|environment|후면/i.test(c.label||"")).sort((a,b)=>num(a)-num(b));
@@ -168,7 +252,7 @@ setInterval(()=>{ if(!(conn&&conn.open)) return; const now=Date.now();
 function sendInfo(){
   if(!(conn&&conn.open&&stream)) return;
   const tr=stream.getVideoTracks()[0], s=tr.getSettings?tr.getSettings():{};
-  try{ conn.send({t:"info",label:tr.label||"",w:s.width,h:s.height,fps:s.frameRate}); }catch(e){}
+  try{ conn.send({t:"info",label:tr.label||"",w:s.width,h:s.height,fps:s.frameRate,zoom:zoom.z,zx:zoom.cx,zy:zoom.cy,hw:!!hwZoom}); }catch(e){}
 }
 
 // ---------- 연결 (공개 중개 서버로 처음에 서로 찾기만 하고, 영상은 와이파이 안에서 직접 보냄) ----------
@@ -193,7 +277,7 @@ function startPeer(){
       if(call){ try{ call.close(); }catch(e){} call=null; }
       conn=c;
       watchIce(c.peerConnection,"데이터",netlog);
-      call=peer.call(c.peer,stream);
+      call=peer.call(c.peer,outStream());
       watchIce(call.peerConnection,"영상",netlog);
       const pc=call.peerConnection;
       if(pc) pc.addEventListener("iceconnectionstatechange",()=>{ const st=pc.iceConnectionState;

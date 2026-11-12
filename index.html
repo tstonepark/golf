@@ -147,7 +147,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v34</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v35</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -239,7 +239,7 @@ async function startTilt(){
 // 피치 보정: 화면 좌표를 폰이 수평으로 봤을 때의 좌표로 되돌림 (세로 화각 70° 가정)
 function rectify(p,w,h){
   if(!tilt.ok||cfg.tiltfix===false) return p;
-  const f=h/(2*Math.tan((cfg.vfov||70)/2*Math.PI/180)), cx=w/2, cy=h/2, th=tilt.pitch*Math.PI/180, rl=-tilt.roll*Math.PI/180;
+  const f=h/(2*Math.tan((cfg.vfov||70)/2*Math.PI/180))*(remoteCode&&remoteZoom>1?remoteZoom:1), cx=w/2, cy=h/2, th=tilt.pitch*Math.PI/180, rl=-tilt.roll*Math.PI/180;
   let X=(p.x-cx)/f, Y=(p.y-cy)/f;
   // 롤: 화면 내 회전
   const xr=X*Math.cos(rl)-Y*Math.sin(rl), yr=X*Math.sin(rl)+Y*Math.cos(rl); X=xr; Y=yr;
@@ -381,7 +381,7 @@ function watchIce(pc,tag,log){
     if(s==="failed"||s==="disconnected") iceDump(pc).then(d=>{ if(d) log(tag+" "+d); }); });
   setTimeout(()=>{ if(pc.iceConnectionState==="checking"||pc.iceConnectionState==="new") iceDump(pc).then(d=>{ if(d) log(tag+" 12초째 확인 중 · "+d); }); },12000);
 }
-var keepCam=null, rpeer=null, rconn=null, remoteCode=null, remoteRetry=null, remoteUp=false, remoteLast=0;
+var remoteZoom=1, keepCam=null, rpeer=null, rconn=null, remoteCode=null, remoteRetry=null, remoteUp=false, remoteLast=0;
 // 폰이 꺼지거나 페이지가 닫혀도 WebRTC는 한참 뒤에야 끊김을 알려 줌 → 폰의 생존 신호가 4초 없으면 끊긴 것으로 봄
 setInterval(()=>{ if(remoteCode&&remoteUp&&Date.now()-remoteLast>6000) remoteLost("폰 신호가 6초 없음"); },1000);
 // 연결 단계: server(중개 서버 접속) → find(폰 찾기) → media(영상 연결) → up
@@ -446,7 +446,7 @@ function onRemoteData(d){
   if(!d) return;
   remoteLast=Date.now();
   if(d.t==="tilt"&&isFinite(d.pitch)&&isFinite(d.roll)){ tilt.pitch=+d.pitch; tilt.roll=+d.roll; tilt.ok=true; }
-  else if(d.t==="info"){ camFps=isFinite(d.fps)?+d.fps:null; $("flip").textContent="폰 렌즈";
+  else if(d.t==="info"){ camFps=isFinite(d.fps)?+d.fps:null; remoteZoom=isFinite(d.zoom)?+d.zoom:1; $("flip").textContent="폰 렌즈";
     dlog("폰 카메라: "+String(d.label||"").slice(0,40)+" "+(d.w|0)+"x"+(d.h|0)+" "+(camFps?Math.round(camFps)+"fps":"")); }
 }
 function remoteReset(){   // 폰 모드를 완전히 끄고 이 기기 카메라를 쓸 수 있게 되돌림
