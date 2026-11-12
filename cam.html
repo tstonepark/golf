@@ -114,9 +114,12 @@ const nl=[]; function netlog(m){ nl.push(m); if(nl.length>3) nl.shift(); $("diag
 function newCode(){ return String(Math.floor(100000+Math.random()*900000)); }   // 6자리: 남이 맞혀 들어오기 어렵게
 
 // ---------- 카메라 ----------
-async function openCam(deviceId){
+let hiRes=false;   // 화면 확대 중이면 카메라를 고해상도로 받아서 잘라도 선명하게
+async function openCam(deviceId,hi){
   if(stream) stream.getTracks().forEach(t=>t.stop());
-  const v={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:FPS}};
+  hiRes=!!hi;
+  const v= hi ? {width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:FPS},zoom:true}
+              : {width:{ideal:1280},height:{ideal:720},frameRate:{ideal:FPS},zoom:true};
   if(deviceId){ v.deviceId={exact:deviceId}; stream=await navigator.mediaDevices.getUserMedia({audio:false,video:v}); }
   else{
     try{ stream=await navigator.mediaDevices.getUserMedia({audio:false,video:Object.assign({facingMode:{exact:"environment"}},v)}); }
@@ -145,7 +148,7 @@ async function openCam(deviceId){
   sendInfo();
 }
 // ---------- 줌: 카메라가 지원하면 진짜 줌, 아니면 화면을 잘라서 확대(손가락으로 끌어 위치 이동) ----------
-let zoom={z:1,cx:.5,cy:.5}, hwZoom=null, dig=null, sendingDig=false;
+let zoom={z:1,cx:.5,cy:.5}, hwZoom=null, dig=null, sendingDig=false, reopening=false;
 try{ const z=JSON.parse(load("golfcam.zoom")); if(z&&z.z>=1) zoom=z; }catch(e){}
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function outStream(){ return dig&&zoom.z>1.001 ? dig.stream : stream; }
@@ -173,6 +176,9 @@ async function applyZoom(retrack){
     v.style.transformOrigin=(zoom.cx*100)+"% "+(zoom.cy*100)+"%";
     v.style.transform= zoom.z>1.001 ? "scale("+zoom.z+")" : "";
     const want=zoom.z>1.001;
+    // 확대가 시작되면 고해상도로, 1배로 돌아오면 원래 해상도로 카메라를 다시 엶 (화질 유지)
+    if(want!==hiRes&&!reopening){ reopening=true; const id=stream.getVideoTracks()[0].getSettings().deviceId;
+      try{ await openCam(id,want); }catch(e){ $("err").textContent="고해상도로 바꾸지 못했습니다"; } reopening=false; return; }
     if(want) startDigital();
     if(retrack||want!==sendingDig){ sendingDig=want; swapTrack(); }   // 1배↔확대 바뀔 때만 보내는 영상 교체
   }
@@ -185,9 +191,10 @@ function startDigital(){
   const v=$("v");
   const draw=()=>{ if(!dig) return;
     const W=v.videoWidth, H=v.videoHeight;
-    if(W&&zoom.z>1.001){ if(c.width!==W||c.height!==H){ c.width=W; c.height=H; }
+    if(W&&zoom.z>1.001){ const OW=W>=H?1280:720, OH=W>=H?720:1280;
+      if(c.width!==OW||c.height!==OH){ c.width=OW; c.height=OH; }
       const w=W/zoom.z, h=H/zoom.z, x=clamp(zoom.cx*W-w/2,0,W-w), y=clamp(zoom.cy*H-h/2,0,H-h);
-      g.drawImage(v,x,y,w,h,0,0,W,H); }
+      g.imageSmoothingQuality="high"; g.drawImage(v,x,y,w,h,0,0,OW,OH); }
     if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(draw); else requestAnimationFrame(draw); };
   draw();
 }
@@ -297,7 +304,7 @@ function tuneSender(){
   setTimeout(()=>{ try{
     const s=call&&call.peerConnection&&call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==="video");
     if(!s) return; const p=s.getParameters(); if(!p.encodings||!p.encodings.length) p.encodings=[{}];
-    p.encodings[0].maxBitrate=4000000; p.encodings[0].maxFramerate=FPS; p.degradationPreference="maintain-framerate";
+    p.encodings[0].maxBitrate=6000000; p.encodings[0].maxFramerate=FPS; p.degradationPreference="maintain-framerate";
     s.setParameters(p).catch(()=>{});
   }catch(e){} },1500);
 }
