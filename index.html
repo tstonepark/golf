@@ -64,6 +64,15 @@ button.off{color:var(--dim)}
 #phase{position:absolute;right:12px;top:10px;font-size:12px;color:var(--ink);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px}
 #level{position:absolute;right:12px;top:40px;font:600 12px var(--num);color:var(--dim);background:rgba(12,21,18,.72);padding:4px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
 #level.bad{color:var(--warn)}
+/* 큰 글씨 안내: 3m 떨어져서도 읽히게 */
+#big{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vmin;
+  padding:6vmin;text-align:center;background:rgba(12,21,18,.55);pointer-events:none}
+#big .t{font:800 9vmin/1.15 var(--txt);color:var(--warn);text-shadow:0 2px 16px #000;text-wrap:balance}
+#big .d{font:700 5vmin/1.3 var(--txt);color:var(--ink);text-shadow:0 2px 12px #000;text-wrap:balance;max-width:24em}
+#issue{position:absolute;left:0;right:0;top:0;z-index:5;padding:2vmin 4vmin 2.5vmin;text-align:center;pointer-events:none;
+  background:linear-gradient(rgba(12,21,18,.92),rgba(12,21,18,.75))}
+#issue .t{font:800 8vmin/1.1 var(--txt);color:var(--warn)} #issue.good .t{color:var(--ok)}
+#issue .d{font:700 4.2vmin/1.3 var(--txt);color:var(--ink);margin-top:1vmin;text-wrap:balance}
 #verdict{position:absolute;left:0;right:0;top:44px;text-align:center;font:700 8vmin/1.1 var(--txt);
   color:var(--axis);text-shadow:0 2px 18px #000,0 0 4px #000;pointer-events:none}
 #verdict.good{color:var(--ok)} #verdict.bad{color:var(--warn)}
@@ -108,6 +117,8 @@ button:disabled{opacity:.4}
   <div id="phase" hidden></div>
   <div id="level" hidden></div>
   <div id="verdict" hidden></div>
+  <div id="big" hidden><div class="t"></div><div class="d"></div></div>
+  <div id="issue" hidden><div class="t"></div><div class="d"></div></div>
   <div id="replay" hidden>
     <canvas id="rcv"></canvas>
     <div id="rinfo"></div>
@@ -141,13 +152,14 @@ button:disabled{opacity:.4}
     <label for="c-hq">구형 엔진 사용(신형이 느릴 때 · 새로고침 필요)</label><input id="c-hq" type="checkbox" style="width:24px;height:24px">
     <label for="c-vfov">카메라 세로 화각 (°, 보정 계산용)</label><input id="c-vfov" type="number" inputmode="numeric" min="30" max="120">
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
+    <label for="c-big">문제를 큰 글씨로 화면에 표시</label><input id="c-big" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
     <p>%는 정면에서는 어깨너비, 후방에서는 몸통 길이의 3/4을 100으로 봅니다.</p>
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v36</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v37</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -844,7 +856,7 @@ const coach={
       return;
     }
     if(this.phase==="ready"){
-      if(v.hand>b+25){ this.phase="back"; this.startT=t; if(replay.open) replay.close(); this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null;
+      if(v.hand>b+25){ this.phase="back"; this.startT=t; if(replay.open) replay.close(); $("issue").hidden=true; this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null;
         this.peak={}; this.wt={addr:ref?ref.weight:null}; this.fin=null; this.path=null; this.pb=[]; this.pd=[]; this.hup0=null; this.downSaid=false; }
       return;
     }
@@ -1086,6 +1098,7 @@ function finishSwing(c){
   let tp=TIPS[issue]; if(!tp) return;
   if(issue==="피니시") tp={say:"피니시에서 "+fin.fails[0]+".", tip:"피니시: "+fin.fails.join(", ")+". 체중을 "+leadFoot()+"에 다 싣고, 벨트 버클과 가슴이 타깃을 향한 채 3초간 멈춰 서는 것을 목표로 하세요. 피니시에서 균형을 잡을 수 있는 속도로만 스윙하는 연습이 도움이 됩니다."};
   $("coach").hidden=false; $("coach").textContent=tp.tip;
+  showIssue(issue==="피니시"?"피니시":issue, tp.say);
   if(cfg.voice&&cfg.tips!==false) setTimeout(()=>say(tp.say,issue==="좋아요"?"good":"bad"),600);
 }
 function showSummary(){
@@ -1124,13 +1137,39 @@ function setView(v){
     : "후방 모드: 폰을 타깃 라인 뒤(오른쪽 어깨 뒤, 옆모습이 보이는 방향) 2.5~3m 거리, 가슴 높이에 세워 주세요.";
   $("result").hidden=true; $("setref").textContent="어드레스 기준 저장 (10초)"; showTarget();
 }
+// ---------- 큰 글씨 안내 ----------
+// 스윙이 진행 중이 아닐 때, 지금 평가를 막고 있는 문제 하나를 화면 가득 보여 줌 (0.6초 이상 같은 문제일 때만, 깜빡임 방지)
+let bigCur=null, bigSince=0;
+function bigProblem(){
+  if(!running) return null;
+  if(remoteCode&&!remoteUp) return ["폰 연결이 끊겼습니다","다시 연결하는 중입니다. 폰 화면을 켜 두세요"];
+  if(coach.phase!=="wait") return null;                       // 준비됨·스윙 중에는 방해하지 않음
+  if(!last){ return [noBody?noBody.split(" · ")[0]:"사람이 보이지 않습니다", noBody&&noBody.split(" · ")[1]||"카메라 앞에 머리부터 발까지 보이게 서 주세요"]; }
+  if(tilt.ok&&(Math.abs(tilt.pitch)>12||Math.abs(tilt.roll)>6))
+    return ["카메라가 기울어졌습니다",(Math.abs(tilt.roll)>6?"좌우 "+Math.round(Math.abs(tilt.roll))+"° ":"")+(Math.abs(tilt.pitch)>12?(tilt.pitch>0?"위로 ":"아래로 ")+Math.round(Math.abs(tilt.pitch))+"° ":"")+"· 똑바로 세워 주세요"];
+  if(coach.why) return ["어드레스를 잡아 주세요",coach.why];
+  return null;
+}
+function showBig(){
+  const p=bigProblem(), key=p?p[0]+p[1]:null, now=performance.now();
+  if(key!==bigCur){ bigCur=key; bigSince=now; }
+  const el=$("big");
+  if(!p||now-bigSince<600||cfg.big===false){ if(!p||cfg.big===false) el.hidden=true; return; }
+  el.querySelector(".t").textContent=p[0]; el.querySelector(".d").textContent=p[1]||""; el.hidden=false;
+}
+// 스윙이 끝나면 이번 스윙의 문제를 화면 위쪽에 크게 (다음 스윙을 시작하면 사라짐, 리플레이 위에도 보임)
+function showIssue(name,line){
+  const el=$("issue"); el.className= name==="좋아요"?"good":"";
+  el.querySelector(".t").textContent=name; el.querySelector(".d").textContent=line||""; el.hidden=false;
+}
+
 function showLevel(){
   const el=$("level"); if(!tilt.ok||!running){ el.hidden=true; return; }
   const bad=Math.abs(tilt.pitch)>10||Math.abs(tilt.roll)>3;
   el.hidden=false; el.className=bad?"bad":"";
   el.textContent=(tilt.pitch>0?"위로 ":"아래로 ")+Math.abs(Math.round(tilt.pitch))+"° · 좌우 "+Math.round(Math.abs(tilt.roll))+"°"+(bad?" 기울어짐":" 수평");
 }
-function showPhase(){ showLevel(); const el=$("phase"); el.hidden=!running;
+function showPhase(){ showLevel(); showBig(); const el=$("phase"); el.hidden=!running;
   el.textContent=PHASE[coach.phase]+(coach.phase==="wait"&&coach.why?" · "+coach.why:"")+(target?"":" · 목표 탑 없음"); }
 function showTarget(){
   $("tinfo").textContent= target ? "저장된 목표 탑: 손 높이 "+Math.round(target.hand)+"%"+(target.shTurn!=null?", 어깨 회전 "+Math.round(target.shTurn)+"°":"")
@@ -1146,6 +1185,7 @@ setView(view); showVoice();
 $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.target.checked; store("cfg",cfg); };
 $("c-hq").checked=cfg.engine==="v1"; $("c-hq").onchange=e=>{ cfg.engine=e.target.checked?"v1":"v2"; store("cfg",cfg); };
 $("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
+$("c-big").checked=cfg.big!==false; $("c-big").onchange=e=>{ cfg.big=e.target.checked; store("cfg",cfg); showBig(); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
 $("settop").onclick=saveTop;
