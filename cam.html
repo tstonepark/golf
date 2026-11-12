@@ -122,15 +122,17 @@ function sendInfo(){
 // ---------- 연결 (공개 중개 서버로 처음에 서로 찾기만 하고, 영상은 와이파이 안에서 직접 보냄) ----------
 function startPeer(){
   if(peer&&!peer.destroyed) peer.destroy();
-  $("code").textContent=code; state("아이패드 연결 기다리는 중");
+  // 중개 서버에 등록이 끝나야 아이패드가 찾을 수 있으므로, 그 전에는 번호를 보여 주지 않음
+  $("code").textContent="······"; state("중개 서버에 등록 중…");
   peer=new Peer(PFX+code,peerOpts());
-  peer.on("open",()=>state("아이패드 연결 기다리는 중"));
+  peer.on("open",()=>{ $("code").textContent=code; state("아이패드 연결 기다리는 중 · 위 번호를 아이패드에 입력하세요","ok"); });
   peer.on("error",e=>{
     if(e.type==="unavailable-id"){ code=newCode(); save("golfcam.code",code); startPeer(); return; }   // 번호가 이미 쓰이는 중
     if(e.type==="network"||e.type==="server-error"||e.type==="socket-error"||e.type==="socket-closed"){ state("중개 서버(0.peerjs.com)에 연결하지 못했습니다. 인터넷을 확인해 주세요","bad"); return; }
     state("연결 오류 ("+e.type+")","bad");
   });
-  peer.on("disconnected",()=>{ setTimeout(()=>{ try{ if(!peer.destroyed) peer.reconnect(); }catch(e){} },2000); });
+  peer.on("disconnected",()=>{ if(!(conn&&conn.open)) state("중개 서버 연결 끊김 · 다시 등록 중…","bad");
+    setTimeout(()=>{ try{ if(!peer.destroyed&&peer.disconnected) peer.reconnect(); }catch(e){} },2000); });
   peer.on("connection",c=>{
     // 새 연결이 오면 그쪽으로 바꿈 (아이패드가 다시 붙는 경우). 번호를 아는 기기만 들어올 수 있음
     state("아이패드가 접속함 · 영상 보내는 중");
@@ -174,7 +176,12 @@ async function start(){
   try{ wake=await navigator.wakeLock.request("screen"); }catch(e){}
   startPeer();
 }
-document.addEventListener("visibilitychange",async()=>{ if(document.visibilityState==="visible"&&stream){ try{ wake=await navigator.wakeLock.request("screen"); }catch(e){} } });
+// 화면이 꺼졌다 켜지면 중개 서버 연결이 끊겨 있을 수 있음 → 다시 등록
+document.addEventListener("visibilitychange",async()=>{
+  if(document.visibilityState!=="visible"||!stream) return;
+  try{ wake=await navigator.wakeLock.request("screen"); }catch(e){}
+  if(!peer||peer.destroyed) startPeer(); else if(peer.disconnected){ state("중개 서버에 다시 등록 중…"); try{ peer.reconnect(); }catch(e){ startPeer(); } }
+});
 
 // 화면 가운데 세로선: 골퍼를 화면 중앙에 맞추는 기준
 function drawGuide(){
@@ -189,10 +196,12 @@ try{ const cn=navigator.connection; const chk=()=>{ const t=cn&&cn.type;
   $("net").textContent= t==="cellular" ? "⚠ 폰이 모바일 데이터입니다. 아이패드와 같은 와이파이에 연결하세요" : t==="wifi" ? "와이파이 연결됨" : ""; };
   if(cn){ chk(); cn.addEventListener("change",chk); } }catch(e){}
 code=load("golfcam.code"); if(!/^\d{6}$/.test(code||"")){ code=newCode(); save("golfcam.code",code); }
-$("code").textContent=code;
+state("① 아래 '카메라 켜기'를 누르세요");
 $("start").onclick=start;
+// 카메라 권한을 이미 허용했으면 바로 시작
+try{ navigator.permissions.query({name:"camera"}).then(r=>{ if(r.state==="granted") start(); }).catch(()=>{}); }catch(e){}
 $("lens").onclick=nextLens;
-$("newcode").onclick=()=>{ code=newCode(); save("golfcam.code",code); if(stream) startPeer(); else $("code").textContent=code; };
+$("newcode").onclick=()=>{ code=newCode(); save("golfcam.code",code); if(stream) startPeer(); };
 </script>
 </body>
 </html>

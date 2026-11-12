@@ -147,7 +147,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v28</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v29</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -384,7 +384,14 @@ function remoteConnect(code,timeout){
       rpeer.on("disconnected",()=>{ setTimeout(()=>{ try{ if(!rpeer.destroyed) rpeer.reconnect(); }catch(x){} },2000); });
     }else rstep("find","폰 찾는 중");
     rpeer._ok=ok;
-    rpeer._fail=t=>fail(
+    let tries=0;
+    rpeer._fail=t=>{
+      // 폰이 아직 등록 전일 수 있으므로 '못 찾음'은 바로 포기하지 않고 3초마다 다시 찾음
+      if(t==="peer-unavailable"&&!done){ tries++; rstep("find","폰 찾는 중 ("+tries+"번째) · 폰 화면에 번호가 보이는지 확인"); setTimeout(()=>{ if(!done&&rpeer&&!rpeer.destroyed) go(); },3000); lastErr=t; return; }
+      failT(t);
+    };
+    let lastErr="";
+    const failT=t=>fail(
         t==="peer-unavailable" ? "폰을 찾지 못했습니다. 폰에서 cam.html을 열고 '카메라 켜기'를 누른 뒤, 폰 화면에 '아이패드 연결 기다리는 중'이 보이는지와 번호가 맞는지 확인해 주세요."
       : t==="ice-failed" ? "폰은 찾았지만 영상 경로가 막혔습니다. 두 기기를 같은 와이파이에 연결하세요(폰이 LTE/5G면 안 됩니다). 연습장 와이파이가 기기끼리 통신을 막으면 폰 핫스팟을 켜고 아이패드를 거기에 연결하세요."
       : t==="network"||t==="server-error"||t==="socket-error"||t==="socket-closed" ? "중개 서버(0.peerjs.com)에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."
@@ -397,10 +404,10 @@ function remoteConnect(code,timeout){
       rconn.on("close",remoteLost);
     };
     if(rpeer.open) go(); else rpeer.once("open",go);
-    setTimeout(()=>fail(
+    setTimeout(()=>{ if(lastErr==="peer-unavailable"&&rstage==="find") return failT("peer-unavailable"); fail(
         rstage==="server" ? "중개 서버(0.peerjs.com)에 접속하지 못했습니다. 인터넷 연결을 확인하거나 잠시 뒤 다시 시도해 주세요."
       : rstage==="find" ? "폰이 응답하지 않습니다. 폰 화면이 켜져 있고 '아이패드 연결 기다리는 중'이 보이는지 확인해 주세요."
-      : "폰은 찾았지만 영상이 오지 않습니다. 두 기기를 같은 와이파이에 연결하세요(폰이 LTE/5G면 안 됩니다). 안 되면 폰 핫스팟에 아이패드를 연결하세요."),timeout||20000);
+      : "폰은 찾았지만 영상이 오지 않습니다. 두 기기를 같은 와이파이에 연결하세요(폰이 LTE/5G면 안 됩니다). 안 되면 폰 핫스팟에 아이패드를 연결하세요."); },timeout||20000);
   });
 }
 function onRemoteData(d){
