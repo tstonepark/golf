@@ -87,8 +87,10 @@ button.off{color:var(--dim)}
 #rinfo{position:absolute;left:12px;top:10px;font:600 13px var(--num);color:var(--axis);background:rgba(12,21,18,.72);padding:5px 10px;border-radius:4px;font-variant-numeric:tabular-nums}
 #result{cursor:pointer}
 #coach{background:var(--panel);border-top:1px solid var(--line);padding:6px 12px 8px;font-size:12px;line-height:1.5;color:var(--ink)}
-#summary{z-index:5;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:13px;line-height:1.5}
-#summary h2{margin:0 0 8px;font-size:15px} #summary p{margin:0 0 6px} #summary b{font:600 16px var(--num);color:var(--axis)}
+#summary{z-index:5;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:17px;line-height:1.5;max-height:85vh;overflow-y:auto}
+#summary h2{margin:0 0 8px;font-size:20px}
+table.log{border-collapse:collapse;font:500 16px var(--num);white-space:nowrap} table.log th,table.log td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right} table.log th{color:var(--dim);font-size:14px;position:sticky;top:0;background:var(--panel)} table.log td:nth-child(2){text-align:left}
+#summary button{font-size:17px;padding:12px 16px} #summary p{margin:0 0 6px} #summary b{font:600 16px var(--num);color:var(--axis)}
 #rhint{flex:1 1 100%;font-size:11px;color:var(--dim)}
 #rphases button{flex:1;padding:6px 4px;font-size:12px;color:var(--dim)} #rphases button.on{color:var(--axis);border-color:var(--axis)}
 #panel{z-index:2;position:absolute;left:12px;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);
@@ -136,7 +138,10 @@ button:disabled{opacity:.4}
   <div id="count" hidden></div>
   <div id="summary" hidden>
     <h2>오늘 요약</h2><div id="sumbody"></div>
-    <button id="sumclose">닫기</button>
+    <div id="logbox"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button id="logcsv">수치 기록 CSV 저장</button><button id="logclear">기록 지우기</button><button id="sumclose">닫기</button>
+    </div>
   </div>
   <div id="panel" hidden>
     <h2>판정 기준</h2>
@@ -153,13 +158,14 @@ button:disabled{opacity:.4}
     <label for="c-vfov">카메라 세로 화각 (°, 보정 계산용)</label><input id="c-vfov" type="number" inputmode="numeric" min="30" max="120">
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-big">문제를 큰 글씨로 화면에 표시</label><input id="c-big" type="checkbox" style="width:24px;height:24px">
+    <label for="c-video">영상 저장 (끄면 수치만 기록, 리플레이 없음)</label><input id="c-video" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
     <p>%는 정면에서는 어깨너비, 후방에서는 몸통 길이의 3/4을 100으로 봅니다.</p>
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v37</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v38</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -634,7 +640,7 @@ function onResults(res){
   if(now-fpsT>1000){ fps=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; }
 
   const lm=res.poseLandmarks, wl=res.poseWorldLandmarks;
-  rec.push(img,iw,ih,lm,now);
+  if(cfg.video!==false) rec.push(img,iw,ih,lm,now);
   noBody=null;
   const m= lm ? measure(lm,wl,iw,ih) : null;
   last=m; lastLm= m&&lm ? {lm:lm.map(p=>({x:p.x*iw,y:p.y*ih,v:p.visibility})),hip:ref?ref.hip:m.hip,U:ref?ref.U:m.U} : null;
@@ -775,6 +781,8 @@ let view= cfg.view==="dtl" ? "dtl" : "face";            // face=정면, dtl=후�
 let targets=load("targets",null)||{face:load("target",null)};
 for(const k in targets) if(targets[k]&&!(targets[k].hand>=50)) targets[k]=null;
 const session=[];   // 오늘 스윙 기록 (페이지를 닫으면 사라짐)
+// 스윙 수치 기록: 영상 없이 숫자만 아이패드에 계속 보관 (최근 3000회)
+let swingLog=load("log",[]); if(!Array.isArray(swingLog)) swingLog=[];
 let target=targets[view]||null;
 const said=[]; let lastSay={t:"",at:0}, vTimer=null;
 
@@ -1094,6 +1102,13 @@ function finishSwing(c){
     || (finBad?"피니시":null)
     || ((topV==="좋아요"||!target)&&ref?"좋아요":null);
   session.push({n:c.n,view,issue,hand:c.atMax.hand,shTurn:c.atMax.shTurn,peak:Object.assign({},pk),wt:Object.assign({},wt),path:c.path,fin:fin?fin.fails.slice():null});
+  const ms=(a,b)=>a!=null&&b!=null&&b>a?Math.round(b-a):null, bk=ms(c.startT,c.downT), dn=ms(c.downT,c.followT);
+  const r1=x=>x==null||!isFinite(x)?null:Math.round(x*10)/10, P={}; for(const k in pk) P[k]=r1(pk[k]);
+  swingLog.push({ts:Date.now(),view,issue:issue||null,hand:r1(c.atMax.hand),shTurn:r1(c.atMax.shTurn),
+    wAddr:r1(wt.addr),wTop:r1(wt.top),wImp:r1(wt.imp),wFin:r1(wt.fin),path:r1(c.path),
+    back:bk,down:dn,tempo:bk&&dn?Math.round(bk/dn*10)/10:null,fin:fin&&fin.measured?(fin.fails.join("/")||"좋음"):null,peak:P});
+  if(swingLog.length>3000) swingLog=swingLog.slice(-3000);
+  store("log",swingLog);
   if(!issue) return;
   let tp=TIPS[issue]; if(!tp) return;
   if(issue==="피니시") tp={say:"피니시에서 "+fin.fails[0]+".", tip:"피니시: "+fin.fails.join(", ")+". 체중을 "+leadFoot()+"에 다 싣고, 벨트 버클과 가슴이 타깃을 향한 채 3초간 멈춰 서는 것을 목표로 하세요. 피니시에서 균형을 잡을 수 있는 속도로만 스윙하는 연습이 도움이 됩니다."};
@@ -1119,7 +1134,36 @@ function showSummary(){
   el.innerHTML+='<details style="margin-top:8px"><summary style="color:var(--dim);font-size:12px">진단 정보</summary><pre style="font-size:11px;white-space:pre-wrap;color:var(--dim)">'
     +[navigator.userAgent, "엔진 "+engineName+(remoteCode?" · 폰 카메라 "+(remoteUp?"연결":"끊김"):"")+" · fps "+fps+" · 단계 "+coach.phase+" · 버퍼 "+rec.buf.length+"장 · 저장 "+(rec.last?rec.last.length:0)+"장 · 기준 "+(ref?"있음":"없음")+" · 목표 "+(target?"있음":"없음")].concat(diag).join("\n").replace(/</g,"&lt;")+'</pre></details>';
 }
-$("sumbtn").onclick=()=>{ showSummary(); $("summary").hidden=false; };
+// 수치 기록 표 / CSV
+const LOGCOL=[["일시",x=>{ const d=new Date(x.ts),z=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes())+":"+z(d.getSeconds()); }],
+  ["방향",x=>x.view==="side"?"후방":"정면"],["문제",x=>x.issue||""],["탑손높이%",x=>x.hand],["어깨회전°",x=>x.shTurn],
+  ["백스윙ms",x=>x.back],["다운스윙ms",x=>x.down],["템포",x=>x.tempo],["손경로%",x=>x.path],
+  ["체중어드레스%",x=>x.wAddr],["체중탑%",x=>x.wTop],["체중임팩트%",x=>x.wImp],["체중피니시%",x=>x.wFin],["피니시",x=>x.fin]];
+function peakCols(){ const ks={}; swingLog.forEach(x=>{ for(const k in (x.peak||{})) ks[k]=1; });
+  const lab={}; for(const v in ITEMS) ITEMS[v].forEach(it=>{ lab[it.k]=it.lab+(it.u||""); });
+  return Object.keys(ks).map(k=>[lab[k]||k,x=>x.peak?x.peak[k]:null]); }
+function showLog(){
+  const el=$("logbox");
+  if(!swingLog.length){ el.innerHTML="<h2>수치 기록</h2><p>저장된 스윙 수치가 없습니다.</p>"; return; }
+  const cols=[LOGCOL[0],LOGCOL[2],LOGCOL[3],LOGCOL[4],LOGCOL[7],LOGCOL[8],LOGCOL[11]], rows=swingLog.slice(-30).reverse();
+  const esc=v=>v==null?"–":String(v).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  el.innerHTML="<h2>수치 기록 (총 "+swingLog.length+"회, 최근 30회)</h2><div style=\"overflow-x:auto;max-height:40vh\"><table class=\"log\"><tr>"+cols.map(c=>"<th>"+c[0]+"</th>").join("")+"</tr>"+
+    rows.map(x=>"<tr>"+cols.map((c,i)=>"<td>"+esc(i===0?c[1](x).slice(5,16):c[1](x))+"</td>").join("")+"</tr>").join("")+"</table></div>";
+}
+function logCsv(){
+  if(!swingLog.length) return;
+  const cols=LOGCOL.concat(peakCols()), q=v=>{ v=v==null?"":String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const txt="\ufeff"+[cols.map(c=>q(c[0])).join(",")].concat(swingLog.map(x=>cols.map(c=>q(c[1](x))).join(","))).join("\r\n");
+  const a=document.createElement("a"), d=new Date();
+  a.href=URL.createObjectURL(new Blob([txt],{type:"text/csv"})); a.download="swing-"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+".csv";
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },2000);
+}
+$("logcsv").onclick=logCsv;
+let clearArm=0;
+$("logclear").onclick=()=>{ const b=$("logclear");
+  if(Date.now()-clearArm>4000){ clearArm=Date.now(); b.textContent="한 번 더 누르면 삭제"; setTimeout(()=>{ b.textContent="기록 지우기"; },4000); return; }
+  swingLog=[]; store("log",swingLog); clearArm=0; b.textContent="기록 지우기"; showLog(); };
+$("sumbtn").onclick=()=>{ showSummary(); showLog(); $("summary").hidden=false; };
 $("sumclose").onclick=()=>{ $("summary").hidden=true; };
 
 const PHASE={wait:"어드레스 대기",ready:"준비됨",back:"백스윙",top:"탑",down:"다운스윙",follow:"피니시"};
@@ -1186,6 +1230,7 @@ $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.t
 $("c-hq").checked=cfg.engine==="v1"; $("c-hq").onchange=e=>{ cfg.engine=e.target.checked?"v1":"v2"; store("cfg",cfg); };
 $("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
 $("c-big").checked=cfg.big!==false; $("c-big").onchange=e=>{ cfg.big=e.target.checked; store("cfg",cfg); showBig(); };
+$("c-video").checked=cfg.video!==false; $("c-video").onchange=e=>{ cfg.video=e.target.checked; store("cfg",cfg); if(!cfg.video){ rec.buf=[]; } };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
 $("settop").onclick=saveTop;
