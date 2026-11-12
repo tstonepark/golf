@@ -147,7 +147,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v29</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v30</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -292,9 +292,12 @@ async function boot(remote){
   beep(660,.05);                                         // 누른 순간에 소리 권한을 열어 둠
   try{ if(cfg.voice&&window.speechSynthesis){ const u=new SpeechSynthesisUtterance("시작합니다"); u.lang="ko-KR"; speechSynthesis.speak(u); } }catch(e){}
   if(remote){
+    // 아이패드 사파리는 카메라 권한이 활성일 때만 같은 와이파이의 직접 경로를 공개함 → 작은 화질로 잡아 둠
+    if(!keepCam&&navigator.mediaDevices) try{ keepCam=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:160},height:{ideal:120}}}); dlog("직접 경로용 카메라 잡음"); }catch(e){ dlog("직접 경로용 카메라 실패: "+e.name); }
     try{ await remoteConnect(remote,20000); }
     catch(e){ remoteReset(); $("start").disabled=false; $("rconnect").disabled=false; $("rstate").textContent="";
-      setStatus("폰 연결 실패","bad"); $("err").textContent=e.message; return; }
+      setStatus("폰 연결 실패","bad"); $("err").textContent=e.message;
+      $("rstate").textContent="진단: "+diag.filter(x=>/후보|경로/.test(x)).slice(-3).map(x=>x.slice(9)).join(" · "); return; }
   }
   else try{ await startCamera(); }
   catch(e){
@@ -350,10 +353,19 @@ async function loop(){
 // ---------- 폰 카메라 연결 (PeerJS 공개 중개 서버로 서로 찾고, 영상은 와이파이 안에서 직접 받음) ----------
 const PFX="adn-golfcoach-";
 // 중개 서버: 기본은 PeerJS 공개 서버. 주소 뒤에 ?peer=호스트:포트 를 붙이면 그 서버를 씀(자체 서버·시험용)
-function peerOpts(){ const v=new URLSearchParams(location.search).get("peer"); if(!v) return {};
-  const m=v.match(/^([A-Za-z0-9.-]+):(\d{1,5})$/); if(!m) return {};
-  return {host:m[1],port:+m[2],path:"/",secure:location.protocol==="https:"}; }
-var rpeer=null, rconn=null, remoteCode=null, remoteRetry=null, remoteUp=false, remoteLast=0;
+// 영상 경로를 찾는 데 쓰는 서버: 공개 STUN 여러 곳 + PeerJS 기본 중계(TURN)
+const ICE={iceServers:[{urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{urls:"stun:stun.cloudflare.com:3478"},
+  {urls:["turn:eu-0.turn.peerjs.com:3478","turn:us-0.turn.peerjs.com:3478"],username:"peerjs",credential:"peerjsp"}]};
+function peerOpts(){ const o={config:ICE}; const v=new URLSearchParams(location.search).get("peer"); if(!v) return o;
+  const m=v.match(/^([A-Za-z0-9.-]+):(\d{1,5})$/); if(!m) return o;
+  return Object.assign(o,{host:m[1],port:+m[2],path:"/",secure:location.protocol==="https:"}); }
+// 연결 진단: 이 기기가 낸 경로 후보 종류(host=같은 와이파이 직접, srflx=공유기 바깥 주소, relay=중계)
+function watchIce(pc,tag,log){
+  if(!pc||pc._watched) return; pc._watched=true; const seen=new Set();
+  pc.addEventListener("icecandidate",e=>{ if(e.candidate&&e.candidate.type&&!seen.has(e.candidate.type)){ seen.add(e.candidate.type); log(tag+" 후보: "+[...seen].join(",")); } });
+  pc.addEventListener("iceconnectionstatechange",()=>log(tag+" 경로: "+pc.iceConnectionState));
+}
+var keepCam=null, rpeer=null, rconn=null, remoteCode=null, remoteRetry=null, remoteUp=false, remoteLast=0;
 // 폰이 꺼지거나 페이지가 닫혀도 WebRTC는 한참 뒤에야 끊김을 알려 줌 → 폰의 생존 신호가 4초 없으면 끊긴 것으로 봄
 setInterval(()=>{ if(remoteCode&&remoteUp&&Date.now()-remoteLast>4000) remoteLost(); },1000);
 // 연결 단계: server(중개 서버 접속) → find(폰 찾기) → media(영상 연결) → up
@@ -370,7 +382,7 @@ function remoteConnect(code,timeout){
       rpeer.on("call",call=>{
         rstep("media","폰 찾음 · 영상 연결 중");
         call.answer();
-        const pc=call.peerConnection;
+        const pc=call.peerConnection; watchIce(pc,"영상",dlog);
         if(pc) pc.addEventListener("iceconnectionstatechange",()=>{
           const st=pc.iceConnectionState; dlog("영상 경로: "+st);
           if(st==="checking") rstep("media","폰 찾음 · 영상 경로 찾는 중");
@@ -399,6 +411,7 @@ function remoteConnect(code,timeout){
     const go=()=>{
       if(rconn) try{ rconn.close(); }catch(x){}
       rconn=rpeer.connect(PFX+code,{serialization:"json"});
+      watchIce(rconn.peerConnection,"데이터",dlog);
       rconn.on("open",()=>{ if(rstage==="find") rstep("media","폰 찾음 · 영상 기다리는 중"); });
       rconn.on("data",onRemoteData);
       rconn.on("close",remoteLost);
@@ -421,6 +434,7 @@ function remoteReset(){   // 폰 모드를 완전히 끄고 이 기기 카메라
   remoteCode=null; remoteUp=false; clearInterval(remoteRetry); remoteRetry=null;
   try{ if(rconn) rconn.close(); }catch(e){} rconn=null;
   try{ if(rpeer) rpeer.destroy(); }catch(e){} rpeer=null;
+  if(keepCam){ keepCam.getTracks().forEach(t=>t.stop()); keepCam=null; }
   $("flip").textContent="카메라";
 }
 function remoteLost(){

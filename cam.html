@@ -49,6 +49,7 @@ button:focus-visible{outline:3px solid var(--axis);outline-offset:2px}
   <canvas id="guide"></canvas>
 </div>
 <p id="err"></p>
+<p id="diag" style="font-size:14px;color:var(--dim);padding:0 16px;margin:0"></p>
 <div id="bar">
   <button class="main" id="start">카메라 켜기</button>
   <button id="lens" disabled>렌즈 바꾸기</button>
@@ -59,9 +60,18 @@ button:focus-visible{outline:3px solid var(--axis);outline-offset:2px}
 const $=id=>document.getElementById(id);
 const PFX="adn-golfcoach-";
 // 중개 서버: 기본은 PeerJS 공개 서버. 주소 뒤에 ?peer=호스트:포트 를 붙이면 그 서버를 씀(자체 서버·시험용)
-function peerOpts(){ const v=new URLSearchParams(location.search).get("peer"); if(!v) return {};
-  const m=v.match(/^([A-Za-z0-9.-]+):(\d{1,5})$/); if(!m) return {};
-  return {host:m[1],port:+m[2],path:"/",secure:location.protocol==="https:"}; }                 // 공개 중개 서버에서 다른 서비스와 겹치지 않게 붙이는 접두어
+// 영상 경로를 찾는 데 쓰는 서버: 공개 STUN 여러 곳 + PeerJS 기본 중계(TURN)
+const ICE={iceServers:[{urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{urls:"stun:stun.cloudflare.com:3478"},
+  {urls:["turn:eu-0.turn.peerjs.com:3478","turn:us-0.turn.peerjs.com:3478"],username:"peerjs",credential:"peerjsp"}]};
+function peerOpts(){ const o={config:ICE}; const v=new URLSearchParams(location.search).get("peer"); if(!v) return o;
+  const m=v.match(/^([A-Za-z0-9.-]+):(\d{1,5})$/); if(!m) return o;
+  return Object.assign(o,{host:m[1],port:+m[2],path:"/",secure:location.protocol==="https:"}); }
+// 연결 진단: 이 기기가 낸 경로 후보 종류(host=같은 와이파이 직접, srflx=공유기 바깥 주소, relay=중계)
+function watchIce(pc,tag,log){
+  if(!pc||pc._watched) return; pc._watched=true; const seen=new Set();
+  pc.addEventListener("icecandidate",e=>{ if(e.candidate&&e.candidate.type&&!seen.has(e.candidate.type)){ seen.add(e.candidate.type); log(tag+" 후보: "+[...seen].join(",")); } });
+  pc.addEventListener("iceconnectionstatechange",()=>log(tag+" 경로: "+pc.iceConnectionState));
+}                 // 공개 중개 서버에서 다른 서비스와 겹치지 않게 붙이는 접두어
 const FPS=Number(new URLSearchParams(location.search).get("fps"))||30;
 let stream=null, peer=null, conn=null, call=null, cams=[], camIdx=-1, code=null, wake=null;
 const tilt={pitch:null,roll:null};
@@ -69,6 +79,7 @@ const tilt={pitch:null,roll:null};
 function load(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 function save(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 function state(t,cls){ $("state").textContent=t; $("state").className=cls||""; }
+const nl=[]; function netlog(m){ nl.push(m); if(nl.length>4) nl.shift(); $("diag").textContent=nl.join(" · "); }
 function newCode(){ return String(Math.floor(100000+Math.random()*900000)); }   // 6자리: 남이 맞혀 들어오기 어렵게
 
 // ---------- 카메라 ----------
@@ -80,9 +91,16 @@ async function openCam(deviceId){
     try{ stream=await navigator.mediaDevices.getUserMedia({audio:false,video:Object.assign({facingMode:{exact:"environment"}},v)}); }
     catch(e){ if(e.name==="NotAllowedError") throw e; stream=await navigator.mediaDevices.getUserMedia({audio:false,video:Object.assign({facingMode:"environment"},v)}); }
   }
-  const tr=stream.getVideoTracks()[0]; try{ tr.contentHint="motion"; }catch(e){}
-  $("v").srcObject=stream;
   try{ cams=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput"); }catch(e){ cams=[]; }
+  // 처음 열 때: 후면 카메라 중 번호가 가장 작은 것(보통 기본 광각)을 고름. 갤럭시는 'camera2 0, facing back' 같은 이름
+  if(!deviceId){
+    const backs=backCams(); const cur=stream.getVideoTracks()[0].getSettings().deviceId;
+    if(backs.length&&backs[0].deviceId!==cur){ stream.getTracks().forEach(t=>t.stop());
+      stream=await navigator.mediaDevices.getUserMedia({audio:false,video:Object.assign({deviceId:{exact:backs[0].deviceId}},v)}); }
+  }
+  const tr=stream.getVideoTracks()[0]; try{ tr.contentHint="motion"; }catch(e){}
+  $("v").srcObject=stream; $("v").play().catch(()=>{});
+  setTimeout(()=>checkBlack(tr),1800);
   const set=tr.getSettings?tr.getSettings():{};
   camIdx=cams.findIndex(c=>c.deviceId===set.deviceId);
   $("lens").disabled=cams.length<2;
@@ -94,10 +112,28 @@ async function openCam(deviceId){
   }
   sendInfo();
 }
+function backCams(){
+  const num=c=>{ const m=(c.label||"").match(/(\d+)/); return m?+m[1]:99; };
+  return cams.filter(c=>/back|rear|environment|후면/i.test(c.label||"")).sort((a,b)=>num(a)-num(b));
+}
+// 화면이 계속 검으면 그 렌즈는 못 쓰는 것 → 다음 후면 렌즈로 (최대 한 바퀴)
+let blackTries=0;
+function checkBlack(tr){
+  const v=$("v"); if(!stream||stream.getVideoTracks()[0]!==tr||!v.videoWidth) return;
+  const c=document.createElement("canvas"); c.width=32; c.height=32; const g=c.getContext("2d"); g.drawImage(v,0,0,32,32);
+  const d=g.getImageData(0,0,32,32).data; let sum=0; for(let i=0;i<d.length;i+=4) sum+=d[i]+d[i+1]+d[i+2];
+  const mean=sum/(32*32*3);
+  if(mean<6&&blackTries<cams.length){ blackTries++; $("err").textContent="이 렌즈는 화면이 나오지 않아 다른 렌즈로 바꿉니다"; nextLens(); }
+  else if(mean>=6){ blackTries=0; $("err").textContent=""; }
+}
 async function nextLens(){
   if(cams.length<2) return;
-  camIdx=(camIdx+1)%cams.length;
-  try{ await openCam(cams[camIdx].deviceId); }catch(e){ $("err").textContent="렌즈를 바꾸지 못했습니다 ("+e.name+")"; }
+  const backs=backCams(), list=backs.length>1?backs:cams;   // 후면 렌즈끼리만 순환
+  const cur=stream&&stream.getVideoTracks()[0].getSettings().deviceId;
+  camIdx=(list.findIndex(c=>c.deviceId===cur)+1)%list.length;
+  const target=list[camIdx];
+  try{ await openCam(target.deviceId); }catch(e){ $("err").textContent="렌즈를 바꾸지 못했습니다 ("+e.name+")"; }
+  return;
 }
 
 // ---------- 수평계 (아이패드로도 보냄: 기울기 보정용) ----------
@@ -135,12 +171,14 @@ function startPeer(){
     setTimeout(()=>{ try{ if(!peer.destroyed&&peer.disconnected) peer.reconnect(); }catch(e){} },2000); });
   peer.on("connection",c=>{
     // 새 연결이 오면 그쪽으로 바꿈 (아이패드가 다시 붙는 경우). 번호를 아는 기기만 들어올 수 있음
-    state("아이패드가 접속함 · 영상 보내는 중");
+    state("아이패드가 접속함 · 경로 찾는 중"); watchIce(c.peerConnection,"데이터",netlog);
     c.on("open",()=>{
       if(conn&&conn!==c){ try{ conn.close(); }catch(e){} }
       if(call){ try{ call.close(); }catch(e){} call=null; }
       conn=c;
+      watchIce(c.peerConnection,"데이터",netlog);
       call=peer.call(c.peer,stream);
+      watchIce(call.peerConnection,"영상",netlog);
       const pc=call.peerConnection;
       if(pc) pc.addEventListener("iceconnectionstatechange",()=>{ const st=pc.iceConnectionState;
         if(st==="connected"||st==="completed") state("아이패드에 연결됨","ok");
