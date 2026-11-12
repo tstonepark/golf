@@ -49,7 +49,7 @@ button:focus-visible{outline:3px solid var(--axis);outline-offset:2px}
   <canvas id="guide"></canvas>
 </div>
 <p id="err"></p>
-<p id="diag" style="font-size:14px;color:var(--dim);padding:0 16px;margin:0"></p>
+<p id="diag" style="font-size:14px;color:var(--dim);padding:0 16px;margin:0;white-space:pre-line;word-break:break-all"></p>
 <div id="bar">
   <button class="main" id="start">카메라 켜기</button>
   <button id="lens" disabled>렌즈 바꾸기</button>
@@ -67,10 +67,26 @@ function peerOpts(){ const o={config:ICE}; const v=new URLSearchParams(location.
   const m=v.match(/^([A-Za-z0-9.-]+):(\d{1,5})$/); if(!m) return o;
   return Object.assign(o,{host:m[1],port:+m[2],path:"/",secure:location.protocol==="https:"}); }
 // 연결 진단: 이 기기가 낸 경로 후보 종류(host=같은 와이파이 직접, srflx=공유기 바깥 주소, relay=중계)
+// 경로 진단 덤프: 양쪽이 낸 주소 후보와, 주소 쌍마다 확인이 어디까지 갔는지
+async function iceDump(pc){
+  if(!pc||!pc.getStats) return "";
+  try{
+    const st=await pc.getStats(), L=[], R=[]; let tried=0, ok=0, fail=0;
+    st.forEach(r=>{
+      if(r.type==="local-candidate") L.push(r.candidateType+" "+(r.address||r.ip||"?")+(r.networkType?"("+r.networkType+")":""));
+      else if(r.type==="remote-candidate") R.push(r.candidateType+" "+(r.address||r.ip||"?"));
+      else if(r.type==="candidate-pair"){ tried++; if(r.state==="succeeded") ok++; if(r.state==="failed") fail++; }
+    });
+    const u=a=>[...new Set(a)].join(", ")||"없음";
+    return "내 주소: "+u(L)+" / 상대 주소: "+u(R)+" / 주소 쌍 "+tried+"개 중 성공 "+ok+", 실패 "+fail;
+  }catch(e){ return ""; }
+}
 function watchIce(pc,tag,log){
   if(!pc||pc._watched) return; pc._watched=true; const seen=new Set();
   pc.addEventListener("icecandidate",e=>{ if(e.candidate&&e.candidate.type&&!seen.has(e.candidate.type)){ seen.add(e.candidate.type); log(tag+" 후보: "+[...seen].join(",")); } });
-  pc.addEventListener("iceconnectionstatechange",()=>log(tag+" 경로: "+pc.iceConnectionState));
+  pc.addEventListener("iceconnectionstatechange",()=>{ const s=pc.iceConnectionState; log(tag+" 경로: "+s);
+    if(s==="failed"||s==="disconnected") iceDump(pc).then(d=>{ if(d) log(tag+" "+d); }); });
+  setTimeout(()=>{ if(pc.iceConnectionState==="checking"||pc.iceConnectionState==="new") iceDump(pc).then(d=>{ if(d) log(tag+" 12초째 확인 중 · "+d); }); },12000);
 }                 // 공개 중개 서버에서 다른 서비스와 겹치지 않게 붙이는 접두어
 const FPS=Number(new URLSearchParams(location.search).get("fps"))||30;
 let stream=null, peer=null, conn=null, call=null, cams=[], camIdx=-1, code=null, wake=null;
@@ -79,7 +95,7 @@ const tilt={pitch:null,roll:null};
 function load(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 function save(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 function state(t,cls){ $("state").textContent=t; $("state").className=cls||""; }
-const nl=[]; function netlog(m){ nl.push(m); if(nl.length>4) nl.shift(); $("diag").textContent=nl.join(" · "); }
+const nl=[]; function netlog(m){ nl.push(m); if(nl.length>3) nl.shift(); $("diag").textContent=nl.join("\n"); }
 function newCode(){ return String(Math.floor(100000+Math.random()*900000)); }   // 6자리: 남이 맞혀 들어오기 어렵게
 
 // ---------- 카메라 ----------

@@ -147,7 +147,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v31</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v33</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -297,7 +297,7 @@ async function boot(remote){
     try{ await remoteConnect(remote,20000); }
     catch(e){ remoteReset(); $("start").disabled=false; $("rconnect").disabled=false; $("rstate").textContent="";
       setStatus("폰 연결 실패","bad"); $("err").textContent=e.message;
-      $("rstate").textContent="진단: "+diag.filter(x=>/후보|경로/.test(x)).slice(-3).map(x=>x.slice(9)).join(" · "); return; }
+      $("rstate").textContent="진단: "+diag.filter(x=>/후보|경로|주소/.test(x)).slice(-3).map(x=>x.slice(9)).join(" · "); return; }
   }
   else try{ await startCamera(); }
   catch(e){
@@ -360,14 +360,30 @@ function peerOpts(){ const o={config:ICE}; const v=new URLSearchParams(location.
   const m=v.match(/^([A-Za-z0-9.-]+):(\d{1,5})$/); if(!m) return o;
   return Object.assign(o,{host:m[1],port:+m[2],path:"/",secure:location.protocol==="https:"}); }
 // 연결 진단: 이 기기가 낸 경로 후보 종류(host=같은 와이파이 직접, srflx=공유기 바깥 주소, relay=중계)
+// 경로 진단 덤프: 양쪽이 낸 주소 후보와, 주소 쌍마다 확인이 어디까지 갔는지
+async function iceDump(pc){
+  if(!pc||!pc.getStats) return "";
+  try{
+    const st=await pc.getStats(), L=[], R=[]; let tried=0, ok=0, fail=0;
+    st.forEach(r=>{
+      if(r.type==="local-candidate") L.push(r.candidateType+" "+(r.address||r.ip||"?")+(r.networkType?"("+r.networkType+")":""));
+      else if(r.type==="remote-candidate") R.push(r.candidateType+" "+(r.address||r.ip||"?"));
+      else if(r.type==="candidate-pair"){ tried++; if(r.state==="succeeded") ok++; if(r.state==="failed") fail++; }
+    });
+    const u=a=>[...new Set(a)].join(", ")||"없음";
+    return "내 주소: "+u(L)+" / 상대 주소: "+u(R)+" / 주소 쌍 "+tried+"개 중 성공 "+ok+", 실패 "+fail;
+  }catch(e){ return ""; }
+}
 function watchIce(pc,tag,log){
   if(!pc||pc._watched) return; pc._watched=true; const seen=new Set();
   pc.addEventListener("icecandidate",e=>{ if(e.candidate&&e.candidate.type&&!seen.has(e.candidate.type)){ seen.add(e.candidate.type); log(tag+" 후보: "+[...seen].join(",")); } });
-  pc.addEventListener("iceconnectionstatechange",()=>log(tag+" 경로: "+pc.iceConnectionState));
+  pc.addEventListener("iceconnectionstatechange",()=>{ const s=pc.iceConnectionState; log(tag+" 경로: "+s);
+    if(s==="failed"||s==="disconnected") iceDump(pc).then(d=>{ if(d) log(tag+" "+d); }); });
+  setTimeout(()=>{ if(pc.iceConnectionState==="checking"||pc.iceConnectionState==="new") iceDump(pc).then(d=>{ if(d) log(tag+" 12초째 확인 중 · "+d); }); },12000);
 }
 var keepCam=null, rpeer=null, rconn=null, remoteCode=null, remoteRetry=null, remoteUp=false, remoteLast=0;
 // 폰이 꺼지거나 페이지가 닫혀도 WebRTC는 한참 뒤에야 끊김을 알려 줌 → 폰의 생존 신호가 4초 없으면 끊긴 것으로 봄
-setInterval(()=>{ if(remoteCode&&remoteUp&&Date.now()-remoteLast>4000) remoteLost(); },1000);
+setInterval(()=>{ if(remoteCode&&remoteUp&&Date.now()-remoteLast>6000) remoteLost("폰 신호가 6초 없음"); },1000);
 // 연결 단계: server(중개 서버 접속) → find(폰 찾기) → media(영상 연결) → up
 let rstage="";
 function rstep(stage,text){ rstage=stage; const m="폰 연결 · "+text; setStatus(m, stage==="up"?"on":""); if(!running) $("err").textContent=""; $("rstate").textContent=text; dlog(m); }
@@ -389,8 +405,8 @@ function remoteConnect(code,timeout){
           if(st==="failed") rpeer._fail&&rpeer._fail("ice-failed");
         });
         call.on("stream",st=>{ video.srcObject=st; video.play().catch(()=>{}); remoteUp=true; remoteLast=Date.now(); facing="environment";
-          rstep("up","연결됨"); clearInterval(remoteRetry); remoteRetry=null; rpeer._ok&&rpeer._ok(); });
-        call.on("close",remoteLost);
+          rstep("up","연결됨"); rpeer._ok&&rpeer._ok(); });
+        call.on("close",()=>remoteLost("영상 연결 닫힘"));
       });
       rpeer.on("error",e=>{ dlog("연결 오류: "+e.type+" "+(e.message||"")); rpeer._fail&&rpeer._fail(e.type); });
       rpeer.on("disconnected",()=>{ setTimeout(()=>{ try{ if(!rpeer.destroyed) rpeer.reconnect(); }catch(x){} },2000); });
@@ -417,7 +433,7 @@ function remoteConnect(code,timeout){
         if(st==="checking"&&rstage==="find") rstep("media","폰 찾음 · 두 기기 사이 경로 확인 중"); if(st==="failed") rpeer&&rpeer._fail&&rpeer._fail("ice-failed"); }); }catch(e){}
       rconn.on("open",()=>{ if(rstage==="find") rstep("media","폰 찾음 · 영상 기다리는 중"); });
       rconn.on("data",onRemoteData);
-      rconn.on("close",remoteLost);
+      rconn.on("close",()=>remoteLost("데이터 연결 닫힘"));
     };
     if(rpeer.open) go(); else rpeer.once("open",go);
     setTimeout(()=>{ if(lastErr==="peer-unavailable"&&rstage==="find") return failT("peer-unavailable"); fail(
@@ -440,13 +456,22 @@ function remoteReset(){   // 폰 모드를 완전히 끄고 이 기기 카메라
   if(keepCam){ keepCam.getTracks().forEach(t=>t.stop()); keepCam=null; }
   $("flip").textContent="카메라";
 }
-function remoteLost(){
+// 끊기면: 이전 시도가 끝난 뒤 다음 시도를 함(겹쳐서 서로 끊는 일 방지). 원인은 진단에 남김
+function remoteLost(why){
   if(!remoteCode||remoteRetry) return;
-  remoteUp=false; setStatus("폰 연결 · 끊김 · 다시 연결 중","bad"); dlog("폰 연결 끊김");
-  coach.lost();
-  remoteRetry=setInterval(()=>{ if(remoteUp){ clearInterval(remoteRetry); remoteRetry=null; return; }
-    try{ if(rpeer) rpeer.destroy(); }catch(e){} rpeer=null; rconn=null;   // 매번 새로 접속 (이전 연결 찌꺼기가 남아 막히는 것 방지)
-    remoteConnect(remoteCode,6000).catch(()=>{}); },7000);
+  remoteUp=false; dlog("폰 연결 끊김: "+(typeof why==="string"?why:"연결 닫힘")); coach.lost();
+  remoteRetry=true;
+  (async()=>{
+    let n=0;
+    while(remoteCode&&!remoteUp){
+      n++; setStatus("폰 연결 · 끊김 · 다시 연결 중 ("+n+"번째)","bad");
+      try{ if(rpeer) rpeer.destroy(); }catch(e){} rpeer=null; rconn=null;   // 매번 새로 접속
+      try{ await remoteConnect(remoteCode,15000); }catch(e){ dlog("재연결 실패: "+String(e.message).slice(0,40)); }
+      if(remoteUp) break;
+      await new Promise(r=>setTimeout(r,2000));
+    }
+    remoteRetry=null;
+  })();
 }
 
 // ---------- 계산 ----------
@@ -487,7 +512,8 @@ function measure(lm,wl,w,h){
   const torso=Math.hypot(sh.x-hip.x,sh.y-hip.y);
   if(torso<1) return null;
   const kneeSeen=[L.lKn,L.rKn].some(i=>lm[i]&&lm[i].visibility>0.5);
-  if(!kneeSeen||torso<h*0.12){ noBody="전신(무릎까지)이 보이게 폰을 세워 주세요"; return null; }
+  if(torso<h*0.08){ noBody="사람이 너무 작게 잡힙니다 · 몸이 화면 세로의 절반 이상 되게 가까이"; return null; }
+  if(!kneeSeen){ noBody="무릎이 안 보입니다 · 무릎까지 화면에 들어오게"; return null; }
   const m={sh,hip,nose,shR,hipR,noseR};
   // 길이 단위: 정면=어깨너비, 후방=몸통 길이의 3/4 (어깨가 겹쳐 보여 어깨너비를 못 씀)
   m.U= view==="face" ? Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y) : torso*0.75;
