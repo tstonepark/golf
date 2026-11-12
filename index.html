@@ -147,7 +147,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v30</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v31</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -412,6 +412,9 @@ function remoteConnect(code,timeout){
       if(rconn) try{ rconn.close(); }catch(x){}
       rconn=rpeer.connect(PFX+code,{serialization:"json"});
       watchIce(rconn.peerConnection,"데이터",dlog);
+      // 경로 확인이 시작됐다는 건 폰을 찾았다는 뜻 → 실패 시 '경로 막힘' 안내가 나오게
+      try{ rconn.peerConnection.addEventListener("iceconnectionstatechange",()=>{ const st=rconn&&rconn.peerConnection&&rconn.peerConnection.iceConnectionState;
+        if(st==="checking"&&rstage==="find") rstep("media","폰 찾음 · 두 기기 사이 경로 확인 중"); if(st==="failed") rpeer&&rpeer._fail&&rpeer._fail("ice-failed"); }); }catch(e){}
       rconn.on("open",()=>{ if(rstage==="find") rstep("media","폰 찾음 · 영상 기다리는 중"); });
       rconn.on("data",onRemoteData);
       rconn.on("close",remoteLost);
