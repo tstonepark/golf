@@ -29,6 +29,14 @@ body{background:var(--turf);color:var(--ink);font:14px/1.4 var(--txt);
 
 #stage{position:relative;flex:1;min-height:0;background:#000}
 #view{position:absolute;inset:0;width:100%;height:100%;display:block}
+body.dual #view{width:50%}
+#cam2{position:absolute;top:0;right:0;width:50%;height:100%;object-fit:contain;background:#000;display:none;border-left:2px solid var(--line)}
+body.dual #cam2{display:block}
+#c2tag{position:absolute;top:10px;right:12px;font:600 16px var(--num);color:var(--axis);background:rgba(12,21,18,.78);padding:6px 12px;border-radius:4px}
+#c2tag.bad{color:var(--warn)}
+#c2panel{z-index:6;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:12px;align-items:center;min-width:300px}
+#c2panel h2{margin:0;font-size:22px} #c2panel p{margin:0;font-size:16px;color:var(--dim);text-align:center;max-width:22em}
+#c2panel button{font-size:18px;padding:12px 18px}
 #cam{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 
 #status{position:absolute;left:12px;top:10px;display:flex;gap:8px;align-items:center;
@@ -120,6 +128,14 @@ button:disabled{opacity:.4}
 <div id="stage">
   <video id="cam" playsinline muted></video>
   <canvas id="view"></canvas>
+  <video id="cam2" playsinline muted autoplay></video>
+  <div id="c2tag" hidden></div>
+  <div id="c2panel" hidden>
+    <h2>2번 폰 (후방)</h2>
+    <p>두 번째 폰의 삼성 인터넷에서 cam.html을 열고, 그 폰 화면의 번호를 입력하세요.</p>
+    <input id="rcode2b" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6자리 번호" autocomplete="off" style="width:9em;font:600 28px var(--num);text-align:center;color:var(--ink);background:var(--turf);border:1px solid var(--line);border-radius:8px;padding:8px">
+    <div style="display:flex;gap:8px"><button class="main" id="c2go">연결</button><button id="c2off">끊기</button><button id="c2close">닫기</button></div>
+  </div>
   <div id="status"><span id="dot"></span><span id="stxt">대기 중</span></div>
   <div id="phase" hidden></div>
   <div id="level" hidden></div>
@@ -172,7 +188,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v39</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v40</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -181,6 +197,10 @@ button:disabled{opacity:.4}
       <div style="display:flex;gap:8px;justify-content:center">
         <input id="rcode" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6자리 번호" autocomplete="off" aria-label="폰 화면의 번호">
         <button class="main" id="rconnect" style="flex:none;padding:14px 22px">폰 연결</button>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center">
+        <span style="font-size:15px;color:var(--dim)">2번 폰(후방, 선택)</span>
+        <input id="rcode2" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="번호" autocomplete="off" aria-label="두 번째 폰 번호" style="width:7em;font:600 22px var(--num);text-align:center;color:var(--ink);background:var(--turf);border:1px solid var(--line);border-radius:8px;padding:6px">
       </div>
       <p id="rstate" style="color:var(--axis);font-size:16px;margin:0"></p>
     </div>
@@ -210,6 +230,7 @@ button:disabled{opacity:.4}
     <button id="flip" title="누를 때마다 다음 렌즈로">카메라</button>
     <button id="viewbtn">정면</button>
     <button id="replaybtn" disabled>리플레이</button>
+    <button id="c2btn">2번 폰</button>
   </div>
 </div>
 
@@ -506,6 +527,55 @@ function remoteLost(why){
   })();
 }
 
+// ---------- 2번 폰 (후방 보기) ----------
+// 1단계: 영상만 나란히 표시. 분석은 1번 화면만 함
+const cam2={code:null,peer:null,conn:null,up:false,last:0,retry:false,tilt:null,
+  tag(t,bad){ const e=$("c2tag"); e.hidden=!this.code; e.textContent="2번 폰 · "+t; e.classList.toggle("bad",!!bad); },
+  connect(code,timeout){
+    return new Promise((resolve,reject)=>{
+      if(typeof Peer==="undefined") return reject(new Error("연결 모듈 없음"));
+      let done=false; const ok=()=>{ if(!done){ done=true; resolve(); } }, fail=m=>{ if(!done){ done=true; reject(new Error(m)); } };
+      const p=new Peer(peerOpts()); this.peer=p;
+      p.on("call",call=>{ call.answer(); this.tag("영상 연결 중");
+        call.on("stream",st=>{ const v=$("cam2"); v.srcObject=st; v.play().catch(()=>{}); this.up=true; this.last=Date.now(); this.tag("연결됨"); ok(); });
+        call.on("close",()=>this.lost("영상 닫힘")); });
+      const go=()=>{ if(done||p.destroyed) return;
+        try{ if(this.conn) this.conn.close(); }catch(e){}
+        const c=p.connect(PFX+code,{serialization:"json"}); this.conn=c;
+        c.on("open",()=>{ dlog("2번 폰: 데이터 연결"); this.tag("폰 찾음 · 영상 기다리는 중"); });
+        c.on("data",d=>{ this.last=Date.now(); if(d&&d.t==="tilt"&&isFinite(d.pitch)&&isFinite(d.roll)) this.tilt={pitch:+d.pitch,roll:+d.roll}; });
+        c.on("close",()=>this.lost("데이터 닫힘")); };
+      p.on("open",()=>{ dlog("2번 폰: 중개 서버 접속"); go(); });
+      p.on("error",e=>{ dlog("2번 폰 오류: "+(e&&e.type)); if(e.type==="peer-unavailable"&&!done){ this.tag("폰 찾는 중 · 번호 확인"); setTimeout(go,3000); } else fail(e.type); });
+      setTimeout(()=>fail("시간 초과"),timeout||20000);
+    });
+  },
+  start(code){
+    this.stop(); this.code=code; store("rcode2",code);
+    document.body.classList.add("dual"); this.tag("연결 중"); this.loop();
+  },
+  async loop(){
+    if(this.retry) return; this.retry=true; let n=0;
+    while(this.code&&!this.up){
+      n++; if(n>1) this.tag("다시 연결 중 ("+n+"번째)",true);
+      try{ if(this.peer) this.peer.destroy(); }catch(e){} this.peer=null; this.conn=null;
+      try{ await this.connect(this.code,20000); }catch(e){ dlog("2번 폰 연결 실패: "+e.message); }
+      if(this.up) break;
+      await new Promise(r=>setTimeout(r,2000));
+    }
+    this.retry=false;
+  },
+  lost(why){ if(!this.code||!this.up) return; this.up=false; dlog("2번 폰 끊김: "+why); this.tag("끊김 · 다시 연결 중",true); this.loop(); },
+  stop(){
+    this.code=null; this.up=false;
+    try{ if(this.conn) this.conn.close(); }catch(e){} this.conn=null;
+    try{ if(this.peer) this.peer.destroy(); }catch(e){} this.peer=null;
+    const v=$("cam2"); if(v.srcObject){ try{ v.srcObject.getTracks().forEach(t=>t.stop()); }catch(e){} v.srcObject=null; }
+    document.body.classList.remove("dual"); $("c2tag").hidden=true;
+  }
+};
+setInterval(()=>{ if(cam2.code&&cam2.up&&Date.now()-cam2.last>6000) cam2.lost("폰 신호가 6초 없음"); },1000);
+
 // ---------- 계산 ----------
 const mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
 const deg=r=>r*180/Math.PI;
@@ -617,7 +687,7 @@ const trailFoot=()=>rightHanded?"오른발":"왼발", leadFoot=()=>rightHanded?"
 
 // ---------- 화면 ----------
 function fit(){
-  const r=$("stage").getBoundingClientRect(), d=Math.min(window.devicePixelRatio||1,2);
+  const r=cv.getBoundingClientRect(), d=Math.min(window.devicePixelRatio||1,2);
   if(cv.width!==Math.round(r.width*d)||cv.height!==Math.round(r.height*d)){
     cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); }
 }
@@ -1338,13 +1408,25 @@ $("settop").onclick=saveTop;
 $("voice").onclick=()=>{ cfg.voice=!cfg.voice; store("cfg",cfg); showVoice(); if(cfg.voice) say("음성 안내 켬","good"); else if(window.speechSynthesis) speechSynthesis.cancel(); };
 $("cfgbtn").onclick=()=>{ $("panel").hidden=!$("panel").hidden; };
 
-$("start").onclick=()=>{ remoteReset(); boot(); };
+const code2=()=>$("rcode2").value.replace(/\D/g,"");
+$("start").onclick=async()=>{ remoteReset(); await boot(); if(running&&code2().length===6) cam2.start(code2()); };
+{ const c=load("rcode2",""); if(c){ $("rcode2").value=c; $("rcode2b").value=c; } }
+$("c2btn").onclick=()=>{ $("c2panel").hidden=!$("c2panel").hidden; };
+$("c2close").onclick=()=>{ $("c2panel").hidden=true; };
+$("c2off").onclick=()=>{ cam2.stop(); $("c2panel").hidden=true; };
+$("c2go").onclick=async()=>{
+  const c=$("rcode2b").value.replace(/\D/g,""); if(c.length!==6) return;
+  if(c===remoteCode){ $("rcode2b").value=""; $("rcode2b").placeholder="1번 폰과 다른 번호"; return; }
+  // 아이패드 사파리는 카메라 권한이 활성일 때만 같은 와이파이 직접 경로를 공개함
+  if(!keepCam&&!remoteCode&&!running&&navigator.mediaDevices) try{ keepCam=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:160},height:{ideal:120}}}); }catch(e){}
+  $("rcode2").value=c; cam2.start(c); $("c2panel").hidden=true; };
 try{ const c=localStorage.getItem("swing.rcode"); if(c) $("rcode").value=c; }catch(e){}
 $("rconnect").onclick=()=>{
   const c=$("rcode").value.replace(/\D/g,"");
   if(c.length!==6){ $("err").textContent="폰 화면에 보이는 6자리 번호를 입력해 주세요."; return; }
   try{ localStorage.setItem("swing.rcode",c); }catch(e){}
-  remoteCode=c; boot(c);
+  remoteCode=c;
+  boot(c).then(()=>{ const c2=code2(); if(running&&c2.length===6&&c2!==c) cam2.start(c2); });
 };
 $("setref").onclick=saveRef;
 $("hand").onclick=()=>{ rightHanded=!rightHanded; $("hand").textContent=rightHanded?"우타":"좌타"; delete ema.arm; delete ema.hand; };
