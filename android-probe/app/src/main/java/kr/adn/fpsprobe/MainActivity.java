@@ -46,6 +46,15 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.provider.Settings;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -70,6 +79,9 @@ public class MainActivity extends Activity {
     private final List<Runnable> queue = new ArrayList<>();
     private boolean busy = false;
     private MediaRecorder recorder;
+    private Button upd;
+    private int latest = 0;
+    private static final String REL = "https://github.com/tstonepark/golf/releases/download/fps-probe/";
     private File recFile;
 
     // 측정 중 값
@@ -100,6 +112,9 @@ public class MainActivity extends Activity {
         row.addView(copy, new LinearLayout.LayoutParams(0, 160, 1));
         row.addView(lens, new LinearLayout.LayoutParams(0, 160, 1));
         root.addView(row);
+        upd = button("업데이트 확인 중…"); upd.setEnabled(false);
+        upd.setOnClickListener(v -> startUpdate());
+        root.addView(upd, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
 
         tv = new TextureView(this);
         root.addView(tv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 520));
@@ -111,6 +126,7 @@ public class MainActivity extends Activity {
         root.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(root);
 
+        checkUpdate();
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.CAMERA}, 1);
         else start();
@@ -384,6 +400,54 @@ public class MainActivity extends Activity {
         try { if (session != null) session.close(); } catch (Exception ignore) {}
         try { if (device != null) device.close(); } catch (Exception ignore) {}
         session = null; device = null;
+    }
+
+    // ---------- 앱 안 업데이트: 저장소 릴리스의 version.txt 와 내 버전 비교 → 새 APK 받아 설치 화면 열기 ----------
+    private int myVersion() {
+        try { return (int) getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode(); } catch (Exception e) { return 0; }
+    }
+    private void checkUpdate() {
+        new Thread(() -> {
+            int v = 0;
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(REL + "version.txt?t=" + System.currentTimeMillis()).openConnection();
+                c.setConnectTimeout(8000); c.setReadTimeout(8000); c.setInstanceFollowRedirects(true);
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()))) { v = Integer.parseInt(r.readLine().trim()); }
+            } catch (Exception e) { v = -1; }
+            final int lv = v; latest = v;
+            ui.post(() -> {
+                int mine = myVersion();
+                if (lv < 0) { upd.setText("업데이트 확인 실패 (인터넷 확인) · 현재 " + mine); upd.setEnabled(true); upd.setOnClickListener(x -> { upd.setText("확인 중…"); checkUpdate(); }); }
+                else if (lv > mine) { upd.setText("새 버전 있음 (" + mine + " → " + lv + ") · 눌러서 설치"); upd.setEnabled(true); upd.setOnClickListener(x -> startUpdate()); }
+                else { upd.setText("최신 버전입니다 (" + mine + ") · 다시 확인"); upd.setEnabled(true); upd.setOnClickListener(x -> { upd.setText("확인 중…"); checkUpdate(); }); }
+            });
+        }).start();
+    }
+    private void startUpdate() {
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            say("이 앱의 '출처를 알 수 없는 앱 설치'를 허용한 뒤 다시 누르세요.");
+            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+            return;
+        }
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        DownloadManager.Request rq = new DownloadManager.Request(Uri.parse(REL + "fps-probe.apk?t=" + System.currentTimeMillis()));
+        rq.setTitle("스윙 카메라 FPS 측정 업데이트"); rq.setMimeType("application/vnd.android.package-archive");
+        rq.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "fps-probe-" + latest + ".apk");
+        long id = dm.enqueue(rq);
+        upd.setText("내려받는 중…"); upd.setEnabled(false);
+        BroadcastReceiver rcv = new BroadcastReceiver() {
+            @Override public void onReceive(Context ctx, Intent it) {
+                if (it.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != id) return;
+                try { unregisterReceiver(this); } catch (Exception ignore) {}
+                Uri apk = dm.getUriForDownloadedFile(id);
+                if (apk == null) { upd.setText("내려받기 실패 · 다시 누르기"); upd.setEnabled(true); return; }
+                Intent ins = new Intent(Intent.ACTION_VIEW).setDataAndType(apk, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(ins);
+                upd.setText("설치 화면에서 '업데이트'를 누르세요"); upd.setEnabled(true);
+            }
+        };
+        registerReceiver(rcv, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED);
     }
 
     // ---------- 화면 ----------

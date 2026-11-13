@@ -17,12 +17,16 @@ jobs:
       - name: Build debug APK
         working-directory: android-probe
         run: gradle --no-daemon assembleDebug
-      - name: Rename
-        run: cp android-probe/app/build/outputs/apk/debug/app-debug.apk fps-probe.apk
+      - name: Rename + version
+        run: |
+          cp android-probe/app/build/outputs/apk/debug/app-debug.apk fps-probe.apk
+          echo $((100 + GITHUB_RUN_NUMBER)) > version.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: fps-probe
           name: FPS 측정 앱
           body: "스윙 카메라 FPS 측정 앱 (테스트용, 디버그 서명). fps-probe.apk 를 폰에서 받아 설치."
-          files: fps-probe.apk
+          files: |
+            fps-probe.apk
+            version.txt
           make_latest: true
