@@ -187,7 +187,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v46</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v47</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -586,12 +586,14 @@ function autoView(lm,iw,ih){
   if([L.lSh,L.rSh,L.lHip,L.rHip].some(i=>!lm[i])) return;
   const sw=Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y), s0=m(P(L.lSh),P(L.rSh)), h0=m(P(L.lHip),P(L.rHip)), t=Math.hypot(s0.x-h0.x,s0.y-h0.y);
   if(t<ih*0.08){ avCnt=0; return; }
+  const ws=[L.lWr,L.rWr].filter(i=>lm[i]); const wy=ws.length?ws.reduce((a,i)=>a+P(i).y,0)/ws.length:0;
+  if(wy<h0.y-t*0.1){ avCnt=0; return; }      // 손이 골반보다 위 = 어드레스 아님(피니시 등)
   const r=sw/t, want= r<0.25?"dtl": r>0.5?"face": null;
   if(!want||want===view){ avCnt=0; return; }
   if(++avCnt<45) return;                     // 약 1.5초 이상 계속 반대 방향일 때만
   avCnt=0; dlog("카메라 방향 자동 전환: "+view+" → "+want+" (어깨/몸통 "+r.toFixed(2)+")");
   setView(want);
-  showIssue(want==="dtl"?"후방 모드로 바꿨습니다":"정면 모드로 바꿨습니다", want==="dtl"?"옆모습으로 찍히고 있어서 자동으로 전환했습니다":"정면으로 찍히고 있어서 자동으로 전환했습니다");
+  { const keep=lastIssue; showIssue(want==="dtl"?"후방 모드로 바꿨습니다":"정면 모드로 바꿨습니다", want==="dtl"?"옆모습으로 찍히고 있어서 자동으로 전환했습니다":"정면으로 찍히고 있어서 자동으로 전환했습니다"); lastIssue=keep; }
   if(cfg.voice) say(want==="dtl"?"후방 모드로 바꿨습니다":"정면 모드로 바꿨습니다","good");
 }
 
@@ -1192,7 +1194,7 @@ const replay={
     const esc=t=>String(t||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
     const iss=lastIssue?'<div class="iss'+(lastIssue.name==="좋아요"?" good":"")+'">이번 스윙: '+esc(lastIssue.name)+"<span>"+esc(lastIssue.line)+"</span></div>":"";
     const vv=Object.assign({},f.v||{});
-    if(cur){ if(view==="face"){ vv.head=cur.head; vv.sway=cur.sway; } else { vv.hipFwd=cur.hipFwd; vv.headMv=cur.headD; } }
+    if(cur){ vv._frame=true; if(view==="face"){ vv.head=cur.head; vv.sway=cur.sway; } else { vv.hipFwd=cur.hipFwd; vv.headMv=cur.headD; } }
     box.hidden=false; box.innerHTML=iss+guideHtml(k,vv,f0.v,this.sw);
   },
   paint(f,bmp){
@@ -1253,7 +1255,7 @@ function guideHtml(k,v,v0,sw){
     if(val==null||!isFinite(val)){ rows.push('<div class="r na">· '+lab+' 측정 안 됨</div>'); return; }
     const c=good==null?"na":good?"ok":"bad", m=good==null?"·":good?"✓":"✗";
     rows.push('<div class="r '+c+'">'+m+" "+lab+" <b>"+r(val)+u+"</b>"+(lim?' <span class="na">('+lim+')</span>':"")+"</div>"); };
-  const noRef=!ref;
+  const noRef=!ref&&!(v&&v._frame);
   v=v||{}; v0=v0||{};
   const head=(lab)=>row(lab||"머리 이동",v.head!=null?Math.abs(v.head):null,"%",v.head!=null?Math.abs(v.head)<=cfg.head:null,"허용 "+cfg.head+"%");
   const sway=()=>row("골반 스웨이",v.sway!=null?Math.abs(v.sway):null,"%",v.sway!=null?Math.abs(v.sway)<=cfg.sway:null,"허용 "+cfg.sway+"%");
