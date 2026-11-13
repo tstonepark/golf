@@ -187,7 +187,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v45</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v46</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1298,14 +1298,17 @@ const TIPS={
   "체중":    {say:"체중이 뒤에 남았어요. 왼발로 밀어 주세요.", tip:"임팩트 때 체중이 뒷발에 남아 있습니다(추정). 다운스윙을 왼발을 디디는 것으로 시작하세요. 임팩트에서 벨트 버클이 타깃 쪽으로 이동해 있어야 합니다. 스텝 스윙(왼발을 내디디며 치기) 연습이 효과적입니다."},
   "아웃인":  {say:"손이 바깥으로 내려왔어요. 오른 팔꿈치를 옆구리로 내리세요.", tip:"다운스윙의 손 경로가 백스윙보다 바깥(공 쪽)으로 내려왔습니다. 상체가 먼저 덤비는 아웃-인 궤도의 신호입니다. 탑에서 하체부터 움직이고 오른 팔꿈치를 옆구리에 붙여 내리세요. 30fps에서는 다운스윙 표본이 적어 참고값입니다."},
   "피니시":  {say:"피니시가 덜 됐어요.", tip:""},
-  "좋아요":  {say:"좋아요. 그 느낌 기억하세요.", tip:"기준 범위 안입니다. 같은 느낌으로 반복하세요."}
+  "좋아요":  {say:"좋아요. 그 느낌 기억하세요.", tip:"기준 범위 안입니다. 같은 느낌으로 반복하세요."},
+  "측정 이상":{say:"이번 스윙은 측정이 이상해요. 카메라를 확인하세요.", tip:"사람 몸으로는 나올 수 없는 값이 잡혀 판정하지 않았습니다. 폰이 움직였거나, 찍는 방향(정면/후방)이 모드와 다르거나, 몸이 화면 밖으로 나갔을 때 생깁니다. 폰을 고정하고 머리부터 발까지 들어오게 한 뒤 다시 쳐 보세요."}
 };
 function finishSwing(c){
   if(!c.atMax) return;
   c.n++;
   const pk=c.peak||{}, topV=c.catPair?c.catPair[0]:null;
   // 어드레스 대비 이탈 중 가장 심한 것 > 탑 판정 순
-  const dev=worstOf(it=>pk[it.k]);
+  // 사람 몸으로 불가능한 값(이동 100% 초과, 각도 45° 초과) → 판정하지 않고 측정 이상으로
+  const bad=ITEMS[view].some(it=>pk[it.k]!=null&&(it.u==="%"?pk[it.k]>100:pk[it.k]>45));
+  const dev=bad?"측정 이상":worstOf(it=>pk[it.k]);
   const wt=c.wt||{}, fin=c.fin, finBad=fin&&fin.fails.length>0;
   // 우선순위: 어드레스 대비 이탈 > 손 경로 > 임팩트 체중 > 탑 판정 > 피니시 > 문제 없음
   const issue= dev
@@ -1352,7 +1355,7 @@ function showSummary(){
 }
 // 수치 기록 표 / CSV
 const LOGCOL=[["일시",x=>{ const d=new Date(x.ts),z=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes())+":"+z(d.getSeconds()); }],
-  ["방향",x=>x.view==="side"?"후방":"정면"],["문제",x=>x.issue||""],["탑손높이%",x=>x.hand],["어깨회전°",x=>x.shTurn],
+  ["방향",x=>x.view==="dtl"?"후방":"정면"],["문제",x=>x.issue||""],["탑손높이%",x=>x.hand],["어깨회전°",x=>x.shTurn],
   ["백스윙ms",x=>x.back],["다운스윙ms",x=>x.down],["템포",x=>x.tempo],["손경로%",x=>x.path],
   ["체중어드레스%",x=>x.wAddr],["체중탑%",x=>x.wTop],["체중임팩트%",x=>x.wImp],["체중피니시%",x=>x.wFin],["피니시",x=>x.fin]];
 function peakCols(){ const ks={}; swingLog.forEach(x=>{ for(const k in (x.peak||{})) ks[k]=1; });
