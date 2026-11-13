@@ -180,6 +180,7 @@ button:disabled{opacity:.4}
     <label for="c-vfov">카메라 세로 화각 (°, 보정 계산용)</label><input id="c-vfov" type="number" inputmode="numeric" min="30" max="120">
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-big">문제를 큰 글씨로 화면에 표시</label><input id="c-big" type="checkbox" style="width:24px;height:24px">
+    <label for="c-gauge">실시간 수치 칸 표시 (척추·머리·스웨이 등)</label><input id="c-gauge" type="checkbox" style="width:24px;height:24px">
     <label for="c-video">영상 저장 (끄면 수치만 기록, 리플레이 없음)</label><input id="c-video" type="checkbox" style="width:24px;height:24px">
     <label for="c-guide">리플레이에 단계별 가이드 표시</label><input id="c-guide" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
@@ -188,7 +189,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v41</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v42</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1403,6 +1404,8 @@ $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.t
 $("c-hq").checked=cfg.engine==="v1"; $("c-hq").onchange=e=>{ cfg.engine=e.target.checked?"v1":"v2"; store("cfg",cfg); };
 $("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
 $("c-big").checked=cfg.big!==false; $("c-big").onchange=e=>{ cfg.big=e.target.checked; store("cfg",cfg); showBig(); };
+$("gauges").hidden=!cfg.gauge; $("c-gauge").checked=!!cfg.gauge;
+$("c-gauge").onchange=e=>{ cfg.gauge=e.target.checked; store("cfg",cfg); $("gauges").hidden=!cfg.gauge; };
 $("c-video").checked=cfg.video!==false; $("c-video").onchange=e=>{ cfg.video=e.target.checked; store("cfg",cfg); };
 $("c-guide").checked=cfg.guide!==false; $("c-guide").onchange=e=>{ cfg.guide=e.target.checked; store("cfg",cfg); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
