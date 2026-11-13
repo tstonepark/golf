@@ -84,12 +84,14 @@ button.off{color:var(--dim)}
 #result{background:var(--panel);border-top:1px solid var(--line);padding:8px 12px;font-size:15px;line-height:1.5;color:var(--dim)}
 #result b{font:600 15px var(--num);color:var(--axis)}
 #result .t{color:var(--dim);font-size:11px}
-#replay{position:absolute;inset:0;background:#000;z-index:3;display:flex;flex-direction:column}
+#replay{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 #rcv{flex:1;min-height:0;width:100%;display:block}
 #rbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--panel);border-top:1px solid var(--line)}
 #rbar button{min-height:44px;padding:6px 12px;font-size:16px}
-#rguide{flex:none;max-height:38%;overflow-y:auto;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:grid;grid-template-columns:1fr;column-gap:24px}
+#rguide{flex:none;max-height:32%;overflow-y:auto;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:grid;grid-template-columns:1fr;column-gap:24px}
 #rguide .rows{display:flex;flex-wrap:wrap;gap:0 22px}
+#rguide .iss{font:800 clamp(20px,3.6vmin,34px)/1.2 var(--txt);color:var(--warn);margin-bottom:4px} #rguide .iss.good{color:var(--ok)}
+#rguide .iss span{font-weight:600;font-size:.6em;color:var(--ink);margin-left:10px}
 #rguide .h{font:700 clamp(22px,4.4vmin,40px) var(--sans,system-ui);color:var(--axis)}
 #rguide .p{font-size:clamp(15px,2.6vmin,24px);color:#eaf2ec;margin:4px 0 8px;line-height:1.35}
 #rguide .r{font-size:clamp(17px,3vmin,28px);line-height:1.45;color:#eaf2ec;white-space:nowrap}
@@ -175,6 +177,7 @@ button:disabled{opacity:.4}
     <label for="c-vfov">카메라 세로 화각 (°, 보정 계산용)</label><input id="c-vfov" type="number" inputmode="numeric" min="30" max="120">
     <label for="c-tilt">폰 기울기 보정(센서)</label><input id="c-tilt" type="checkbox" style="width:24px;height:24px">
     <label for="c-big">문제를 큰 글씨로 화면에 표시</label><input id="c-big" type="checkbox" style="width:24px;height:24px">
+    <label for="c-av">카메라 방향(정면/후방) 자동 판단</label><input id="c-av" type="checkbox" style="width:24px;height:24px">
     <label for="c-gauge">실시간 수치 칸 표시 (척추·머리·스웨이 등)</label><input id="c-gauge" type="checkbox" style="width:24px;height:24px">
     <label for="c-video">영상 저장 (끄면 수치만 기록, 리플레이 없음)</label><input id="c-video" type="checkbox" style="width:24px;height:24px">
     <label for="c-guide">리플레이에 단계별 가이드 표시</label><input id="c-guide" type="checkbox" style="width:24px;height:24px">
@@ -184,7 +187,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v43</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v44</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -575,6 +578,23 @@ const cam2={code:null,peer:null,conn:null,up:false,last:0,retry:false,tilt:null,
 };
 setInterval(()=>{ if(cam2.code&&cam2.up&&Date.now()-cam2.last>6000) cam2.lost("폰 신호가 6초 없음"); },1000);
 
+// 카메라 방향 자동 판단: 어드레스 중 어깨너비/몸통 길이 비율 (정면 0.5 이상, 옆모습 0.25 미만)
+let avCnt=0;
+function autoView(lm,iw,ih){
+  if(!lm||cfg.autoView===false||!(coach.phase==="wait"||coach.phase==="ready")||counting){ avCnt=0; return; }
+  const P=i=>({x:lm[i].x*iw,y:lm[i].y*ih}), m=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+  if([L.lSh,L.rSh,L.lHip,L.rHip].some(i=>!lm[i])) return;
+  const sw=Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y), s0=m(P(L.lSh),P(L.rSh)), h0=m(P(L.lHip),P(L.rHip)), t=Math.hypot(s0.x-h0.x,s0.y-h0.y);
+  if(t<ih*0.08){ avCnt=0; return; }
+  const r=sw/t, want= r<0.25?"dtl": r>0.5?"face": null;
+  if(!want||want===view){ avCnt=0; return; }
+  if(++avCnt<45) return;                     // 약 1.5초 이상 계속 반대 방향일 때만
+  avCnt=0; dlog("카메라 방향 자동 전환: "+view+" → "+want+" (어깨/몸통 "+r.toFixed(2)+")");
+  setView(want);
+  showIssue(want==="dtl"?"후방 모드로 바꿨습니다":"정면 모드로 바꿨습니다", want==="dtl"?"옆모습으로 찍히고 있어서 자동으로 전환했습니다":"정면으로 찍히고 있어서 자동으로 전환했습니다");
+  if(cfg.voice) say(want==="dtl"?"후방 모드로 바꿨습니다":"정면 모드로 바꿨습니다","good");
+}
+
 // ---------- 계산 ----------
 const mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
 const deg=r=>r*180/Math.PI;
@@ -611,6 +631,8 @@ function measure(lm,wl,w,h){
     if(!sh||!hip) return null;
   }
   const torso=Math.hypot(sh.x-hip.x,sh.y-hip.y);
+  // 정면 모드인데 옆모습(어깨너비가 몸통의 1/4 미만) → 어깨너비 기준 % 가 폭주하므로 측정하지 않음
+  if(view==="face"&&torso>1&&Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y)<torso*0.25){ noBody="옆에서 찍고 있습니다 · 후방 모드로 바꾸거나 폰을 정면에 두세요"; return null; }
   if(torso<1) return null;
   const kneeSeen=[L.lKn,L.rKn].some(i=>lm[i]&&lm[i].visibility>0.5);
   if(torso<h*0.08){ noBody="사람이 너무 작게 잡힙니다 · 몸이 화면 세로의 절반 이상 되게 가까이"; return null; }
@@ -716,6 +738,7 @@ function onResults(res){
   if(now-fpsT>1000){ fps=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; }
 
   const lm=res.poseLandmarks, wl=res.poseWorldLandmarks;
+  autoView(lm,iw,ih);
   noBody=null;
   const m= lm ? measure(lm,wl,iw,ih) : null;
   rec.push(img,iw,ih,lm,now,m);
@@ -1103,8 +1126,11 @@ const replay={
     const i1=hs.findIndex(h=>h!=null&&h>=30);
     if(i1>=0){ let t=i1, j=-1;
       for(let i=i1;i<hs.length;i++){ if(hs[i]==null) continue; if(hs[i]>hs[t]) t=i; else if(hs[i]<hs[t]-60){ j=i; break; } }
-      if(j>0){ let m=j; for(let i=j;i<hs.length;i++){ if(hs[i]==null) continue; if(hs[i]<hs[m]) m=i; else if(hs[i]>hs[m]+40) break; }
-        top=t; imp=m; } }
+      if(j>0) top=t; }
+    // 임팩트: 탑 이후 0.8초 안에서 손이 가장 낮은 프레임 (30fps에서는 임팩트 순간 손이 흐려져 빠지는 경우가 많음)
+    { const t0=rec.last[top].t; let m=-1;
+      for(let i=top+1;i<hs.length&&rec.last[i].t-t0<=800;i++){ if(hs[i]!=null&&(m<0||hs[i]<hs[m])) m=i; }
+      imp= m>0 ? m : Math.min(hs.length-1,top+Math.round((hs.length-1-top)/3)); }
     // 테이크백: 탑 이전에 손이 처음 골반 높이(0%)에 닿는 프레임
     let tb=-1; for(let i=0;i<=top;i++){ if(hs[i]!=null&&hs[i]>=0){ tb=i; break; } }
     if(tb<=0) tb=Math.round(top/2);
@@ -1149,7 +1175,9 @@ const replay={
       }
       cur=true;
     }
-    box.hidden=false; box.innerHTML=guideHtml(k,f.v,f0.v,this.sw);
+    const esc=t=>String(t||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    const iss=lastIssue?'<div class="iss'+(lastIssue.name==="좋아요"?" good":"")+'">이번 스윙: '+esc(lastIssue.name)+"<span>"+esc(lastIssue.line)+"</span></div>":"";
+    box.hidden=false; box.innerHTML=iss+guideHtml(k,f.v,f0.v,this.sw);
   },
   paint(f,bmp){
     const c=$("rcv"), g=c.getContext("2d");
@@ -1374,7 +1402,8 @@ function showBig(){
   el.querySelector(".t").textContent=p[0]; el.querySelector(".d").textContent=p[1]||""; el.hidden=false;
 }
 // 스윙이 끝나면 이번 스윙의 문제를 화면 위쪽에 크게 (다음 스윙을 시작하면 사라짐, 리플레이 위에도 보임)
-function showIssue(name,line){
+let lastIssue=null;
+function showIssue(name,line){ lastIssue={name,line};
   const el=$("issue"); el.className= name==="좋아요"?"good":"";
   el.querySelector(".t").textContent=name; el.querySelector(".d").textContent=line||""; el.hidden=false;
 }
@@ -1402,6 +1431,7 @@ $("c-ghost").checked=cfg.ghost!==false; $("c-ghost").onchange=e=>{ cfg.ghost=e.t
 $("c-hq").checked=cfg.engine==="v1"; $("c-hq").onchange=e=>{ cfg.engine=e.target.checked?"v1":"v2"; store("cfg",cfg); };
 $("c-tilt").checked=cfg.tiltfix!==false; $("c-tilt").onchange=e=>{ cfg.tiltfix=e.target.checked; store("cfg",cfg); };
 $("c-big").checked=cfg.big!==false; $("c-big").onchange=e=>{ cfg.big=e.target.checked; store("cfg",cfg); showBig(); };
+$("c-av").checked=cfg.autoView!==false; $("c-av").onchange=e=>{ cfg.autoView=e.target.checked; store("cfg",cfg); };
 $("gauges").hidden=!cfg.gauge; $("c-gauge").checked=!!cfg.gauge;
 $("c-gauge").onchange=e=>{ cfg.gauge=e.target.checked; store("cfg",cfg); $("gauges").hidden=!cfg.gauge; };
 $("c-video").checked=cfg.video!==false; $("c-video").onchange=e=>{ cfg.video=e.target.checked; store("cfg",cfg); };
