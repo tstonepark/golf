@@ -181,13 +181,14 @@ button:disabled{opacity:.4}
     <label for="c-gauge">실시간 수치 칸 표시 (척추·머리·스웨이 등)</label><input id="c-gauge" type="checkbox" style="width:24px;height:24px">
     <label for="c-video">영상 저장 (끄면 수치만 기록, 리플레이 없음)</label><input id="c-video" type="checkbox" style="width:24px;height:24px">
     <label for="c-guide">리플레이에 단계별 가이드 표시</label><input id="c-guide" type="checkbox" style="width:24px;height:24px">
+    <label for="c-trace">리플레이에 손 궤적 표시</label><input id="c-trace" type="checkbox" style="width:24px;height:24px">
     <label for="c-auto">스윙 후 자동 리플레이</label><input id="c-auto" type="checkbox" style="width:24px;height:24px">
     <p id="tinfo"></p>
     <p>%는 정면에서는 어깨너비, 후방에서는 몸통 길이의 3/4을 100으로 봅니다.</p>
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v47</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v48</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1157,6 +1158,23 @@ const replay={
     const im=new Image(); im.onload=()=>{ f.img=im; if(this.seq===seq) this.paint(f,im); }; im.src=f.url;
   },
   // 단계별 가이드: 어드레스 프레임 기준선(머리 허용원·골반 허용선·어드레스 축) + 체크리스트
+  // 손 궤적: 처음~지금 프레임까지 손(손목) 위치를 이어 그림. 백스윙=노랑, 다운스윙=빨강, 임팩트 이후=하늘
+  // 손을 못 잡은 프레임은 건너뛰고 잇지 않음(없는 점을 지어내지 않음)
+  trace(g,X,Y,iw,ih,u){
+    if(cfg.trace===false||!this.ph) return;
+    const top=this.ph["탑"], imp=this.ph["임팩트"], col=j=> j<=top?"#ffd23f": j<=imp?"#ff6b4a":"#7fd6ff";
+    const pt=f=>{ if(!f.lm) return null; const w=[L.lWr,L.rWr].filter(i=>f.lm[i]&&f.lm[i].v>0.3); if(!w.length) return null;
+      return {x:w.reduce((a,i)=>a+f.lm[i].x,0)/w.length*iw, y:w.reduce((a,i)=>a+f.lm[i].y,0)/w.length*ih}; };
+    g.lineCap="round"; g.lineJoin="round"; g.lineWidth=u*1.6;
+    let prev=null, pj=-1;
+    for(let j=0;j<=this.i;j++){
+      const p=pt(rec.last[j]); if(!p){ prev=null; continue; }
+      if(prev&&j-pj<=2){ g.strokeStyle=col(j); g.globalAlpha=0.9; g.beginPath(); g.moveTo(X(prev.x),Y(prev.y)); g.lineTo(X(p.x),Y(p.y)); g.stroke(); }
+      g.globalAlpha=1; g.fillStyle=col(j); g.beginPath(); g.arc(X(p.x),Y(p.y),u*0.9,0,Math.PI*2); g.fill();
+      prev=p; pj=j;
+    }
+    g.globalAlpha=1;
+  },
   phaseAt(i){ if(!this.ph) return null; let k=null, best=-1; for(const [n,j] of Object.entries(this.ph)) if(j<=i&&j>best){ best=j; k=n; } return k; },
   guide(g,f,X,Y,iw,ih,u){
     const box=$("rguide"), k=this.phaseAt(this.i), f0=rec.last[0];
@@ -1207,6 +1225,7 @@ const replay={
     if(bmp){ g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(bmp,ox,oy,dw,dh); g.restore(); }
     else { g.fillStyle="#0c1512"; g.fillRect(ox,oy,dw,dh); }
     this.guide(g,f,X,Y,iw,ih,u);
+    this.trace(g,X,Y,iw,ih,u);
     let hand=null;
     if(f.lm){
       g.lineWidth=u*0.9; g.strokeStyle="rgba(234,242,236,.75)"; g.lineCap="round";
@@ -1456,6 +1475,7 @@ $("c-av").checked=cfg.autoView!==false; $("c-av").onchange=e=>{ cfg.autoView=e.t
 $("gauges").hidden=!cfg.gauge; $("c-gauge").checked=!!cfg.gauge;
 $("c-gauge").onchange=e=>{ cfg.gauge=e.target.checked; store("cfg",cfg); $("gauges").hidden=!cfg.gauge; };
 $("c-video").checked=cfg.video!==false; $("c-video").onchange=e=>{ cfg.video=e.target.checked; store("cfg",cfg); };
+$("c-trace").checked=cfg.trace!==false; $("c-trace").onchange=e=>{ cfg.trace=e.target.checked; store("cfg",cfg); };
 $("c-guide").checked=cfg.guide!==false; $("c-guide").onchange=e=>{ cfg.guide=e.target.checked; store("cfg",cfg); };
 $("c-auto").checked=cfg.auto!==false; $("c-auto").onchange=e=>{ cfg.auto=e.target.checked; store("cfg",cfg); };
 $("viewbtn").onclick=()=>setView(view==="face"?"dtl":"face");
