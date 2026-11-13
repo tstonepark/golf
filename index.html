@@ -188,7 +188,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v48</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v49</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -386,7 +386,7 @@ async function boot(remote){
       $("start").disabled=false; $("rconnect").disabled=false; setStatus("엔진 오류","bad");
       $("err").textContent="포즈 엔진을 시작하지 못했습니다. 인터넷 연결을 확인해 주세요."; return; }
   }
-  $("msg").hidden=true; running=true;
+  $("msg").hidden=true; running=true; rec.startCap();
   try{ if(navigator.wakeLock) await navigator.wakeLock.request("screen"); }catch(e){}
   requestAnimationFrame(loop);
 }
@@ -1074,28 +1074,52 @@ function showResult(v,pk,c,label,sw){
 }
 // ---------- 녹화 / 리플레이 ----------
 const rec={
-  buf:[], keepMs:9000, oc:document.createElement("canvas"), busy:false, last:null, lastT:0,
+  // 영상: 카메라가 보내는 모든 프레임을 가로 720px로 저장(분석 속도와 무관). 뼈대·수치는 분석된 프레임에 붙임
+  buf:[], keepMs:9000, W:720, oc:document.createElement("canvas"), last:null, lastT:0, capOn:false,
+  startCap(){
+    if(this.capOn||!video.requestVideoFrameCallback) return; this.capOn=true;
+    const tick=(now)=>{
+      if(!running){ this.capOn=false; return; }
+      if(cfg.video!==false&&video.videoWidth){
+        const iw=video.videoWidth, ih=video.videoHeight, w=Math.min(this.W,iw), h=Math.round(ih*w/iw);
+        if(this.oc.width!==w||this.oc.height!==h){ this.oc.width=w; this.oc.height=h; }
+        this.oc.getContext("2d").drawImage(video,0,0,w,h);
+        const f={blob:null,w,h,lm:null,v:null,t:now};
+        try{ this.oc.toBlob(b=>{ f.blob=b; },"image/jpeg",0.82); }catch(e){ if(!this.warned){ this.warned=1; dlog("녹화 실패: "+e.message); } }
+        this.buf.push(f); this.trim(now);
+      }
+      video.requestVideoFrameCallback(tick);
+    };
+    video.requestVideoFrameCallback(tick);
+  },
+  trim(t){ while(this.buf.length&&t-this.buf[0].t>this.keepMs) this.buf.shift(); },
   push(img,iw,ih,lm,t,m){
-    if(this.busy||t-this.lastT<(cfg.fps>30?30:60)) return; this.busy=true; this.lastT=t;
-    const w=360, h=Math.round(ih*w/iw);
     const L2=lm?lm.map(p=>({x:p.x,y:p.y,v:p.visibility})):null;
     // 프레임마다 측정값도 같이 보관 → 단계별 가이드에 사용 (영상을 꺼도 뼈대·수치는 남음)
     const V=m?{}:null; if(m) ["head","sway","headUp","spine","shTurn","weight","knee","kneeD","hand","bend","bendD","hipFwd","headFwd"].forEach(k=>{ if(m[k]!=null&&isFinite(m[k])) V[k]=m[k]; });
-    let url=null;
+    if(cfg.video!==false&&this.capOn){
+      // 방금 분석한 화면 = 가장 최근에 저장한 프레임
+      for(let i=this.buf.length-1;i>=0&&i>=this.buf.length-3;i--){ const f=this.buf[i]; if(t-f.t<120){ if(!f.lm){ f.lm=L2; f.v=V; } return; } }
+      return;
+    }
+    // 영상 끔(또는 프레임 콜백 미지원): 분석 프레임마다 뼈대·수치만, 미지원이면 저화질 이미지도
+    if(t-this.lastT<30) return; this.lastT=t;
+    let blob=null, w=360, h=Math.round(ih*360/iw);
     if(cfg.video!==false){
       if(this.oc.width!==w||this.oc.height!==h){ this.oc.width=w; this.oc.height=h; }
       this.oc.getContext("2d").drawImage(img,0,0,w,h);
-      try{ url=this.oc.toDataURL("image/jpeg",0.7); }catch(e){ if(!this.warned){ this.warned=1; dlog("녹화 실패: "+e.message); } }
+      const f={blob:null,w,h,lm:L2,t,v:V}; try{ this.oc.toBlob(b=>{ f.blob=b; },"image/jpeg",0.8); }catch(e){} this.buf.push(f); this.trim(t); return;
     }
-    this.busy=false;
-    this.buf.push({url,w,h,lm:L2,t,v:V});
-    while(this.buf.length&&t-this.buf[0].t>this.keepMs) this.buf.shift();
+    this.buf.push({blob,w,h,lm:L2,t,v:V}); this.trim(t);
   },
   freeze(startT,endT){
     // 구간: 백스윙 시작 0.5초 전 ~ 피니시에서 멈춘 직후 0.25초 (멈춰 있는 꼬리는 잘라냄)
     const from=(startT||0)-500, to= endT ? endT+250 : Infinity, fr=this.buf.filter(f=>f.t>=from&&f.t<=to);
     dlog("스윙 종료: 버퍼 "+this.buf.length+"장, 구간 "+fr.length+"장");
     if(fr.length<3) return;
+    for(let i=0;i<fr.length;i++){ if(fr[i].lm) continue; let best=null, bd=61;
+      for(let j=Math.max(0,i-4);j<Math.min(fr.length,i+5);j++){ const d=Math.abs(fr[j].t-fr[i].t); if(fr[j].lm&&!fr[j].near&&d<bd){ bd=d; best=fr[j]; } }
+      if(best){ fr[i].lm=best.lm; fr[i].v=best.v; fr[i].near=true; } }
     this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to); replay.sw=session[session.length-1]||null;
     try{ replay.marks(); const L0=swingLog[swingLog.length-1], ph=replay.ph;
       if(L0&&ph&&Date.now()-L0.ts<5000){
@@ -1153,9 +1177,10 @@ const replay={
   },
   draw(){
     const f=rec.last[this.i], seq=++this.seq||(this.seq=1);
-    if(!f.url){ this.paint(f,null); return; }
+    if(!f.blob&&!f.url){ this.paint(f,null); return; }
     if(f.img){ this.paint(f,f.img); return; }
-    const im=new Image(); im.onload=()=>{ f.img=im; if(this.seq===seq) this.paint(f,im); }; im.src=f.url;
+    const im=new Image(), src=f.url||URL.createObjectURL(f.blob);
+    im.onload=()=>{ f.img=im; if(!f.url) URL.revokeObjectURL(src); if(this.seq===seq) this.paint(f,im); }; im.src=src;
   },
   // 단계별 가이드: 어드레스 프레임 기준선(머리 허용원·골반 허용선·어드레스 축) + 체크리스트
   // 손 궤적: 처음~지금 프레임까지 손(손목) 위치를 이어 그림. 백스윙=노랑, 다운스윙=빨강, 임팩트 이후=하늘
@@ -1163,7 +1188,7 @@ const replay={
   trace(g,X,Y,iw,ih,u){
     if(cfg.trace===false||!this.ph) return;
     const top=this.ph["탑"], imp=this.ph["임팩트"], col=j=> j<=top?"#ffd23f": j<=imp?"#ff6b4a":"#7fd6ff";
-    const pt=f=>{ if(!f.lm) return null; const w=[L.lWr,L.rWr].filter(i=>f.lm[i]&&f.lm[i].v>0.3); if(!w.length) return null;
+    const pt=f=>{ if(!f.lm||f.near) return null; const w=[L.lWr,L.rWr].filter(i=>f.lm[i]&&f.lm[i].v>0.3); if(!w.length) return null;
       return {x:w.reduce((a,i)=>a+f.lm[i].x,0)/w.length*iw, y:w.reduce((a,i)=>a+f.lm[i].y,0)/w.length*ih}; };
     g.lineCap="round"; g.lineJoin="round"; g.lineWidth=u*1.6;
     let prev=null, pj=-1;

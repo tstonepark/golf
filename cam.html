@@ -69,6 +69,7 @@ button:focus-visible{outline:3px solid var(--axis);outline-offset:2px}
   <button class="main" id="start">카메라 켜기</button>
   <button id="lens" disabled>렌즈 바꾸기</button>
   <button id="newcode">번호 바꾸기</button>
+  <button id="shutter" hidden>빠른 셔터 끔</button>
 </div>
 <script src="vendor/peerjs/peerjs.min.js"></script>
 <script>
@@ -103,7 +104,7 @@ function watchIce(pc,tag,log){
     if(s==="failed"||s==="disconnected") iceDump(pc).then(d=>{ if(d) log(tag+" "+d); }); });
   setTimeout(()=>{ if(pc.iceConnectionState==="checking"||pc.iceConnectionState==="new") iceDump(pc).then(d=>{ if(d) log(tag+" 12초째 확인 중 · "+d); }); },12000);
 }                 // 공개 중개 서버에서 다른 서비스와 겹치지 않게 붙이는 접두어
-const FPS=Number(new URLSearchParams(location.search).get("fps"))||30;
+const FPS=Number(new URLSearchParams(location.search).get("fps"))||60;   // 지원하면 60fps, 아니면 카메라가 주는 만큼
 let stream=null, peer=null, conn=null, call=null, cams=[], camIdx=-1, code=null, wake=null;
 const tilt={pitch:null,roll:null};
 
@@ -119,7 +120,7 @@ async function openCam(deviceId,hi){
   if(stream) stream.getTracks().forEach(t=>t.stop());
   hiRes=!!hi;
   const v= hi ? {width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:FPS},zoom:true}
-              : {width:{ideal:1280},height:{ideal:720},frameRate:{ideal:FPS},zoom:true};
+              : {width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:FPS},zoom:true};
   if(deviceId){ v.deviceId={exact:deviceId}; stream=await navigator.mediaDevices.getUserMedia({audio:false,video:v}); }
   else{
     try{ stream=await navigator.mediaDevices.getUserMedia({audio:false,video:Object.assign({facingMode:{exact:"environment"}},v)}); }
@@ -145,7 +146,25 @@ async function openCam(deviceId,hi){
     if(s) try{ await s.replaceTrack(outStream().getVideoTracks()[0]); }catch(e){}
   }
   setupZoom(tr);
+  setupShutter(tr);
   sendInfo();
+}
+// ---------- 빠른 셔터: 카메라가 수동 노출을 지원할 때만. 셔터를 짧게 해 스윙 잔상을 줄임(대신 화면이 어두워짐) ----------
+let fastShutter=load("golfcam.shutter")==="1";
+async function setupShutter(tr){
+  const b=$("shutter"), caps=tr.getCapabilities?tr.getCapabilities():{};
+  const ok=caps.exposureMode&&caps.exposureMode.includes&&caps.exposureMode.includes("manual")&&caps.exposureTime;
+  b.hidden=!ok; if(!ok){ netlog("빠른 셔터: 이 브라우저/카메라는 수동 노출 미지원"); return; }
+  const apply=async()=>{
+    try{
+      if(fastShutter){ const et=Math.max(caps.exposureTime.min||1, 10);   // 10 = 1/1000초 (100µs 단위)
+        await tr.applyConstraints({advanced:[{exposureMode:"manual",exposureTime:et}]}); }
+      else await tr.applyConstraints({advanced:[{exposureMode:"continuous"}]});
+      b.textContent= fastShutter?"빠른 셔터 켬":"빠른 셔터 끔"; b.classList.toggle("main",fastShutter);
+    }catch(e){ netlog("빠른 셔터 실패: "+e.message); b.textContent="빠른 셔터 안 됨"; }
+  };
+  b.onclick=()=>{ fastShutter=!fastShutter; save("golfcam.shutter",fastShutter?"1":"0"); apply(); };
+  apply();
 }
 // ---------- 줌: 카메라가 지원하면 진짜 줌, 아니면 화면을 잘라서 확대(손가락으로 끌어 위치 이동) ----------
 let zoom={z:1,cx:.5,cy:.5}, hwZoom=null, dig=null, sendingDig=false, reopening=false;
@@ -315,7 +334,7 @@ function tuneSender(){
   setTimeout(()=>{ try{
     const s=call&&call.peerConnection&&call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==="video");
     if(!s) return; const p=s.getParameters(); if(!p.encodings||!p.encodings.length) p.encodings=[{}];
-    p.encodings[0].maxBitrate=6000000; p.encodings[0].maxFramerate=FPS; p.degradationPreference="maintain-framerate";
+    p.encodings[0].maxBitrate=12000000; p.encodings[0].maxFramerate=FPS; p.degradationPreference="maintain-framerate";
     s.setParameters(p).catch(()=>{});
   }catch(e){} },1500);
 }
