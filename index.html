@@ -188,7 +188,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v40</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v41</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1272,7 +1272,7 @@ function finishSwing(c){
     || (finBad?"피니시":null)
     || ((topV==="좋아요"||!target)&&ref?"좋아요":null);
   session.push({n:c.n,view,issue,hand:c.atMax.hand,shTurn:c.atMax.shTurn,peak:Object.assign({},pk),wt:Object.assign({},wt),path:c.path,fin:fin&&fin.measured?fin.fails.slice():null});
-  const ms=(a,b)=>a!=null&&b!=null&&b>a?Math.round(b-a):null, bk=ms(c.startT,c.downT), dn=ms(c.downT,c.followT);
+  const ms=(a,b)=>a!=null&&b!=null&&b>a?Math.round(b-a):null, bk=ms(c.startT,c.maxT), dn=ms(c.maxT,c.followT);
   const r1=x=>x==null||!isFinite(x)?null:Math.round(x*10)/10, P={}; for(const k in pk) P[k]=r1(pk[k]);
   swingLog.push({ts:Date.now(),view,issue:issue||null,hand:r1(c.atMax.hand),shTurn:r1(c.atMax.shTurn),
     wAddr:r1(wt.addr),wTop:r1(wt.top),wImp:r1(wt.imp),wFin:r1(wt.fin),path:r1(c.path),
@@ -1287,8 +1287,11 @@ function finishSwing(c){
   if(cfg.voice&&cfg.tips!==false) setTimeout(()=>say(tp.say,issue==="좋아요"?"good":"bad"),600);
 }
 function showSummary(){
-  const el=$("sumbody"), sw=session.filter(x=>x.view===view);
-  if(!sw.length){ el.innerHTML="<p>아직 기록된 스윙이 없습니다.</p>"; return; }
+  // 오늘 수치 기록(페이지를 다시 열어도 유지)에서 현재 방향만
+  const d0=new Date(); d0.setHours(0,0,0,0);
+  const sw=swingLog.filter(x=>x.ts>=d0.getTime()&&x.view===view).map(x=>({issue:x.issue,hand:x.hand,shTurn:x.shTurn,path:x.path,wt:{top:x.wTop,imp:x.wImp}}));
+  const el=$("sumbody");
+  if(!sw.length){ el.innerHTML="<p>오늘 "+(view==="face"?"정면":"후방")+"에서 기록된 스윙이 없습니다.</p>"; return; }
   const cnt={}; sw.forEach(x=>{ if(x.issue) cnt[x.issue]=(cnt[x.issue]||0)+1; });
   const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]);
   const avg=k=>{ const v=sw.map(x=>x[k]).filter(x=>x!=null); return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null; };
@@ -1315,9 +1318,9 @@ function peakCols(){ const ks={}; swingLog.forEach(x=>{ for(const k in (x.peak||
 function showLog(){
   const el=$("logbox");
   if(!swingLog.length){ el.innerHTML="<h2>수치 기록</h2><p>저장된 스윙 수치가 없습니다.</p>"; return; }
-  const cols=[LOGCOL[0],LOGCOL[2],LOGCOL[3],LOGCOL[4],LOGCOL[7],LOGCOL[8],LOGCOL[11]], rows=swingLog.slice(-30).reverse();
+  const cols=LOGCOL.slice(0,1).concat(LOGCOL.slice(2)).concat(peakCols()), rows=swingLog.slice(-30).reverse();
   const esc=v=>v==null?"–":String(v).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-  el.innerHTML="<h2>수치 기록 (총 "+swingLog.length+"회, 최근 30회)</h2><div style=\"overflow-x:auto;max-height:40vh\"><table class=\"log\"><tr>"+cols.map(c=>"<th>"+c[0]+"</th>").join("")+"</tr>"+
+  el.innerHTML="<h2>수치 기록 (총 "+swingLog.length+"회, 최근 30회 · 표를 옆으로 밀면 항목이 더 있음)</h2><div style=\"overflow-x:auto;max-height:40vh\"><table class=\"log\"><tr>"+cols.map(c=>"<th>"+c[0]+"</th>").join("")+"</tr>"+
     rows.map(x=>"<tr>"+cols.map((c,i)=>"<td>"+esc(i===0?c[1](x).slice(5,16):c[1](x))+"</td>").join("")+"</tr>").join("")+"</table></div>";
 }
 function logCsv(){
