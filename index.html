@@ -149,6 +149,7 @@ button:disabled{opacity:.4}
       <button id="rplay">재생</button>
       <button id="rnext">1칸 ▶</button>
       <button id="rspeed">0.25×</button>
+      <button id="rpick">공·스틱 찍기</button>
       <button id="rclose" style="margin-left:auto">닫기</button>
       <div id="rphases" style="flex:1 1 100%;display:flex;gap:6px"></div>
       <div id="rhint">다음 스윙을 시작하면 자동으로 닫힙니다. 화면을 누르면 멈춤/재생.</div>
@@ -188,7 +189,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v50</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v51</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1120,13 +1121,15 @@ const rec={
     for(let i=0;i<fr.length;i++){ if(fr[i].lm) continue; let best=null, bd=61;
       for(let j=Math.max(0,i-4);j<Math.min(fr.length,i+5);j++){ const d=Math.abs(fr[j].t-fr[i].t); if(fr[j].lm&&!fr[j].near&&d<bd){ bd=d; best=fr[j]; } }
       if(best){ fr[i].lm=best.lm; fr[i].v=best.v; fr[i].near=true; } }
-    this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to); replay.sw=session[session.length-1]||null;
+    this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to); replay.sw=session[session.length-1]||null; replay.pv=null;
     try{ replay.marks(); const L0=swingLog[swingLog.length-1], ph=replay.ph;
       if(L0&&ph&&Date.now()-L0.ts<5000){
         const T=i=>fr[i].t, hs=fr.map(f=>replay.handAt(f));
         let s0=0; for(let i=ph["탑"];i>0;i--){ if(hs[i]!=null&&hs[i]<=hs[0]+10){ s0=i; break; } }   // 손이 어드레스 높이를 떠난 순간
         const bk=Math.round(T(ph["탑"])-T(s0)), dn=Math.round(T(ph["임팩트"])-T(ph["탑"]));
-        if(bk>200&&dn>60){ L0.back=bk; L0.down=dn; L0.tempo=Math.round(bk/dn*10)/10; store("log",swingLog); }
+        if(bk>200&&dn>60){ L0.back=bk; L0.down=dn; L0.tempo=Math.round(bk/dn*10)/10; }
+        replay.pv=null; const pv=replay.planeEval(); if(pv&&pv.verdict){ L0.plane=pv.verdict; L0.planeUp=pv.above; L0.planeLow=pv.below; }
+        store("log",swingLog);
       } }catch(e){ dlog("템포 계산 실패: "+e.message); }
     $("replaybtn").disabled=false;
     if(cfg.auto!==false){ if(cfg.voice) beep(990,.1); replay.show(); }
@@ -1183,6 +1186,67 @@ const replay={
     im.onload=()=>{ f.img=im; if(!f.url) URL.revokeObjectURL(src); if(this.seq===seq) this.paint(f,im); }; im.src=src;
   },
   // 단계별 가이드: 어드레스 프레임 기준선(머리 허용원·골반 허용선·어드레스 축) + 체크리스트
+  // ---------- 스윙 플레인(후방): 공을 한 번 찍으면 어드레스의 공→손(샤프트 플레인), 공→어깨(어깨 플레인) 두 선을 그림 ----------
+  // 다운스윙에서 손이 어깨 플레인 위로 나가면 아웃-인, 샤프트 플레인 아래로 처지면 인-아웃 경향. 스틱(타깃 라인)은 카메라 정렬 확인용
+  pickStep:0,
+  startPick(){ if(view!=="dtl"){ $("rpick").textContent="후방에서만"; setTimeout(()=>$("rpick").textContent="공·스틱 찍기",1500); return; }
+    this.play(false); this.pickStep=1; this.pickTmp={}; $("rpick").textContent="① 공을 누르세요"; $("rpick").classList.add("main"); },
+  pickAt(ev){
+    const m=this.map, c=$("rcv"), r=c.getBoundingClientRect(); if(!m) return;
+    let px=(ev.clientX-r.left)*m.d, py=(ev.clientY-r.top)*m.d;
+    let x=(m.mirror? (m.ox+m.dw-px) : (px-m.ox))/m.sc/m.iw, y=(py-m.oy)/m.sc/m.ih;
+    if(x<0||x>1||y<0||y>1) return;
+    const b=$("rpick");
+    if(this.pickStep===1){ this.pickTmp.ball={x,y}; this.pickStep=2; b.textContent="② 스틱 한쪽 끝 (없으면 이 버튼)"; }
+    else if(this.pickStep===2){ this.pickTmp.s1={x,y}; this.pickStep=3; b.textContent="③ 스틱 다른 쪽 끝"; }
+    else if(this.pickStep===3){ this.pickTmp.s2={x,y}; this.finishPick(); return; }
+    this.draw();
+  },
+  finishPick(){
+    const t=this.pickTmp||{}; if(!t.ball){ this.pickStep=0; $("rpick").textContent="공·스틱 찍기"; $("rpick").classList.remove("main"); return; }
+    cfg.plane={ball:t.ball, stick: t.s1&&t.s2 ? [t.s1,t.s2] : null}; store("cfg",cfg);
+    this.pickStep=0; $("rpick").textContent="공·스틱 다시 찍기"; $("rpick").classList.remove("main"); this.pv=null; this.draw();
+  },
+  // 어드레스 프레임 기준 점들 (영상 픽셀 좌표)
+  planeGeo(iw,ih){
+    const P=cfg.plane, f0=rec.last&&rec.last[0]; if(!P||!P.ball||!f0||!f0.lm||view!=="dtl") return null;
+    const a=f0.lm, ok=i=>a[i]&&a[i].v>0.5, Q=i=>({x:a[i].x*iw,y:a[i].y*ih});
+    const shI=[L.lSh,L.rSh].filter(ok), hdI=[L.lWr,L.rWr].filter(i=>a[i]&&a[i].v>0.3), hpI=[L.lHip,L.rHip].filter(ok);
+    if(!shI.length||!hdI.length||!hpI.length) return null;
+    const avg=I=>({x:I.reduce((s,i)=>s+Q(i).x,0)/I.length, y:I.reduce((s,i)=>s+Q(i).y,0)/I.length});
+    const B={x:P.ball.x*iw,y:P.ball.y*ih}, S=avg(shI), H=avg(hdI), Hp=avg(hpI), N=ok(L.nose)?Q(L.nose):null;
+    return {B,S,H,U:Math.hypot(S.x-Hp.x,S.y-Hp.y)*0.75,N};
+  },
+  planeEval(){
+    if(this.pv!==undefined&&this.pv!==null) return this.pv;
+    const fr=rec.last, ph=this.ph; if(!fr||!ph) return null;
+    const iw=fr[0].w, ih=fr[0].h, G=this.planeGeo(iw,ih); if(!G) return (this.pv=null);
+    const side=(P,A,B)=>((B.x-A.x)*(P.y-A.y)-(B.y-A.y)*(P.x-A.x))/Math.hypot(B.x-A.x,B.y-A.y);
+    const upS=Math.sign(side(G.N||{x:G.S.x,y:G.S.y-G.U},G.B,G.S))||1, loS=Math.sign(side(G.S,G.B,G.H))||1;
+    let above=0, below=0, n=0;
+    for(let i=ph["탑"]+1;i<=ph["임팩트"];i++){ const f=fr[i]; if(!f.lm||f.near) continue;
+      const h=this.handAt(f); if(h==null||h<0||h>100) continue;              // 손이 골반~어깨 높이일 때만 (다운스윙 중간)
+      const w=[L.lWr,L.rWr].filter(k=>f.lm[k]&&f.lm[k].v>0.3); if(!w.length) continue;
+      const P={x:w.reduce((s,k)=>s+f.lm[k].x,0)/w.length*iw, y:w.reduce((s,k)=>s+f.lm[k].y,0)/w.length*ih};
+      above=Math.max(above, side(P,G.B,G.S)*upS/G.U*100); below=Math.max(below, -side(P,G.B,G.H)*loS/G.U*100); n++; }
+    if(!n) return (this.pv={verdict:null});
+    const verdict= above>5 ? "아웃-인" : below>15 ? "인-아웃" : "플레인 안";
+    let stickAng=null; const st=cfg.plane.stick; if(st){ const dx=(st[1].x-st[0].x)*iw, dy=(st[1].y-st[0].y)*ih; stickAng=Math.abs(Math.atan2(dx,Math.abs(dy))*180/Math.PI); }
+    return (this.pv={verdict,above:Math.round(above),below:Math.round(below),n,stickAng});
+  },
+  planeDraw(g,X,Y,iw,ih,u){
+    const t=this.pickTmp, P=cfg.plane;
+    const dot=(p,c)=>{ g.fillStyle=c; g.beginPath(); g.arc(X(p.x*iw),Y(p.y*ih),u*2.2,0,Math.PI*2); g.fill(); };
+    if(this.pickStep&&t){ if(t.ball) dot(t.ball,"#fff"); if(t.s1) dot(t.s1,"#ff5bd1"); }
+    if(!P||view!=="dtl") return;
+    if(P.stick){ const [a,b]=P.stick, ax=a.x*iw, ay=a.y*ih, bx=b.x*iw, by=b.y*ih, k=2;
+      g.strokeStyle="#ff5bd1"; g.lineWidth=u*1.2; g.beginPath(); g.moveTo(X(ax-(bx-ax)*k),Y(ay-(by-ay)*k)); g.lineTo(X(bx+(bx-ax)*k),Y(by+(by-ay)*k)); g.stroke(); }
+    const G=this.planeGeo(iw,ih); if(!G) { dot(P.ball,"#fff"); return; }
+    const line=(A,Bp,len,c)=>{ g.strokeStyle=c; g.lineWidth=u*1.3; g.setLineDash([u*5,u*3]); g.beginPath(); g.moveTo(X(A.x),Y(A.y)); g.lineTo(X(A.x+(Bp.x-A.x)*len),Y(A.y+(Bp.y-A.y)*len)); g.stroke(); g.setLineDash([]); };
+    line(G.B,G.S,1.5,"rgba(255,255,255,.85)");   // 어깨 플레인
+    line(G.B,G.H,2.4,"rgba(127,214,255,.9)");    // 샤프트(손) 플레인
+    dot(P.ball,"#fff");
+  },
   // 손 궤적: 처음~지금 프레임까지 손(손목) 위치를 이어 그림. 백스윙=노랑, 다운스윙=빨강, 임팩트 이후=하늘
   // 손을 못 잡은 프레임은 건너뛰고 잇지 않음(없는 점을 지어내지 않음)
   trace(g,X,Y,iw,ih,u){
@@ -1246,9 +1310,11 @@ const replay={
     if(c.width!==Math.round(r.width*d)||c.height!==Math.round(r.height*d)){ c.width=Math.round(r.width*d); c.height=Math.round(r.height*d); }
     const iw=bmp?(bmp.naturalWidth||bmp.width):f.w, ih=bmp?(bmp.naturalHeight||bmp.height):f.h, sc=Math.min(c.width/iw,c.height/ih), dw=iw*sc, dh=ih*sc, ox=(c.width-dw)/2, oy=(c.height-dh)/2;
     const mirror=facing==="user", X=x=>mirror?ox+dw-x*sc:ox+x*sc, Y=y=>oy+y*sc, u=Math.max(2,c.width/220);
+    this.map={ox,oy,sc,dw,iw,ih,mirror,d};
     g.fillStyle="#000"; g.fillRect(0,0,c.width,c.height);
     if(bmp){ g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(bmp,ox,oy,dw,dh); g.restore(); }
     else { g.fillStyle="#0c1512"; g.fillRect(ox,oy,dw,dh); }
+    this.planeDraw(g,X,Y,iw,ih,u);
     this.guide(g,f,X,Y,iw,ih,u);
     this.trace(g,X,Y,iw,ih,u);
     let hand=null;
@@ -1282,7 +1348,8 @@ $("rprev").onclick=()=>replay.seek(replay.i-1);
 $("rnext").onclick=()=>replay.seek(replay.i+1);
 $("rspeed").onclick=()=>{ replay.si=(replay.si+1)%replay.speeds.length; $("rspeed").textContent=replay.speeds[replay.si]+"×"; };
 $("rslider").oninput=e=>replay.seek(Number(e.target.value));
-$("rcv").onclick=()=>replay.play(!replay.timer);
+$("rcv").onclick=e=>{ if(replay.pickStep) replay.pickAt(e); else replay.play(!replay.timer); };
+$("rpick").onclick=()=>{ if(replay.pickStep===2) replay.finishPick(); else if(replay.pickStep) { replay.pickStep=0; $("rpick").textContent="공·스틱 찍기"; $("rpick").classList.remove("main"); replay.draw(); } else replay.startPick(); };
 
 // ---------- 단계별 가이드 ----------
 // 기준: 판정 기준값(cfg) 그대로. 수치 없는 항목은 "측정 안 됨"으로 표시 (추정 금지)
@@ -1320,8 +1387,15 @@ function guideHtml(k,v,v0,sw){
     if(k==="어드레스"){ row("척추 숙임",v.bend,"°",v.bend!=null?v.bend>=25&&v.bend<=50:null,"25~50°"); row(Tr+" 무릎 각",v.knee,"°",null); }
     if(k==="테이크백"){ rise(); hipF(); headD(); }
     if(k==="탑"){ rise(); hipF(); headD(); if(target&&target.hand!=null&&v.hand!=null) row("손 높이",v.hand,"%",Math.abs(v.hand-target.hand)<=cfg.handTol,"목표 "+r(target.hand)+"%"); }
-    if(k==="임팩트"){ rise(); hipF(); headD(); }
+    if(k==="임팩트"){ rise(); hipF(); headD(); planeRows(); }
     if(k==="피니시"){ if(sw&&sw.fin) rows.push(sw.fin.length?'<div class="r bad">✗ '+sw.fin.join(", ")+"</div>":'<div class="r ok">✓ 피니시 균형</div>'); else rows.push('<div class="r na">· 피니시 측정 안 됨</div>'); }
+  }
+  function planeRows(){
+    const pv=replay.planeEval();
+    if(!cfg.plane||!cfg.plane.ball){ rows.push('<div class="r na">· 다운스윙 궤도: 아래 "공·스틱 찍기"로 공을 한 번 찍으면 판정</div>'); return; }
+    if(!pv||!pv.verdict){ rows.push('<div class="r na">· 다운스윙 궤도 측정 안 됨</div>'); return; }
+    rows.push('<div class="r '+(pv.verdict==="플레인 안"?"ok":"bad")+'">'+(pv.verdict==="플레인 안"?"✓":"✗")+" 다운스윙 손: <b>"+pv.verdict+"</b>"+' <span class="na">(어깨선 위 '+pv.above+"% · 손선 아래 "+pv.below+"%)</span></div>");
+    if(pv.stickAng!=null&&pv.stickAng>20) rows.push('<div class="r bad">✗ 스틱이 '+Math.round(pv.stickAng)+"° 기울어 보임 · 폰이 타깃 라인 뒤에 있지 않아 궤도 판정이 틀릴 수 있음</div>");
   }
   if(noRef&&k!=="어드레스") rows.unshift('<div class="r na">어드레스 기준이 없어 이동량은 측정 안 됨</div>');
   return '<div class="h">'+k+'</div><div class="p">'+POINT[k]+'</div><div class="rows">'+rows.join("")+"</div>";
@@ -1403,7 +1477,7 @@ function showSummary(){
 const LOGCOL=[["일시",x=>{ const d=new Date(x.ts),z=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes())+":"+z(d.getSeconds()); }],
   ["방향",x=>x.view==="dtl"?"후방":"정면"],["문제",x=>x.issue||""],["탑손높이%",x=>x.hand],["어깨회전°",x=>x.shTurn],
   ["백스윙ms",x=>x.back],["다운스윙ms",x=>x.down],["템포",x=>x.tempo],["손경로%",x=>x.path],
-  ["체중어드레스%",x=>x.wAddr],["체중탑%",x=>x.wTop],["체중임팩트%",x=>x.wImp],["체중피니시%",x=>x.wFin],["피니시",x=>x.fin]];
+  ["체중어드레스%",x=>x.wAddr],["체중탑%",x=>x.wTop],["체중임팩트%",x=>x.wImp],["체중피니시%",x=>x.wFin],["피니시",x=>x.fin],["다운스윙궤도",x=>x.plane],["어깨선위%",x=>x.planeUp],["손선아래%",x=>x.planeLow]];
 function peakCols(){ const ks={}; swingLog.forEach(x=>{ for(const k in (x.peak||{})) ks[k]=1; });
   const lab={}; for(const v in ITEMS) ITEMS[v].forEach(it=>{ lab[it.k]=it.lab+(it.u||""); });
   return Object.keys(ks).map(k=>[lab[k]||k,x=>x.peak?x.peak[k]:null]); }
