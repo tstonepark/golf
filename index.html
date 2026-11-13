@@ -187,7 +187,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v44</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v45</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -963,6 +963,9 @@ const coach={
       return;
     }
     if(this.phase==="ready"){
+      // 준비 상태에서도 가만히 있는 자세로 기준을 계속 갱신 → 백스윙 직전의 실제 어드레스가 기준이 됨
+      if(v.hand<b+25&&still){ if(this.rs==null) this.rs=t; if(t-this.rs>400&&t-(this.rr||0)>300&&last&&!counting){ ref=makeRef(last); this.rr=t; } }
+      else this.rs=null;
       if(v.hand>b+25){ this.phase="back"; this.startT=t; if(replay.open) replay.close(); $("issue").hidden=true; this.max=v.hand; this.maxT=t; this.atMax=v; this.alerted=false; this.overSince=null;
         this.peak={}; this.wt={addr:ref?ref.weight:null}; this.fin=null; this.path=null; this.pb=[]; this.pd=[]; this.hup0=null; this.downSaid=false; }
       return;
@@ -992,7 +995,7 @@ const coach={
         if(v.sway!=null) this.fs= this.fs ? [Math.min(this.fs[0],v.sway),Math.max(this.fs[1],v.sway)] : [v.sway,v.sway];
       } else this.stillAt=null;
       if(this.ft&&this.stillAt!=null&&t-this.stillAt>500){
-        this.wt.fin=v.weight; this.fin=evalFinish(this,v); this.path=handPath(this.pb,this.pd);
+        this.wt.fin=v.weight; this.fin=evalFinish(this,v); this.path=handPath(this.pb,this.pd); if(this.path!=null&&Math.abs(this.path)>60) this.path=null;   // 손을 놓친 표본 → 버림
         showResult(this.atMax,this.peak,this.catPair,null,this); this.reset(); return; }
       if(t-this.followT>3000) this.reset();
       return;
@@ -1091,6 +1094,13 @@ const rec={
     dlog("스윙 종료: 버퍼 "+this.buf.length+"장, 구간 "+fr.length+"장");
     if(fr.length<3) return;
     this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to); replay.sw=session[session.length-1]||null;
+    try{ replay.marks(); const L0=swingLog[swingLog.length-1], ph=replay.ph;
+      if(L0&&ph&&Date.now()-L0.ts<5000){
+        const T=i=>fr[i].t, hs=fr.map(f=>replay.handAt(f));
+        let s0=0; for(let i=ph["탑"];i>0;i--){ if(hs[i]!=null&&hs[i]<=hs[0]+10){ s0=i; break; } }   // 손이 어드레스 높이를 떠난 순간
+        const bk=Math.round(T(ph["탑"])-T(s0)), dn=Math.round(T(ph["임팩트"])-T(ph["탑"]));
+        if(bk>200&&dn>60){ L0.back=bk; L0.down=dn; L0.tempo=Math.round(bk/dn*10)/10; store("log",swingLog); }
+      } }catch(e){ dlog("템포 계산 실패: "+e.message); }
     $("replaybtn").disabled=false;
     if(cfg.auto!==false){ if(cfg.voice) beep(990,.1); replay.show(); }
   }
@@ -1173,11 +1183,17 @@ const replay={
         const s1=mid(P(b,L.lSh),P(b,L.rSh)), h1=mid(P(b,L.lHip),P(b,L.rHip)), ty=h1.y-(h1.y-s1.y)*target.hand/100;
         g.strokeStyle=GOOD; g.lineWidth=u*1.2; g.setLineDash([u*5,u*3]); g.beginPath(); g.moveTo(X(h1.x-U0*1.8),Y(ty)); g.lineTo(X(h1.x+U0*1.8),Y(ty)); g.stroke(); g.setLineDash([]);
       }
-      cur=true;
+      // 체크리스트의 이동량도 그림과 같은 기준(이 리플레이의 어드레스 프레임)으로 계산
+      const mv={};
+      if(n1){ mv.head=(n1.x-n0.x)/U0*100; mv.headD=Math.hypot(n1.x-n0.x,n1.y-n0.y)/U0*100; }
+      if(hip1){ mv.sway=(hip1.x-hip0.x)/U0*100; mv.hipFwd=(hip1.x-hip0.x)*(n0.x>=hip0.x?1:-1)/U0*100; }
+      cur=mv;
     }
     const esc=t=>String(t||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
     const iss=lastIssue?'<div class="iss'+(lastIssue.name==="좋아요"?" good":"")+'">이번 스윙: '+esc(lastIssue.name)+"<span>"+esc(lastIssue.line)+"</span></div>":"";
-    box.hidden=false; box.innerHTML=iss+guideHtml(k,f.v,f0.v,this.sw);
+    const vv=Object.assign({},f.v||{});
+    if(cur){ if(view==="face"){ vv.head=cur.head; vv.sway=cur.sway; } else { vv.hipFwd=cur.hipFwd; vv.headMv=cur.headD; } }
+    box.hidden=false; box.innerHTML=iss+guideHtml(k,vv,f0.v,this.sw);
   },
   paint(f,bmp){
     const c=$("rcv"), g=c.getContext("2d");
@@ -1245,7 +1261,7 @@ function guideHtml(k,v,v0,sw){
   const wt=(lab,lo,hi,txt)=>row(Tr+"발 체중(추정)",v.weight,"%",v.weight!=null?v.weight>=lo&&v.weight<=hi:null,txt);
   const rise=()=>{ const d=v.bend!=null&&v0.bend!=null?v0.bend-v.bend:null; row("일어섬",d!=null?Math.max(0,d):null,"°",d!=null?d<=cfg.spine:null,"허용 "+cfg.spine+"°"); };
   const hipF=()=>row("엉덩이 전진",v.hipFwd!=null?Math.max(0,v.hipFwd):null,"%",v.hipFwd!=null?v.hipFwd<=cfg.sway:null,"허용 "+cfg.sway+"%");
-  const headD=()=>{ const d=v.headFwd!=null||v.headUp!=null?Math.hypot(v.headFwd||0,v.headUp||0):null; row("머리 이동",d,"%",d!=null?d<=cfg.head:null,"허용 "+cfg.head+"%"); };
+  const headD=()=>{ const d=v.headMv!=null?v.headMv:v.headFwd!=null||v.headUp!=null?Math.hypot(v.headFwd||0,v.headUp||0):null; row("머리 이동",d,"%",d!=null?d<=cfg.head:null,"허용 "+cfg.head+"%"); };
   if(view==="face"){
     if(k==="어드레스"){ row("척추 기울기",v.spine!=null?Math.abs(v.spine):null,"°",null); wt("",40,60,"40~60%"); }
     if(k==="테이크백"){ head(); sway(); axis(); }
