@@ -19,6 +19,17 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.content.ContentValues;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import android.media.MediaRecorder;
+import android.net.Uri;
+import android.os.Environment;
+import android.provider.MediaStore;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -58,6 +69,8 @@ public class MainActivity extends Activity {
     private final StringBuilder log = new StringBuilder();
     private final List<Runnable> queue = new ArrayList<>();
     private boolean busy = false;
+    private MediaRecorder recorder;
+    private File recFile;
 
     // 측정 중 값
     private final List<Long> ts = new ArrayList<>();
@@ -181,12 +194,11 @@ public class MainActivity extends Activity {
         if (busy) return;
         if (!tv.isAvailable()) { say("화면 준비 중입니다. 잠시 뒤 다시 누르세요."); return; }
         queue.clear();
-        add("\n===== 측정 시작 (카메라 " + camId + ") =====");
+        add("\n===== 측정 시작 (카메라 " + camId + ") · 항목마다 3초 녹화 → 영상 파일의 프레임을 직접 셈 =====");
         queue.add(() -> test("고속 120fps · 자동 노출", true, 120, 0));
         queue.add(() -> test("고속 120fps · 셔터 1/1000초", true, 120, 1_000_000L));
         queue.add(() -> test("고속 240fps · 자동 노출", true, 240, 0));
         queue.add(() -> test("고속 240fps · 셔터 1/1000초", true, 240, 1_000_000L));
-        queue.add(() -> test("일반 최대 fps · 자동 노출", false, 0, 0));
         queue.add(() -> test("일반 최대 fps · 셔터 1/1000초", false, 0, 1_000_000L));
         busy = true; next();
     }
@@ -240,12 +252,30 @@ public class MainActivity extends Activity {
                     SurfaceTexture st = tv.getSurfaceTexture();
                     st.setDefaultBufferSize(size.getWidth(), size.getHeight());
                     Surface surf = new Surface(st);
+                    Surface recSurf = null;
+                    try {
+                        recFile = new File(getCacheDir(), "probe.mp4"); if (recFile.exists()) recFile.delete();
+                        int fpsRec = highSpeed ? range.getUpper() : (range != null ? range.getUpper() : 30);
+                        recorder = new MediaRecorder();
+                        recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+                        recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                        recorder.setOutputFile(recFile.getAbsolutePath());
+                        recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+                        recorder.setVideoSize(size.getWidth(), size.getHeight());
+                        recorder.setVideoFrameRate(fpsRec);
+                        recorder.setCaptureRate(fpsRec);
+                        recorder.setVideoEncodingBitRate(Math.min(80_000_000, 200_000 * fpsRec + 20_000_000));
+                        recorder.prepare();
+                        recSurf = recorder.getSurface();
+                    } catch (Exception re) { add("· " + name + ": 녹화기 준비 실패 " + re.getMessage()); recorder = null; }
+                    final Surface rs = recSurf;
+                    final List<Surface> outs = rs != null ? Arrays.asList(surf, rs) : Collections.singletonList(surf);
                     CameraCaptureSession.StateCallback scb = new CameraCaptureSession.StateCallback() {
-                        @Override public void onConfigured(CameraCaptureSession s) { session = s; startRepeating(name, highSpeed, surf, size, range, exposureNs, c); }
+                        @Override public void onConfigured(CameraCaptureSession s) { session = s; startRepeating(name, highSpeed, outs, size, range, exposureNs, c); }
                         @Override public void onConfigureFailed(CameraCaptureSession s) { add("· " + name + ": 세션 설정 실패(폰이 거부)"); closeCam(); next(); }
                     };
-                    if (highSpeed) d.createConstrainedHighSpeedCaptureSession(Collections.singletonList(surf), scb, bg);
-                    else d.createCaptureSession(Collections.singletonList(surf), scb, bg);
+                    if (highSpeed) d.createConstrainedHighSpeedCaptureSession(outs, scb, bg);
+                    else d.createCaptureSession(outs, scb, bg);
                 } catch (Exception e) { add("· " + name + ": 세션 오류 " + e.getMessage()); closeCam(); next(); }
             }
             @Override public void onDisconnected(CameraDevice d) { d.close(); }
@@ -253,10 +283,10 @@ public class MainActivity extends Activity {
         }, bg);
     }
 
-    private void startRepeating(String name, boolean highSpeed, Surface surf, Size size, Range<Integer> range, long exposureNs, CameraCharacteristics c) {
+    private void startRepeating(String name, boolean highSpeed, List<Surface> outs, Size size, Range<Integer> range, long exposureNs, CameraCharacteristics c) {
         try {
             CaptureRequest.Builder rb = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-            rb.addTarget(surf);
+            for (Surface o : outs) rb.addTarget(o);
             if (range != null) rb.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range);
             if (exposureNs > 0) {
                 Range<Integer> ir = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
@@ -277,15 +307,26 @@ public class MainActivity extends Activity {
                 CameraConstrainedHighSpeedCaptureSession hs = (CameraConstrainedHighSpeedCaptureSession) session;
                 hs.setRepeatingBurst(hs.createHighSpeedRequestList(rb.build()), cb, bg);
             } else session.setRepeatingRequest(rb.build(), cb, bg);
-            // 1초 워밍업 후 3초 측정
-            bg.postDelayed(() -> { ts.clear(); exp.clear(); iso.clear(); }, 1000);
-            bg.postDelayed(() -> report(name, size, range, exposureNs), 4000);
+            // 0.7초 워밍업 후 3초 녹화
+            bg.postDelayed(() -> { ts.clear(); exp.clear(); iso.clear(); try { if (recorder != null) recorder.start(); } catch (Exception re) { add("   녹화 시작 실패: " + re.getMessage()); recorder = null; } }, 700);
+            bg.postDelayed(() -> report(name, size, range, exposureNs), 3700);
         } catch (Exception e) { add("· " + name + ": 시작 실패 " + e.getMessage()); closeCam(); next(); }
     }
 
     private void report(String name, Size size, Range<Integer> range, long exposureNs) {
         List<Long> t = new ArrayList<>(ts); List<Long> e = new ArrayList<>(exp); List<Integer> i = new ArrayList<>(iso);
-        closeCam();
+        String fileTxt = "녹화 없음";
+        if (recorder != null) {
+            try { recorder.stop(); } catch (Exception re) { fileTxt = "녹화 저장 실패"; }
+            try { recorder.release(); } catch (Exception ignore) {}
+            recorder = null;
+            closeCam();
+            if (recFile != null && recFile.exists() && recFile.length() > 0) {
+                fileTxt = countFrames(recFile);
+                String saved = saveToGallery(recFile, name);
+                fileTxt += saved;
+            }
+        } else closeCam();
         Collections.sort(t);
         String fpsTxt = "측정 안 됨";
         if (t.size() > 10) {
@@ -296,11 +337,50 @@ public class MainActivity extends Activity {
         if (!e.isEmpty()) { Collections.sort(e); long med = e.get(e.size() / 2); expTxt = "1/" + Math.round(1e9 / med) + "초"; }
         String isoTxt = i.isEmpty() ? "?" : String.valueOf(i.get(i.size() / 2));
         add("· " + name + "\n   요청: " + size + (range != null ? " " + range : "") + (exposureNs > 0 ? " · 셔터 1/" + Math.round(1e9 / exposureNs) : "")
-                + "\n   결과: " + fpsTxt + " · 실제 셔터 " + expTxt + " · ISO " + isoTxt);
+                + "\n   영상 파일: " + fileTxt
+                + "\n   (참고) 카메라 보고: " + fpsTxt + " · 실제 셔터 " + expTxt + " · ISO " + isoTxt);
         next();
     }
 
+    /** 녹화된 영상의 프레임 수와 시각으로 실제 fps 계산 */
+    private String countFrames(File f) {
+        MediaExtractor ex = new MediaExtractor();
+        try {
+            ex.setDataSource(f.getAbsolutePath());
+            int vt = -1; MediaFormat fmt = null;
+            for (int k = 0; k < ex.getTrackCount(); k++) { MediaFormat mf = ex.getTrackFormat(k); String mime = mf.getString(MediaFormat.KEY_MIME); if (mime != null && mime.startsWith("video/")) { vt = k; fmt = mf; break; } }
+            if (vt < 0) return "영상 트랙 없음";
+            ex.selectTrack(vt);
+            long first = -1, last = -1; int n = 0;
+            while (true) { long st = ex.getSampleTime(); if (st < 0) break; if (first < 0) first = st; last = st; n++; ex.advance(); }
+            String meta = "";
+            if (fmt.containsKey(MediaFormat.KEY_FRAME_RATE)) meta = " · 파일 표기 " + fmt.getInteger(MediaFormat.KEY_FRAME_RATE) + "fps";
+            if (n < 2 || last <= first) return n + "장";
+            double fps = (n - 1) * 1e6 / (last - first);
+            return String.format("%d장 / %.2f초 = %.1f fps", n, (last - first) / 1e6, fps) + meta + " · " + (f.length() / 1024) + "KB";
+        } catch (Exception e) { return "프레임 세기 실패: " + e.getMessage(); }
+        finally { ex.release(); }
+    }
+
+    /** 갤러리(동영상/SwingProbe)에 저장 → 클럽이 또렷한지 눈으로 확인 */
+    private String saveToGallery(File f, String name) {
+        try {
+            ContentValues cv = new ContentValues();
+            String fn = "probe_" + name.replaceAll("[^0-9a-zA-Z가-힣]+", "_") + "_" + System.currentTimeMillis() + ".mp4";
+            cv.put(MediaStore.Video.Media.DISPLAY_NAME, fn);
+            cv.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+            cv.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/SwingProbe");
+            Uri u = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
+            if (u == null) return "";
+            try (InputStream in = new FileInputStream(f); OutputStream o = getContentResolver().openOutputStream(u)) {
+                byte[] buf = new byte[65536]; int r; while ((r = in.read(buf)) > 0) o.write(buf, 0, r);
+            }
+            return " · 갤러리 저장됨";
+        } catch (Exception e) { return " · 갤러리 저장 실패"; }
+    }
+
     private void closeCam() {
+        try { if (recorder != null) { recorder.release(); recorder = null; } } catch (Exception ignore) {}
         try { if (session != null) session.close(); } catch (Exception ignore) {}
         try { if (device != null) device.close(); } catch (Exception ignore) {}
         session = null; device = null;
@@ -322,6 +402,6 @@ public class MainActivity extends Activity {
         Button b = new Button(this); b.setText(s); b.setTextSize(17); b.setGravity(Gravity.CENTER); return b;
     }
 
-    @Override protected void onPause() { super.onPause(); if (busy) { queue.clear(); busy = false; closeCam(); add("(앱이 가려져 측정을 멈췄습니다. 다시 '전체 측정'을 누르세요)"); } }
+    @Override protected void onPause() { super.onPause(); if (busy) { try { if (recorder != null) { recorder.release(); recorder = null; } } catch (Exception ignore) {} queue.clear(); busy = false; closeCam(); add("(앱이 가려져 측정을 멈췄습니다. 다시 '전체 측정'을 누르세요)"); } }
     @Override protected void onDestroy() { super.onDestroy(); closeCam(); bgThread.quitSafely(); }
 }
