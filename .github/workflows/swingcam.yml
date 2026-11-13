@@ -1,0 +1,39 @@
+name: swingcam APK
+on:
+  push:
+    paths: ["android-cam/**", ".github/workflows/swingcam.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.9" }
+      - name: Build debug APK
+        working-directory: android-cam
+        run: gradle --no-daemon assembleDebug 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
+      - name: Publish build log on failure
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: swingcam-log
+          name: swingcam build log
+          files: android-cam/build.log
+      - name: Rename + version
+        run: |
+          cp android-cam/app/build/outputs/apk/debug/app-debug.apk swingcam.apk
+          echo $((100 + GITHUB_RUN_NUMBER)) > version.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: swingcam
+          name: 스윙 카메라 앱
+          body: "스윙 카메라 (cam.html 대체 앱, 테스트용). swingcam.apk 를 폰에서 받아 설치."
+          files: |
+            swingcam.apk
+            version.txt
+          make_latest: true

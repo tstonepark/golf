@@ -1,0 +1,17 @@
+plugins { id 'com.android.application' }
+// 고정 테스트 서명 키(측정 앱과 같은 키) → 앱 안 업데이트로 덮어쓰기 설치 가능
+def runNo = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger()
+android {
+  namespace 'kr.adn.swingcam'
+  compileSdk 34
+  defaultConfig { applicationId 'kr.adn.swingcam'; minSdk 31; targetSdk 34; versionCode 100 + runNo; versionName "0.1." + runNo
+    ndk { abiFilters 'arm64-v8a' } }
+  signingConfigs { fixed { storeFile file('../../android-probe/signing/probe.jks'); storePassword 'golfprobe'; keyAlias 'probe'; keyPassword 'golfprobe' } }
+  buildTypes { debug { signingConfig signingConfigs.fixed } }
+  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+  packagingOptions { jniLibs { useLegacyPackaging true } }
+}
+dependencies {
+  implementation 'io.github.webrtc-sdk:android:137.7151.05'
+  implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}
