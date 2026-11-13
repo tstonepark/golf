@@ -334,7 +334,7 @@ function tuneSender(){
   setTimeout(()=>{ try{
     const s=call&&call.peerConnection&&call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==="video");
     if(!s) return; const p=s.getParameters(); if(!p.encodings||!p.encodings.length) p.encodings=[{}];
-    p.encodings[0].maxBitrate=12000000; p.encodings[0].maxFramerate=FPS; p.degradationPreference="maintain-framerate";
+    p.encodings[0].maxBitrate=40000000; p.encodings[0].maxFramerate=FPS; p.degradationPreference="maintain-framerate";
     s.setParameters(p).catch(()=>{});
   }catch(e){} },1500);
 }
