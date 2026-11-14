@@ -189,7 +189,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v52</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v53</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1319,11 +1319,14 @@ const replay={
     g.fillStyle="#000"; g.fillRect(0,0,c.width,c.height);
     if(bmp){ g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(bmp,ox,oy,dw,dh); g.restore(); }
     else { g.fillStyle="#0c1512"; g.fillRect(ox,oy,dw,dh); }
-    this.planeDraw(g,X,Y,iw,ih,u);
-    this.guide(g,f,X,Y,iw,ih,u);
-    this.trace(g,X,Y,iw,ih,u);
+    // 겹쳐 그리는 것들은 하나가 실패해도 나머지는 그려지게 따로 감쌈. 실패 내용은 화면과 진단 정보에 남김
+    const safe=(name,fn)=>{ try{ fn(); }catch(e){ const m=name+" 오류: "+(e&&e.message||e); if(this.lastErr!==m){ this.lastErr=m; dlog("리플레이 "+m); }
+      const box=$("rguide"), t=m.replace(/[&<>]/g,""); box.hidden=false; if(!box.textContent.includes(t)) box.insertAdjacentHTML("beforeend",'<div class="r bad">⚠ '+t+'</div>'); } };
+    safe("플레인",()=>this.planeDraw(g,X,Y,iw,ih,u));
+    safe("가이드",()=>this.guide(g,f,X,Y,iw,ih,u));
+    safe("궤적",()=>this.trace(g,X,Y,iw,ih,u));
     let hand=null;
-    if(f.lm){
+    if(f.lm) safe("뼈대",()=>{
       g.lineWidth=u*0.9; g.strokeStyle="rgba(234,242,236,.75)"; g.lineCap="round";
       for(const [a,b] of BONES){ if(f.lm[a].v<0.5||f.lm[b].v<0.5) continue;
         g.beginPath(); g.moveTo(X(f.lm[a].x*iw),Y(f.lm[a].y*ih)); g.lineTo(X(f.lm[b].x*iw),Y(f.lm[b].y*ih)); g.stroke(); }
@@ -1338,9 +1341,9 @@ const replay={
       if(ok(L.nose)){ g.fillStyle="#ffd23f"; g.beginPath(); g.arc(X(P(L.nose).x),Y(P(L.nose).y),u*2.4,0,Math.PI*2); g.fill(); }
       const wr=[L.lWr,L.rWr].filter(i=>f.lm[i].v>0.3).map(P);
       if(wr.length){ const w=wr.length>1?mid(wr[0],wr[1]):wr[0]; g.strokeStyle="#58d68d"; g.lineWidth=u*1.4; g.beginPath(); g.arc(X(w.x),Y(w.y),u*4.5,0,Math.PI*2); g.stroke(); }
-    }
+    });
     const t0=rec.last[0].t;
-    $("rinfo").textContent=(this.i+1)+"/"+rec.last.length+" · "+((f.t-t0)/1000).toFixed(2)+"s"+(hand!=null?" · 손 높이 "+Math.round(hand)+"%":"");
+    $("rinfo").textContent=(this.i+1)+"/"+rec.last.length+" · "+((f.t-t0)/1000).toFixed(2)+"s"+(hand!=null?" · 손 높이 "+Math.round(hand)+"%":"")+" · 뼈대 "+(rec.lmCount!=null?rec.lmCount:"?")+"/"+rec.last.length;
     $("rslider").value=this.i;
     if(this.ph) $("rphases").querySelectorAll("button").forEach(b=>b.classList.toggle("on",this.ph[b.dataset.k]===this.i));
   }
