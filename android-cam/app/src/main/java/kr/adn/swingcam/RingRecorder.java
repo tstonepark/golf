@@ -25,7 +25,7 @@ public class RingRecorder {
     private Thread drain;
     private volatile boolean run;
     private final ArrayDeque<Sample> ring = new ArrayDeque<>();
-    private static final long KEEP_US = 9_000_000L;
+    private static final long KEEP_US = 16_000_000L;   // 최근 16초 보관(수동 저장 때 걸어가는 시간까지 고려)
     public int fps;
 
     public Surface start(int w, int h, int fps) throws Exception {

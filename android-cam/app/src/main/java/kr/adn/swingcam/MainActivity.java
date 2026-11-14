@@ -182,7 +182,7 @@ public class MainActivity extends Activity {
         root.addView(row);
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
         speedBtn = btn(""); speedBtn.setOnClickListener(v -> { hs = !hs; prefs.edit().putBoolean("hs", hs).apply(); updSpeedBtn(); restartSession(); });
-        saveBtn = btn("지금 원본 저장 (최근 6초)"); saveBtn.setOnClickListener(v -> saveClip("수동"));
+        saveBtn = btn("지금 원본 저장 (최근 12초)"); saveBtn.setOnClickListener(v -> saveClip("수동", 12_000_000L));
         row2.addView(speedBtn, new LinearLayout.LayoutParams(0, 170, 1));
         row2.addView(saveBtn, new LinearLayout.LayoutParams(0, 170, 1));
         root.addView(row2);
@@ -303,13 +303,13 @@ public class MainActivity extends Activity {
     }
 
     /** 최근 6초 폰 원본을 갤러리(동영상/SwingCam)에 저장하고 아이패드에 알림 */
-    private void saveClip(String why) {
+    private void saveClip(String why, long preUs) {
         if (rr == null) { toast("원본 녹화기가 없습니다"); return; }
         final RingRecorder r = rr; final int f = r.fps;
         saveBtn.setEnabled(false); saveBtn.setText("저장 중…");
         new Thread(() -> {
             File tmp = new File(getCacheDir(), "clip.mp4"); if (tmp.exists()) tmp.delete();
-            int n = r.save(6_000_000L, tmp, sensorOrientation);
+            int n = r.save(preUs, tmp, sensorOrientation);
             String name = null;
             if (n > 0) {
                 String ts = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.KOREA).format(new java.util.Date());
@@ -327,7 +327,7 @@ public class MainActivity extends Activity {
             }
             final String nm = name; final int nn = n;
             ui.post(() -> {
-                saveBtn.setEnabled(true); saveBtn.setText("지금 원본 저장 (최근 6초)");
+                saveBtn.setEnabled(true); saveBtn.setText("지금 원본 저장 (최근 12초)");
                 if (nm != null) { toast("원본 저장: 동영상/SwingCam/" + nm + " (" + nn + "장)");
                     try { sendData(new JSONObject().put("t", "saved").put("name", nm).put("fps", f).put("frames", nn).put("why", why)); } catch (Exception ignore) {} }
                 else toast("원본 저장 실패");
@@ -499,7 +499,7 @@ public class MainActivity extends Activity {
                     @Override public void onMessage(DataChannel.Buffer buf) {
                         try { byte[] b = new byte[buf.data.remaining()]; buf.data.get(b); JSONObject m = new JSONObject(new String(b, StandardCharsets.UTF_8));
                             if ("lens".equals(m.optString("t"))) toast("렌즈 바꾸기는 아직 지원하지 않습니다");
-                            else if ("swing".equals(m.optString("t"))) ui.postDelayed(() -> saveClip("스윙"), 1200);   // 피니시 뒤 조금 더 담고 저장
+                            else if ("swing".equals(m.optString("t"))) ui.postDelayed(() -> saveClip("스윙", 7_000_000L), 1200);   // 피니시 뒤 조금 더 담고 저장
                         } catch (Exception ignore) {}
                     }
                 });
