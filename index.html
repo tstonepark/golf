@@ -163,7 +163,8 @@ button:disabled{opacity:.4}
       <button id="rzoom">확대 켬</button>
       <button id="rseqbtn" class="main">5장 비교</button>
       <button id="rsave">스윙 파일 저장</button>
-      <button id="rvideo">영상 저장</button>
+      <button id="rraw">원본 영상 저장</button>
+      <button id="rvideo">분석 영상 저장</button>
       <button id="rclose" style="margin-left:auto">닫기</button>
       <div id="rphases" style="flex:1 1 100%;display:flex;gap:6px"></div>
       <div id="rhint">다음 스윙을 시작하면 자동으로 닫힙니다. 화면을 누르면 멈춤/재생.</div>
@@ -204,7 +205,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v55</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v56</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1503,6 +1504,33 @@ async function saveVideo(){
   b.textContent="저장됨 · 파일 앱 확인"; setTimeout(()=>{ b.textContent="영상 저장"; b.disabled=false; },3000);
 }
 $("rvideo").onclick=saveVideo;
+// 원본 영상: 선 없이 저장된 프레임 그대로, 원래 크기·원래 시간 간격으로 mp4 만들기
+async function saveRaw(){
+  const b=$("rraw"), fr=rec.last; if(!fr) return;
+  const oc=document.createElement("canvas"); oc.width=fr[fr.length-1].w||fr[0].w; oc.height=fr[fr.length-1].h||fr[0].h;
+  if(!oc.captureStream||typeof MediaRecorder==="undefined"){ b.textContent="이 브라우저는 영상 저장 불가"; return; }
+  const mime=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"].find(m=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m))||"";
+  const g=oc.getContext("2d"); b.disabled=true; b.textContent="원본 준비 중…";
+  // 이미지 미리 풀기(녹화 중 끊김 방지)
+  const imgs=[];
+  for(const f of fr){ if(!f.blob&&!f.url){ imgs.push(null); continue; }
+    if(f.img){ imgs.push(f.img); continue; }
+    const im=new Image(), src=f.url||URL.createObjectURL(f.blob); await new Promise(r=>{ im.onload=r; im.onerror=r; im.src=src; }); f.img=im; imgs.push(im); }
+  g.fillStyle="#000"; g.fillRect(0,0,oc.width,oc.height); if(imgs[0]) g.drawImage(imgs[0],0,0,oc.width,oc.height);
+  const st=oc.captureStream(60), mr=new MediaRecorder(st,mime?{mimeType:mime,videoBitsPerSecond:20000000}:{}), parts=[];
+  mr.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+  const done=new Promise(r=>mr.onstop=r); b.textContent="원본 녹화 중…"; mr.start(200);
+  const t0=fr[0].t, start=performance.now();
+  for(let i=0;i<fr.length;i++){
+    const wait=(fr[i].t-t0)-(performance.now()-start); if(wait>0) await new Promise(r=>setTimeout(r,wait));
+    if(imgs[i]) g.drawImage(imgs[i],0,0,oc.width,oc.height);
+  }
+  await new Promise(r=>setTimeout(r,200)); mr.stop(); await done;
+  const type=mr.mimeType||mime||"video/webm", ext=type.includes("mp4")?"mp4":"webm";
+  saveBlob(new Blob(parts,{type}),"swing-raw-"+stamp()+"."+ext);
+  b.textContent="저장됨 · 파일 앱 확인"; setTimeout(()=>{ b.textContent="원본 영상 저장"; b.disabled=false; },3000);
+}
+$("rraw").onclick=saveRaw;
 $("rpick").onclick=()=>{ if(replay.pickStep===2) replay.finishPick(); else if(replay.pickStep) { replay.pickStep=0; $("rpick").textContent="공·스틱 찍기"; $("rpick").classList.remove("main"); replay.draw(); } else replay.startPick(); };
 
 // ---------- 단계별 가이드 ----------
