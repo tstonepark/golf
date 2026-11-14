@@ -86,6 +86,7 @@ button.off{color:var(--dim)}
 #result .t{color:var(--dim);font-size:11px}
 #replay{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 #rcv{flex:1;min-height:0;width:100%;display:block}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:30;background:rgba(12,21,18,.92);color:#58d68d;font:700 18px var(--txt);padding:12px 18px;border-radius:10px;border:1px solid var(--line);max-width:90vw;text-align:center}
 #rseq{flex:1;min-height:0;overflow-y:auto;background:#000;padding:8px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-content:start}
 @media (orientation:portrait){ #rseq{grid-template-columns:repeat(3,minmax(0,1fr))} }
 #rseq .cell{background:var(--panel);border-radius:8px;display:block;cursor:pointer;align-self:start}
@@ -205,7 +206,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v56</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v57</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -519,6 +520,7 @@ function onRemoteData(d){
   if(!d) return;
   remoteLast=Date.now();
   if(d.t==="tilt"&&isFinite(d.pitch)&&isFinite(d.roll)){ tilt.pitch=+d.pitch; tilt.roll=+d.roll; tilt.ok=true; }
+  else if(d.t==="saved"){ dlog("폰 원본 저장: "+String(d.name||"").slice(0,60)+" · "+(d.fps|0)+"fps · "+(d.frames|0)+"장"); toast("폰에 원본 저장됨 ("+(d.fps|0)+"fps) · 갤러리 동영상/SwingCam"); }
   else if(d.t==="info"){ camFps=isFinite(d.fps)?+d.fps:null; remoteZoom=isFinite(d.zoom)?+d.zoom:1; $("flip").textContent="폰 렌즈";
     dlog("폰 카메라: "+String(d.label||"").slice(0,40)+" "+(d.w|0)+"x"+(d.h|0)+" "+(camFps?Math.round(camFps)+"fps":"")); }
 }
@@ -1141,6 +1143,9 @@ const rec={
       for(let j=Math.max(0,i-4);j<Math.min(fr.length,i+5);j++){ const d=Math.abs(fr[j].t-fr[i].t); if(fr[j].lm&&!fr[j].near&&d<bd){ bd=d; best=fr[j]; } }
       if(best){ fr[i].lm=best.lm; fr[i].v=best.v; fr[i].near=true; } }
     this.last=fr; this.buf=this.buf.filter(f=>f.t<from||f.t>to); replay.sw=session[session.length-1]||null; replay.pv=null;
+    // 폰 앱(스윙 카메라)에게 '방금 스윙 끝' 알림 → 폰이 최근 몇 초를 원본으로 저장 (cam.html은 무시함)
+    try{ if(rconn&&rconn.open) rconn.send({t:"swing"}); }catch(e){}
+    try{ if(cam2.conn&&cam2.conn.open) cam2.conn.send({t:"swing"}); }catch(e){}
     try{ replay.marks(); const L0=swingLog[swingLog.length-1], ph=replay.ph;
       if(L0&&ph&&Date.now()-L0.ts<5000){
         const T=i=>fr[i].t, hs=fr.map(f=>replay.handAt(f));
@@ -1435,6 +1440,8 @@ rmodeTxt();
 $("rmode").onclick=()=>{ cfg.rmode=((cfg.rmode|0)+1)%3; store("cfg",cfg); rmodeTxt(); replay.draw(); };
 $("rzoom").onclick=()=>{ cfg.rzoom=cfg.rzoom===false; store("cfg",cfg); rmodeTxt(); replay.draw(); };
 $("rseqbtn").onclick=()=>replay.seqOn(!replay.seq5);
+function toast(m){ let t=$("toast"); if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
+  t.textContent=m; t.hidden=false; clearTimeout(toast.h); toast.h=setTimeout(()=>{ t.hidden=true; },4000); }
 // ---------- 저장 / 불러오기 ----------
 function saveBlob(blob,name){
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;

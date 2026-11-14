@@ -16,6 +16,13 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession;
+import android.content.ContentValues;
+import android.provider.MediaStore;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
@@ -84,6 +91,10 @@ public class MainActivity extends Activity {
     private static final String PFX = "adn-golfcoach-";
     private static final String REL = "https://github.com/tstonepark/golf/releases/download/swingcam/";
     private static final int W = 1920, H = 1080, FPS = 60;
+    private boolean hs;                       // 고속(240fps) 모드
+    private RingRecorder rr; private Surface recSurface;
+    private int fwd = 0;                      // 고속일 때 아이패드로는 4장 중 1장만(60fps)
+    private Button speedBtn, saveBtn;
     private static final long[] SHUTTERS = {0, 500, 1000, 2000};   // 0 = 자동, 나머지 1/n 초
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -126,6 +137,7 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("swingcam", MODE_PRIVATE);
         shutterIdx = prefs.getInt("shutter", 2);
+        hs = prefs.getBoolean("hs", false);
         code = prefs.getString("code", null);
         if (code == null) newCode();
         buildUi();
@@ -168,13 +180,20 @@ public class MainActivity extends Activity {
         row.addView(shutterBtn, new LinearLayout.LayoutParams(0, 170, 1));
         row.addView(nb, new LinearLayout.LayoutParams(0, 170, 1));
         root.addView(row);
+        LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
+        speedBtn = btn(""); speedBtn.setOnClickListener(v -> { hs = !hs; prefs.edit().putBoolean("hs", hs).apply(); updSpeedBtn(); restartSession(); });
+        saveBtn = btn("지금 원본 저장 (최근 6초)"); saveBtn.setOnClickListener(v -> saveClip("수동"));
+        row2.addView(speedBtn, new LinearLayout.LayoutParams(0, 170, 1));
+        row2.addView(saveBtn, new LinearLayout.LayoutParams(0, 170, 1));
+        root.addView(row2);
         updBtn = btn("업데이트 확인 중…"); updBtn.setEnabled(false);
         root.addView(updBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140));
         setContentView(root);
         codeTv.setText(code);
-        updShutterBtn();
+        updShutterBtn(); updSpeedBtn();
     }
 
+    private void updSpeedBtn() { speedBtn.setText(hs ? "원본: 240fps 고속" : "원본: 60fps"); }
     private void updShutterBtn() {
         long s = SHUTTERS[shutterIdx];
         shutterBtn.setText(s == 0 ? "셔터: 자동" : "셔터: 1/" + s + "초");
@@ -210,11 +229,12 @@ public class MainActivity extends Activity {
         sth.setTextureSize(W, H);
         vsrc.getCapturerObserver().onCapturerStarted(true);
         sth.startListening(frame -> {
+            frames++;
+            if (hs && (fwd++ % 4) != 0) return;     // 240fps → 아이패드에는 60fps만
             VideoFrame.Buffer nb = SwingFrameUtil.undoRotation(frame.getBuffer(), -sensorOrientation);
             VideoFrame f = new VideoFrame(nb, sensorOrientation, frame.getTimestampNs());
             vsrc.getCapturerObserver().onFrameCaptured(f);
             f.release();
-            frames++;
             long now = System.currentTimeMillis();
             if (now - fpsT > 1000) { camFps = frames * 1000.0 / Math.max(1, now - fpsT); frames = 0; fpsT = now; }
         });
@@ -256,12 +276,63 @@ public class MainActivity extends Activity {
         try {
             SurfaceTexture st = sth.getSurfaceTexture();
             st.setDefaultBufferSize(W, H);
-            camSurface = new Surface(st);
-            cam.createCaptureSession(Collections.singletonList(camSurface), new CameraCaptureSession.StateCallback() {
+            if (camSurface == null) camSurface = new Surface(st);
+            List<Surface> outs = new ArrayList<>(); outs.add(camSurface);
+            try { rr = new RingRecorder(); recSurface = rr.start(W, H, hs ? 240 : FPS); outs.add(recSurface); }
+            catch (Exception re) { rr = null; recSurface = null; toast("원본 녹화기 준비 실패: " + re.getMessage()); }
+            CameraCaptureSession.StateCallback cb = new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(CameraCaptureSession s) { camSession = s; applyCapture(); }
-                @Override public void onConfigureFailed(CameraCaptureSession s) { status("카메라 설정 실패", true); }
-            }, camH);
+                @Override public void onConfigureFailed(CameraCaptureSession s) {
+                    status(hs ? "240fps 고속 설정 실패 · 60fps로 돌아갑니다" : "카메라 설정 실패", true);
+                    if (hs) ui.post(() -> { hs = false; prefs.edit().putBoolean("hs", false).apply(); updSpeedBtn(); restartSession(); });
+                }
+            };
+            if (hs) cam.createConstrainedHighSpeedCaptureSession(outs, cb, camH);
+            else cam.createCaptureSession(outs, cb, camH);
         } catch (Exception e) { status("카메라 설정 오류: " + e.getMessage(), true); }
+    }
+
+    private void restartSession() {
+        if (cam == null || camH == null) return;
+        camH.post(() -> {
+            try { if (camSession != null) { camSession.stopRepeating(); camSession.close(); } } catch (Exception ignore) {}
+            camSession = null;
+            if (rr != null) { rr.stop(); rr = null; }
+            createSession();
+        });
+    }
+
+    /** 최근 6초 폰 원본을 갤러리(동영상/SwingCam)에 저장하고 아이패드에 알림 */
+    private void saveClip(String why) {
+        if (rr == null) { toast("원본 녹화기가 없습니다"); return; }
+        final RingRecorder r = rr; final int f = r.fps;
+        saveBtn.setEnabled(false); saveBtn.setText("저장 중…");
+        new Thread(() -> {
+            File tmp = new File(getCacheDir(), "clip.mp4"); if (tmp.exists()) tmp.delete();
+            int n = r.save(6_000_000L, tmp, sensorOrientation);
+            String name = null;
+            if (n > 0) {
+                String ts = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.KOREA).format(new java.util.Date());
+                name = "swing_" + ts + "_" + f + "fps.mp4";
+                try {
+                    ContentValues cv = new ContentValues();
+                    cv.put(MediaStore.Video.Media.DISPLAY_NAME, name);
+                    cv.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                    cv.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/SwingCam");
+                    Uri u = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
+                    try (InputStream in = new FileInputStream(tmp); OutputStream o = getContentResolver().openOutputStream(u)) {
+                        byte[] buf = new byte[1 << 16]; int k; while ((k = in.read(buf)) > 0) o.write(buf, 0, k);
+                    }
+                } catch (Exception e) { name = null; }
+            }
+            final String nm = name; final int nn = n;
+            ui.post(() -> {
+                saveBtn.setEnabled(true); saveBtn.setText("지금 원본 저장 (최근 6초)");
+                if (nm != null) { toast("원본 저장: 동영상/SwingCam/" + nm + " (" + nn + "장)");
+                    try { sendData(new JSONObject().put("t", "saved").put("name", nm).put("fps", f).put("frames", nn).put("why", why)); } catch (Exception ignore) {} }
+                else toast("원본 저장 실패");
+            });
+        }).start();
     }
 
     /** 셔터 적용. 수동일 때 ISO는 '자동일 때의 밝기'를 유지하도록 계산(셔터가 짧아진 만큼 ISO를 올림, 최대치 제한) */
@@ -271,7 +342,9 @@ public class MainActivity extends Activity {
             try {
                 CaptureRequest.Builder rb = cam.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
                 rb.addTarget(camSurface);
-                rb.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(FPS, FPS));
+                if (recSurface != null) rb.addTarget(recSurface);
+                int tf = hs ? 240 : FPS;
+                rb.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(tf, tf));
                 rb.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
                 long s = SHUTTERS[shutterIdx];
                 if (s > 0) {
@@ -283,13 +356,17 @@ public class MainActivity extends Activity {
                     rb.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exp);
                     rb.set(CaptureRequest.SENSOR_SENSITIVITY, iso);
                 }
-                camSession.setRepeatingRequest(rb.build(), new CameraCaptureSession.CaptureCallback() {
+                CameraCaptureSession.CaptureCallback ccb = new CameraCaptureSession.CaptureCallback() {
                     @Override public void onCaptureCompleted(CameraCaptureSession ss, CaptureRequest r, TotalCaptureResult res) {
                         Long e = res.get(CaptureResult.SENSOR_EXPOSURE_TIME); Integer i = res.get(CaptureResult.SENSOR_SENSITIVITY);
                         if (e != null) curExp = e; if (i != null) curIso = i;
                         if (SHUTTERS[shutterIdx] == 0 && e != null && i != null) { autoExp = e; autoIso = i; }
                     }
-                }, camH);
+                };
+                if (hs && camSession instanceof CameraConstrainedHighSpeedCaptureSession) {
+                    CameraConstrainedHighSpeedCaptureSession h = (CameraConstrainedHighSpeedCaptureSession) camSession;
+                    h.setRepeatingBurst(h.createHighSpeedRequestList(rb.build()), ccb, camH);
+                } else camSession.setRepeatingRequest(rb.build(), ccb, camH);
             } catch (Exception e) { status("셔터 적용 실패: " + e.getMessage(), true); }
         });
     }
@@ -323,7 +400,7 @@ public class MainActivity extends Activity {
                 levelTv.setText((pitch > 0 ? "위로 " : "아래로 ") + Math.abs(Math.round(pitch)) + "° · 좌우 " + Math.round(Math.abs(roll)) + "° " + (bad ? "기울어짐" : "수평"));
                 levelTv.setTextColor(bad ? Color.rgb(255, 138, 101) : Color.rgb(88, 214, 141));
             }
-            infoTv.setText(String.format("%dx%d · %.0ffps · 셔터 %s · ISO %d", W, H, camFps,
+            infoTv.setText(String.format("%dx%d · 카메라 %.0ffps · 셔터 %s · ISO %d", W, H, camFps,
                     curExp > 0 ? "1/" + Math.round(1e9 / curExp) : "?", curIso));
             if (dc != null && dc.state() == DataChannel.State.OPEN) {
                 try {
@@ -339,8 +416,8 @@ public class MainActivity extends Activity {
     private void sendInfo() {
         try {
             long s = SHUTTERS[shutterIdx];
-            sendData(new JSONObject().put("t", "info").put("label", "스윙 카메라 앱 · 셔터 " + (s == 0 ? "자동" : "1/" + s))
-                    .put("w", H).put("h", W).put("fps", camFps > 1 ? camFps : FPS).put("zoom", 1).put("zx", 0.5).put("zy", 0.5).put("hw", false));
+            sendData(new JSONObject().put("t", "info").put("label", "스윙 카메라 앱 · 셔터 " + (s == 0 ? "자동" : "1/" + s) + " · 원본 " + (hs ? 240 : FPS) + "fps")
+                    .put("w", H).put("h", W).put("fps", camFps > 1 ? (hs ? camFps / 4 : camFps) : FPS).put("zoom", 1).put("zx", 0.5).put("zy", 0.5).put("hw", false));
         } catch (Exception ignore) {}
     }
 
@@ -422,6 +499,7 @@ public class MainActivity extends Activity {
                     @Override public void onMessage(DataChannel.Buffer buf) {
                         try { byte[] b = new byte[buf.data.remaining()]; buf.data.get(b); JSONObject m = new JSONObject(new String(b, StandardCharsets.UTF_8));
                             if ("lens".equals(m.optString("t"))) toast("렌즈 바꾸기는 아직 지원하지 않습니다");
+                            else if ("swing".equals(m.optString("t"))) ui.postDelayed(() -> saveClip("스윙"), 1200);   // 피니시 뒤 조금 더 담고 저장
                         } catch (Exception ignore) {}
                     }
                 });
@@ -576,6 +654,7 @@ public class MainActivity extends Activity {
         if (pj != null) pj.close();
         try { if (camSession != null) camSession.close(); } catch (Exception ignore) {}
         try { if (cam != null) cam.close(); } catch (Exception ignore) {}
+        if (rr != null) rr.stop();
         try { if (sth != null) { sth.stopListening(); sth.dispose(); } } catch (Exception ignore) {}
         try { preview.release(); } catch (Exception ignore) {}
         if (camThread != null) camThread.quitSafely();
