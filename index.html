@@ -86,6 +86,14 @@ button.off{color:var(--dim)}
 #result .t{color:var(--dim);font-size:11px}
 #replay{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 #rcv{flex:1;min-height:0;width:100%;display:block}
+#rseq{flex:1;min-height:0;overflow-y:auto;background:#000;padding:8px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-content:start}
+@media (orientation:portrait){ #rseq{grid-template-columns:repeat(3,minmax(0,1fr))} }
+#rseq .cell{background:var(--panel);border-radius:8px;display:block;cursor:pointer;align-self:start}
+#rseq canvas{width:100%;height:auto;aspect-ratio:3/5;display:block;background:#000;border-radius:8px 8px 0 0}
+#rseq .k{font:800 clamp(18px,3vmin,28px) var(--txt);color:var(--axis);padding:6px 10px 0}
+#rseq .rows{padding:2px 10px 10px} #rseq .r{font-size:clamp(14px,2.2vmin,20px);line-height:1.35;white-space:normal;color:#eaf2ec}
+#rseq .ok{color:#58d68d} #rseq .bad{color:#ff8a65} #rseq .na{color:#8fa39a}
+#rseq .seqhead{grid-column:1/-1;font:800 clamp(20px,3.4vmin,32px) var(--txt);color:var(--warn);padding:4px 4px 0}
 #rbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--panel);border-top:1px solid var(--line)}
 #rbar button{min-height:44px;padding:6px 12px;font-size:16px}
 #rguide{flex:none;max-height:32%;overflow-y:auto;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:grid;grid-template-columns:1fr;column-gap:24px}
@@ -141,6 +149,7 @@ button:disabled{opacity:.4}
   <div id="level" hidden></div>
   <div id="replay" hidden>
     <div id="rguide" hidden></div>
+    <div id="rseq" hidden></div>
     <canvas id="rcv"></canvas>
     <div id="rbar">
       <div id="rinfo"></div>
@@ -150,6 +159,9 @@ button:disabled{opacity:.4}
       <button id="rnext">1칸 ▶</button>
       <button id="rspeed">0.25×</button>
       <button id="rpick">공·스틱 찍기</button>
+      <button id="rmode">표시: 깔끔</button>
+      <button id="rzoom">확대 켬</button>
+      <button id="rseqbtn" class="main">5장 비교</button>
       <button id="rclose" style="margin-left:auto">닫기</button>
       <div id="rphases" style="flex:1 1 100%;display:flex;gap:6px"></div>
       <div id="rhint">다음 스윙을 시작하면 자동으로 닫힙니다. 화면을 누르면 멈춤/재생.</div>
@@ -189,7 +201,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v53</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v54</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1142,8 +1154,18 @@ const replay={
   open:false, i:0, timer:null, speeds:[0.25,0.5,1], si:0,
   show(){
     if(!rec.last) return; this.open=true; $("replay").hidden=false;  this.i=0;
-    $("rslider").max=rec.last.length-1; this.marks(); this.draw(); this.play(true);
+    $("rslider").max=rec.last.length-1; this.marks(); this.crop=this.calcCrop(); this.seqOn(false); this.draw(); this.play(true);
     clearTimeout(this.autoT); this.autoT=setTimeout(()=>this.close(),40000);
+  },
+  // 골퍼 주변만 확대: 전체 프레임의 관절 범위 + 클럽 여유
+  calcCrop(){
+    let x0=1,y0=1,x1=0,y1=0,n=0;
+    for(const f of rec.last){ if(!f.lm||f.near) continue; for(const p of f.lm){ if(p.v<0.3) continue; x0=Math.min(x0,p.x); y0=Math.min(y0,p.y); x1=Math.max(x1,p.x); y1=Math.max(y1,p.y); n++; } }
+    if(n<10||x1<=x0||y1<=y0) return null;
+    const h=y1-y0, aspect=(rec.last[0].h||1)/(rec.last[0].w||1);   // 화면 비율 보정용(정규화 좌표)
+    const padX=h*0.55/aspect, top=h*0.35, bot=h*0.08;
+    const c={x0:Math.max(0,x0-padX), y0:Math.max(0,y0-top), x1:Math.min(1,x1+padX), y1:Math.min(1,y1+bot)};
+    return (c.x1-c.x0)*(c.y1-c.y0)>0.85 ? null : c;       // 이미 꽉 차 있으면 확대 안 함
   },
   close(){ this.open=false; this.play(false); clearTimeout(this.autoT); $("replay").hidden=true; },
   play(on){
@@ -1197,7 +1219,7 @@ const replay={
   pickAt(ev){
     const m=this.map, c=$("rcv"), r=c.getBoundingClientRect(); if(!m) return;
     let px=(ev.clientX-r.left)*m.d, py=(ev.clientY-r.top)*m.d;
-    let x=(m.mirror? (m.ox+m.dw-px) : (px-m.ox))/m.sc/m.iw, y=(py-m.oy)/m.sc/m.ih;
+    let x=((m.mirror? (m.ox+m.dw-px) : (px-m.ox))/m.sc+(m.cx||0))/m.iw, y=((py-m.oy)/m.sc+(m.cy||0))/m.ih;
     if(x<0||x>1||y<0||y>1) return;
     const b=$("rpick");
     if(this.pickStep===1){ this.pickTmp.ball={x,y}; this.pickStep=2; b.textContent="② 스틱 한쪽 끝 (없으면 이 버튼)"; }
@@ -1249,6 +1271,49 @@ const replay={
     line(G.B,G.S,1.5,"rgba(255,255,255,.85)");   // 어깨 플레인
     line(G.B,G.H,2.4,"rgba(127,214,255,.9)");    // 샤프트(손) 플레인
     dot(P.ball,"#fff");
+  },
+  // 이 리플레이의 어드레스 프레임 기준 이동량 (가이드·5장 비교 공통)
+  frameVV(f){
+    const f0=rec.last[0], a=f0.lm, b=f.lm, iw=f.w||1, ih=f.h||1, vv=Object.assign({},f.v||{});
+    const ok=(lm,i)=>lm&&lm[i]&&lm[i].v>0.5, P=(lm,i)=>({x:lm[i].x*iw,y:lm[i].y*ih});
+    if(!(a&&[L.lSh,L.rSh,L.lHip,L.rHip,L.nose].every(i=>ok(a,i)))) return vv;
+    const sh0=mid(P(a,L.lSh),P(a,L.rSh)), hip0=mid(P(a,L.lHip),P(a,L.rHip)), n0=P(a,L.nose);
+    const U0= view==="face" ? Math.hypot(P(a,L.lSh).x-P(a,L.rSh).x,P(a,L.lSh).y-P(a,L.rSh).y) : Math.hypot(sh0.x-hip0.x,sh0.y-hip0.y)*0.75;
+    if(U0<1) return vv;
+    vv._frame=true;
+    if(b&&ok(b,L.nose)){ const n1=P(b,L.nose); if(view==="face") vv.head=(n1.x-n0.x)/U0*100; else vv.headMv=Math.hypot(n1.x-n0.x,n1.y-n0.y)/U0*100; }
+    if(b&&ok(b,L.lHip)&&ok(b,L.rHip)){ const h1=mid(P(b,L.lHip),P(b,L.rHip)); if(view==="face") vv.sway=(h1.x-hip0.x)/U0*100; else vv.hipFwd=(h1.x-hip0.x)*(n0.x>=hip0.x?1:-1)/U0*100; }
+    return vv;
+  },
+  // ---------- 5장 비교: 어드레스·테이크백·탑·임팩트·피니시를 나란히 + 단계별 수치 ----------
+  seqOn(on){
+    this.seq5=on; $("rseq").hidden=!on; $("rcv").style.display=on?"none":""; $("rguide").style.display=on?"none":"";
+    $("rseqbtn").textContent=on?"영상으로":"5장 비교";
+    if(on){ this.play(false); this.buildSeq(); }
+  },
+  buildSeq(){
+    const box=$("rseq"), ph=this.ph; if(!ph) return;
+    const esc=t=>String(t||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    box.innerHTML=(lastIssue?'<div class="seqhead">이번 스윙: '+esc(lastIssue.name)+'</div>':"")+Object.entries(ph).map(([k,i])=>
+      '<div class="cell" data-i="'+i+'"><canvas></canvas><div class="k">'+k+'</div>'+
+      (rec.lmCount?guideHtml(k,this.frameVV(rec.last[i]),rec.last[0].v,this.sw).replace(/<div class="h">.*?<\/div><div class="p">.*?<\/div>/,""):'<div class="rows"><div class="r na">수치 없음</div></div>')+'</div>').join("");
+    box.querySelectorAll(".cell").forEach(cell=>{
+      const i=+cell.dataset.i, f=rec.last[i], cv=cell.querySelector("canvas");
+      cell.onclick=()=>{ this.seqOn(false); this.seek(i); };
+      const drawCell=bmp=>{
+        const r=cv.getBoundingClientRect(), d=Math.min(window.devicePixelRatio||1,2), wpx=r.width||cell.clientWidth||200; cv.width=Math.round(wpx*d); cv.height=Math.round(wpx*5/3*d);
+        const g=cv.getContext("2d"), iw=bmp?(bmp.naturalWidth||bmp.width):f.w, ih=bmp?(bmp.naturalHeight||bmp.height):f.h;
+        const cr=this.crop||{x0:0,y0:0,x1:1,y1:1}, cx=cr.x0*iw, cy=cr.y0*ih, cw=(cr.x1-cr.x0)*iw, chh=(cr.y1-cr.y0)*ih;
+        const sc=Math.min(cv.width/cw,cv.height/chh), dw=cw*sc, dh=chh*sc, ox=(cv.width-dw)/2, oy=(cv.height-dh)/2, mirror=facing==="user";
+        const X=x=>mirror?ox+dw-(x-cx)*sc:ox+(x-cx)*sc, Y=y=>oy+(y-cy)*sc, u=Math.max(1.5,cv.width/160);
+        g.fillStyle="#000"; g.fillRect(0,0,cv.width,cv.height);
+        if(bmp){ g.save(); if(mirror){ g.translate(cv.width,0); g.scale(-1,1); } g.drawImage(bmp,cx,cy,cw,chh,ox,oy,dw,dh); g.restore(); }
+        const keep=this.i; this.i=i; try{ this.trace(g,X,Y,iw,ih,u); }catch(e){} this.i=keep;
+        if(f.lm){ g.strokeStyle="rgba(234,242,236,.8)"; g.lineWidth=u*0.8; for(const [a,b] of BONES){ if(f.lm[a].v<0.5||f.lm[b].v<0.5) continue; g.beginPath(); g.moveTo(X(f.lm[a].x*iw),Y(f.lm[a].y*ih)); g.lineTo(X(f.lm[b].x*iw),Y(f.lm[b].y*ih)); g.stroke(); } }
+      };
+      const go=bmp=>requestAnimationFrame(()=>drawCell(bmp));   // 칸 크기가 정해진 뒤 그림
+      if(f.blob||f.url){ const im=new Image(), src=f.url||URL.createObjectURL(f.blob); im.onload=()=>{ go(im); if(!f.url) setTimeout(()=>URL.revokeObjectURL(src),1000); }; im.src=src; } else go(null);
+    });
   },
   // 손 궤적: 처음~지금 프레임까지 손(손목) 위치를 이어 그림. 백스윙=노랑, 다운스윙=빨강, 임팩트 이후=하늘
   // 손을 못 잡은 프레임은 건너뛰고 잇지 않음(없는 점을 지어내지 않음)
@@ -1305,36 +1370,38 @@ const replay={
     }
     const esc=t=>String(t||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
     const iss=lastIssue?'<div class="iss'+(lastIssue.name==="좋아요"?" good":"")+'">이번 스윙: '+esc(lastIssue.name)+"<span>"+esc(lastIssue.line)+"</span></div>":"";
-    const vv=Object.assign({},f.v||{});
-    if(cur){ vv._frame=true; if(view==="face"){ vv.head=cur.head; vv.sway=cur.sway; } else { vv.hipFwd=cur.hipFwd; vv.headMv=cur.headD; } }
-    box.hidden=false; box.innerHTML=iss+guideHtml(k,vv,f0.v,this.sw);
+    box.hidden=false; box.innerHTML=iss+guideHtml(k,this.frameVV(f),f0.v,this.sw);
   },
   paint(f,bmp){
     const c=$("rcv"), g=c.getContext("2d");
     const r=c.getBoundingClientRect(), d=Math.min(window.devicePixelRatio||1,2);
     if(c.width!==Math.round(r.width*d)||c.height!==Math.round(r.height*d)){ c.width=Math.round(r.width*d); c.height=Math.round(r.height*d); }
-    const iw=bmp?(bmp.naturalWidth||bmp.width):f.w, ih=bmp?(bmp.naturalHeight||bmp.height):f.h, sc=Math.min(c.width/iw,c.height/ih), dw=iw*sc, dh=ih*sc, ox=(c.width-dw)/2, oy=(c.height-dh)/2;
-    const mirror=facing==="user", X=x=>mirror?ox+dw-x*sc:ox+x*sc, Y=y=>oy+y*sc, u=Math.max(2,c.width/220);
-    this.map={ox,oy,sc,dw,iw,ih,mirror,d};
+    const iw=bmp?(bmp.naturalWidth||bmp.width):f.w, ih=bmp?(bmp.naturalHeight||bmp.height):f.h;
+    const cr=(cfg.rzoom!==false&&this.crop)?this.crop:{x0:0,y0:0,x1:1,y1:1}, cx=cr.x0*iw, cy=cr.y0*ih, cw=(cr.x1-cr.x0)*iw, ch=(cr.y1-cr.y0)*ih;
+    const sc=Math.min(c.width/cw,c.height/ch), dw=cw*sc, dh=ch*sc, ox=(c.width-dw)/2, oy=(c.height-dh)/2;
+    const mirror=facing==="user", X=x=>mirror?ox+dw-(x-cx)*sc:ox+(x-cx)*sc, Y=y=>oy+(y-cy)*sc, u=Math.max(2,c.width/220);
+    this.map={ox,oy,sc,dw,iw,ih,mirror,d,cx,cy};
     g.fillStyle="#000"; g.fillRect(0,0,c.width,c.height);
-    if(bmp){ g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(bmp,ox,oy,dw,dh); g.restore(); }
+    if(bmp){ g.save(); if(mirror){ g.translate(c.width,0); g.scale(-1,1); } g.drawImage(bmp,cx,cy,cw,ch,ox,oy,dw,dh); g.restore(); }
     else { g.fillStyle="#0c1512"; g.fillRect(ox,oy,dw,dh); }
+    g.save(); g.beginPath(); g.rect(ox,oy,dw,dh); g.clip();
     // 겹쳐 그리는 것들은 하나가 실패해도 나머지는 그려지게 따로 감쌈. 실패 내용은 화면과 진단 정보에 남김
     const safe=(name,fn)=>{ try{ fn(); }catch(e){ const m=name+" 오류: "+(e&&e.message||e); if(this.lastErr!==m){ this.lastErr=m; dlog("리플레이 "+m); }
       const box=$("rguide"), t=m.replace(/[&<>]/g,""); box.hidden=false; if(!box.textContent.includes(t)) box.insertAdjacentHTML("beforeend",'<div class="r bad">⚠ '+t+'</div>'); } };
     safe("플레인",()=>this.planeDraw(g,X,Y,iw,ih,u));
-    safe("가이드",()=>this.guide(g,f,X,Y,iw,ih,u));
+    const mode=cfg.rmode|0, NOOP={setLineDash(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},arc(){},fill(){}};
+    safe("가이드",()=>this.guide(mode>=2?g:NOOP,f,X,Y,iw,ih,u));
     safe("궤적",()=>this.trace(g,X,Y,iw,ih,u));
     let hand=null;
     if(f.lm) safe("뼈대",()=>{
       g.lineWidth=u*0.9; g.strokeStyle="rgba(234,242,236,.75)"; g.lineCap="round";
-      for(const [a,b] of BONES){ if(f.lm[a].v<0.5||f.lm[b].v<0.5) continue;
+      if(mode>=1) for(const [a,b] of BONES){ if(f.lm[a].v<0.5||f.lm[b].v<0.5) continue;
         g.beginPath(); g.moveTo(X(f.lm[a].x*iw),Y(f.lm[a].y*ih)); g.lineTo(X(f.lm[b].x*iw),Y(f.lm[b].y*ih)); g.stroke(); }
       const P=i=>({x:f.lm[i].x*iw,y:f.lm[i].y*ih}), ok=i=>f.lm[i].v>0.5;
       if(ok(L.lSh)&&ok(L.rSh)&&ok(L.lHip)&&ok(L.rHip)){
         const sh=mid(P(L.lSh),P(L.rSh)), hip=mid(P(L.lHip),P(L.rHip)), dx=sh.x-hip.x, dy=sh.y-hip.y;
-        g.strokeStyle="#ffd23f"; g.lineWidth=u*1.8;
-        g.beginPath(); g.moveTo(X(hip.x-dx*0.15),Y(hip.y-dy*0.15)); g.lineTo(X(sh.x+dx*0.25),Y(sh.y+dy*0.25)); g.stroke();
+        if(mode>=1){ g.strokeStyle="#ffd23f"; g.lineWidth=u*1.8;
+        g.beginPath(); g.moveTo(X(hip.x-dx*0.15),Y(hip.y-dy*0.15)); g.lineTo(X(sh.x+dx*0.25),Y(sh.y+dy*0.25)); g.stroke(); }
         const ws=[L.lWr,L.rWr].filter(i=>f.lm[i].v>0.3);
         if(ws.length&&hip.y-sh.y>1){ const wy=ws.reduce((a,i)=>a+P(i).y,0)/ws.length; hand=(hip.y-wy)/(hip.y-sh.y)*100; }
       }
@@ -1342,6 +1409,7 @@ const replay={
       const wr=[L.lWr,L.rWr].filter(i=>f.lm[i].v>0.3).map(P);
       if(wr.length){ const w=wr.length>1?mid(wr[0],wr[1]):wr[0]; g.strokeStyle="#58d68d"; g.lineWidth=u*1.4; g.beginPath(); g.arc(X(w.x),Y(w.y),u*4.5,0,Math.PI*2); g.stroke(); }
     });
+    g.restore();
     const t0=rec.last[0].t;
     $("rinfo").textContent=(this.i+1)+"/"+rec.last.length+" · "+((f.t-t0)/1000).toFixed(2)+"s"+(hand!=null?" · 손 높이 "+Math.round(hand)+"%":"")+" · 뼈대 "+(rec.lmCount!=null?rec.lmCount:"?")+"/"+rec.last.length;
     $("rslider").value=this.i;
@@ -1357,6 +1425,12 @@ $("rnext").onclick=()=>replay.seek(replay.i+1);
 $("rspeed").onclick=()=>{ replay.si=(replay.si+1)%replay.speeds.length; $("rspeed").textContent=replay.speeds[replay.si]+"×"; };
 $("rslider").oninput=e=>replay.seek(Number(e.target.value));
 $("rcv").onclick=e=>{ if(replay.pickStep) replay.pickAt(e); else replay.play(!replay.timer); };
+const RMODES=["깔끔","뼈대","전체"];
+const rmodeTxt=()=>{ $("rmode").textContent="표시: "+RMODES[cfg.rmode|0]; $("rzoom").textContent=cfg.rzoom===false?"확대 끔":"확대 켬"; };
+rmodeTxt();
+$("rmode").onclick=()=>{ cfg.rmode=((cfg.rmode|0)+1)%3; store("cfg",cfg); rmodeTxt(); replay.draw(); };
+$("rzoom").onclick=()=>{ cfg.rzoom=cfg.rzoom===false; store("cfg",cfg); rmodeTxt(); replay.draw(); };
+$("rseqbtn").onclick=()=>replay.seqOn(!replay.seq5);
 $("rpick").onclick=()=>{ if(replay.pickStep===2) replay.finishPick(); else if(replay.pickStep) { replay.pickStep=0; $("rpick").textContent="공·스틱 찍기"; $("rpick").classList.remove("main"); replay.draw(); } else replay.startPick(); };
 
 // ---------- 단계별 가이드 ----------
