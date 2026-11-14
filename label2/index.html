@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>클럽헤드 고치기</title>
+<style>
+:root{--bg:#0c1512;--panel:#16231e;--ink:#eaf2ec;--dim:#8fa39a;--acc:#ffd23f;--ok:#58d68d;--warn:#ff8a65;--line:#2a3b34}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,"Apple SD Gothic Neo",sans-serif;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+#app{display:flex;flex-direction:column;height:100%;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+#top{padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+#top h1{margin:0;font-size:22px;color:var(--acc)}
+#top p{margin:4px 0 0;font-size:17px;line-height:1.4;color:var(--ink)}
+#bar{height:8px;background:#22332c;border-radius:4px;margin-top:8px;overflow:hidden}#bar i{display:block;height:100%;background:var(--ok);width:0}
+#stage{flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;background:#000}
+#wrap{position:relative;height:100%;max-width:100%}
+#img{height:100%;max-width:100%;object-fit:contain;display:block;filter:brightness(1.9) contrast(1.15)}
+.mk{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;pointer-events:none}
+#cur{border:3px solid var(--acc);box-shadow:0 0 0 2px #000}
+#cur.pred{border-style:dashed;border-width:4px}
+button:disabled{opacity:.35}
+#prevmk{border:2px dashed rgba(127,214,255,.8)}
+#info{position:absolute;left:10px;top:10px;font:700 18px ui-monospace,monospace;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:6px}
+#btns{display:flex;flex-wrap:wrap;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
+button{font-size:20px;padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:#22332c;color:var(--ink);flex:1 1 auto;min-width:120px}
+button.main{background:var(--acc);color:#111;font-weight:700;border-color:var(--acc)}
+button.warn{color:var(--warn)}
+#done{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:24px;text-align:center}
+#done[hidden]{display:none}
+#done h2{color:var(--ok);font-size:28px;margin:0}#done p{font-size:19px;max-width:28em;line-height:1.5}
+</style></head><body>
+<div id="app">
+  <div id="top">
+    <h1>클럽헤드 고치기 (2차)</h1>
+    <p><b>노란 원</b>이 모델이 찾은 헤드입니다. 맞으면 <b>"맞음"</b>, 틀리면 <b>진짜 헤드를 누르세요</b>. 원이 없으면 헤드를 누르고, 안 보이면 <b>"안 보임"</b>.</p>
+    <div id="bar"><i></i></div>
+  </div>
+  <div id="stage"><div id="wrap"><img id="img" alt="스윙 프레임"><div id="prevmk" class="mk" hidden></div><div id="cur" class="mk" hidden></div></div><div id="info"></div></div>
+  <div id="btns">
+    <button id="ok" class="main">맞음 ▶</button>
+    <button id="back">◀ 이전</button>
+    <button id="none" class="warn">안 보임</button>
+    <button id="skip">애매함(건너뜀)</button>
+    <button id="save">결과 저장</button>
+  </div>
+</div>
+<div id="done" hidden><h2>다 했습니다!</h2><p>"결과 저장"을 눌러 파일을 저장한 뒤 채팅에 보내 주세요. 저장된 파일은 파일 앱 → 다운로드에 있습니다.</p><button class="main" id="save2">결과 저장</button><button id="close">계속 보기</button></div>
+<script>
+const KEY="clublabel2";
+const $=id=>document.getElementById(id);
+let items=[], lab={}, i=0;
+try{ lab=JSON.parse(localStorage.getItem(KEY)||"{}"); }catch(e){ lab={}; }
+const save=()=>{ try{ localStorage.setItem(KEY,JSON.stringify(lab)); }catch(e){} };
+const id=k=>items[k].file;
+function crect(){ const im=$("img"), b=im.getBoundingClientRect(), nw=im.naturalWidth||540, nh=im.naturalHeight||960, s=Math.min(b.width/nw,b.height/nh), w=nw*s, h=nh*s;
+  return {left:b.left+(b.width-w)/2, top:b.top+(b.height-h)/2, width:w, height:h, ox:(b.width-w)/2, oy:(b.height-h)/2}; }
+function place(el,p){ if(!p){ el.hidden=true; return; } const c=crect(); el.hidden=false; el.style.left=(c.ox+p.x*c.width)+"px"; el.style.top=(c.oy+p.y*c.height)+"px"; }
+function show(){
+  i=Math.max(0,Math.min(items.length-1,i));
+  $("img").src="f/"+items[i].file;
+  const n=Object.keys(lab).length; $("bar").firstElementChild.style.width=(n/items.length*100)+"%";
+  const L=lab[id(i)];
+  $("info").textContent=(i+1)+" / "+items.length+(L===undefined?"":L===null?" · 안 보임":L.src==="ok"?" · 맞음":" · 고침");
+  $("ok").disabled=!items[i].pred;
+}
+$("img").onload=()=>{ const L=lab[id(i)], c=$("cur");
+  if(L&&L.x!=null){ c.classList.remove("pred"); place(c,L); }
+  else if(L===undefined&&items[i].pred){ c.classList.add("pred"); place(c,items[i].pred); }
+  else place(c,null);
+  let p=null; for(let j=i-1;j>=0&&j>=i-3;j--){ const q=lab[id(j)]; if(q&&q.x!=null&&items[j].clip===items[i].clip){ p=q; break; } } place($("prevmk"),p); };
+function next(){ if(i<items.length-1){ i++; show(); } else { $("done").hidden=false; } }
+$("img").addEventListener("pointerdown",e=>{
+  const r=crect(); const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height;
+  if(x<0||x>1||y<0||y>1) return;
+  lab[id(i)]={x:+x.toFixed(4),y:+y.toFixed(4),src:"tap"}; save(); const c=$("cur"); c.classList.remove("pred"); place(c,lab[id(i)]);
+  setTimeout(next,220);
+});
+$("ok").onclick=()=>{ const p=items[i].pred; if(!p) return; lab[id(i)]={x:p.x,y:p.y,src:"ok"}; save(); next(); };
+$("none").onclick=()=>{ lab[id(i)]=null; save(); next(); };
+$("skip").onclick=()=>{ lab[id(i)]="skip"; save(); next(); };
+$("back").onclick=()=>{ i--; show(); };
+function download(){
+  const out={set:"label2",w:540,h:960,frames:items.map((it,k)=>({clip:it.clip,n:it.n,file:it.file,pred:it.pred,label:lab[it.file]===undefined?"todo":lab[it.file]}))};
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(out)],{type:"application/json"}));
+  a.download="clubhead-labels2.json"; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },3000);
+}
+$("save").onclick=download; $("save2").onclick=download; $("close").onclick=()=>{ $("done").hidden=true; };
+fetch("items.json").then(r=>r.json()).then(a=>{ items=a;
+  const k=items.findIndex(it=>lab[it.file]===undefined); i=k<0?0:k; show(); });
+</script>
+</body></html>
