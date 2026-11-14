@@ -162,6 +162,8 @@ button:disabled{opacity:.4}
       <button id="rmode">표시: 깔끔</button>
       <button id="rzoom">확대 켬</button>
       <button id="rseqbtn" class="main">5장 비교</button>
+      <button id="rsave">스윙 파일 저장</button>
+      <button id="rvideo">영상 저장</button>
       <button id="rclose" style="margin-left:auto">닫기</button>
       <div id="rphases" style="flex:1 1 100%;display:flex;gap:6px"></div>
       <div id="rhint">다음 스윙을 시작하면 자동으로 닫힙니다. 화면을 누르면 멈춤/재생.</div>
@@ -172,6 +174,7 @@ button:disabled{opacity:.4}
     <h2>오늘 요약</h2><div id="sumbody"></div>
     <div id="logbox"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button id="loadswing" class="main">저장한 스윙 불러오기</button><input id="swingfile" type="file" accept=".json,application/json" hidden>
       <button id="logcsv">수치 기록 CSV 저장</button><button id="logclear">기록 지우기</button><button id="sumclose">닫기</button>
     </div>
   </div>
@@ -201,7 +204,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v54</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v55</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -1431,6 +1434,75 @@ rmodeTxt();
 $("rmode").onclick=()=>{ cfg.rmode=((cfg.rmode|0)+1)%3; store("cfg",cfg); rmodeTxt(); replay.draw(); };
 $("rzoom").onclick=()=>{ cfg.rzoom=cfg.rzoom===false; store("cfg",cfg); rmodeTxt(); replay.draw(); };
 $("rseqbtn").onclick=()=>replay.seqOn(!replay.seq5);
+// ---------- 저장 / 불러오기 ----------
+function saveBlob(blob,name){
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },3000);
+}
+function stamp(){ const d=new Date(),z=n=>String(n).padStart(2,"0"); return d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+"-"+z(d.getHours())+z(d.getMinutes())+z(d.getSeconds()); }
+const blobToURL=b=>new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(b); });
+// 스윙 파일: 프레임 이미지 + 관절 + 측정값 + 당시 설정 → 다시 불러와 같은 스윙으로 확인 (새로 칠 필요 없음)
+async function saveSwing(){
+  if(!rec.last) return; const b=$("rsave"); b.textContent="저장 준비 중…"; b.disabled=true;
+  try{
+    const frames=[];
+    for(const f of rec.last){
+      let img=f.url||null; if(!img&&f.blob) img=await blobToURL(f.blob);
+      frames.push({t:Math.round(f.t*10)/10,w:f.w,h:f.h,lm:f.near?null:f.lm,v:f.near?null:f.v,img});
+    }
+    const data={app:"swing-coach",ver:1,saved:new Date().toISOString(),view,facing,plane:cfg.plane||null,
+      issue:lastIssue,sw:replay.sw||null,target:target||null,cfg:{head:cfg.head,sway:cfg.sway,spine:cfg.spine,knee:cfg.knee,handTol:cfg.handTol,turnTol:cfg.turnTol},frames};
+    saveBlob(new Blob([JSON.stringify(data)],{type:"application/json"}),"swing-"+stamp()+".json");
+    b.textContent="저장됨 · 파일 앱 확인";
+  }catch(e){ dlog("스윙 저장 실패: "+e.message); b.textContent="저장 실패"; }
+  setTimeout(()=>{ b.textContent="스윙 파일 저장"; b.disabled=false; },3000);
+}
+async function loadSwing(file){
+  try{
+    const d=JSON.parse(await file.text());
+    if(d.app!=="swing-coach"||!Array.isArray(d.frames)||d.frames.length<3) throw new Error("스윙 파일이 아닙니다");
+    if(d.view&&d.view!==view) setView(d.view);
+    if(d.facing) facing=d.facing;
+    if(d.plane) cfg.plane=d.plane;
+    lastIssue=d.issue||null;
+    rec.last=d.frames.map(f=>({url:f.img||null,blob:null,w:f.w,h:f.h,lm:f.lm||null,v:f.v||null,t:f.t}));
+    // 관절 없는 프레임은 가까운 프레임으로 채움(저장 때와 같은 방식)
+    const fr=rec.last; rec.lmCount=fr.filter(f=>f.lm).length;
+    for(let i=0;i<fr.length;i++){ if(fr[i].lm) continue; let best=null,bd=61;
+      for(let j=Math.max(0,i-4);j<Math.min(fr.length,i+5);j++){ const dd=Math.abs(fr[j].t-fr[i].t); if(fr[j].lm&&!fr[j].near&&dd<bd){ bd=dd; best=fr[j]; } }
+      if(best){ fr[i].lm=best.lm; fr[i].v=best.v; fr[i].near=true; } }
+    replay.sw=d.sw||null; replay.pv=null;
+    dlog("스윙 파일 불러옴: "+file.name+" · 프레임 "+fr.length+" · 뼈대 "+rec.lmCount);
+    $("summary").hidden=true; replay.show(); clearTimeout(replay.autoT);
+  }catch(e){ alert("불러오기 실패: "+e.message); }
+}
+$("rsave").onclick=saveSwing;
+$("loadswing").onclick=()=>$("swingfile").click();
+$("swingfile").onchange=e=>{ const f=e.target.files[0]; if(f) loadSwing(f); e.target.value=""; };
+// 영상 저장: 리플레이 화면(궤적·선 포함)을 실제 속도로 재생하며 녹화 → mp4(사파리) / webm
+async function saveVideo(){
+  const c=$("rcv"), b=$("rvideo");
+  if(!c.captureStream||typeof MediaRecorder==="undefined"){ b.textContent="이 브라우저는 영상 저장 불가"; return; }
+  const mime=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"].find(m=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m))||"";
+  if(replay.seq5) replay.seqOn(false);
+  replay.play(false); clearTimeout(replay.autoT);
+  const st=c.captureStream(30), mr=new MediaRecorder(st,mime?{mimeType:mime,videoBitsPerSecond:12000000}:{}), parts=[];
+  mr.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+  const done=new Promise(r=>mr.onstop=r);
+  b.disabled=true; b.textContent="녹화 중…"; mr.start(200);
+  const fr=rec.last, t0=fr[0].t, start=performance.now();
+  // 1배속으로 재생(이미지가 그려질 시간을 줌)
+  for(let i=0;i<fr.length;i++){
+    replay.seek(i);
+    const wait=(fr[i].t-t0)-(performance.now()-start);
+    await new Promise(r=>setTimeout(r,Math.max(16,wait)));
+  }
+  await new Promise(r=>setTimeout(r,300)); mr.stop(); await done;
+  const type=mr.mimeType||mime||"video/webm", ext=type.includes("mp4")?"mp4":"webm";
+  saveBlob(new Blob(parts,{type}),"swing-"+stamp()+"."+ext);
+  b.textContent="저장됨 · 파일 앱 확인"; setTimeout(()=>{ b.textContent="영상 저장"; b.disabled=false; },3000);
+}
+$("rvideo").onclick=saveVideo;
 $("rpick").onclick=()=>{ if(replay.pickStep===2) replay.finishPick(); else if(replay.pickStep) { replay.pickStep=0; $("rpick").textContent="공·스틱 찍기"; $("rpick").classList.remove("main"); replay.draw(); } else replay.startPick(); };
 
 // ---------- 단계별 가이드 ----------
