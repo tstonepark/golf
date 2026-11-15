@@ -52,11 +52,11 @@ export function phases(tr,fps,hands){
   let imp=k; for(let j=k-K;j<Math.min(n,k+2*K);j++) if(tr[j]&&(!tr[imp]||tr[j][1]>tr[imp][1])) imp=j;
   const sp=new Array(n).fill(0);
   for(let i=2;i<n-2;i++){ let ok=true,v=[]; for(let q=i-2;q<i+2;q++){ if(!tr[q]||!tr[q+1]){ok=false;break;} v.push(hyp(tr[q+1][0]-tr[q][0],tr[q+1][1]-tr[q][1])); } if(ok){ v.sort((a,b)=>a-b); sp[i]=v[1]; } }
-  let top=imp-Math.round(0.3*fps), lo=Math.max(0,imp-Math.round(0.5*fps)), hi=imp-Math.round(0.08*fps), m=1e9;
+  let top=imp-Math.round(0.3*fps), lo=Math.max(0,imp-Math.round(0.5*fps)), hi=imp-Math.round(0.18*fps), m=1e9;
   for(let i=lo;i<hi;i++) if(tr[i]&&sp[i]>0&&sp[i]<m){m=sp[i];top=i;}
   if(hands){ // top = hands at their highest point before impact (same definition as the live coach)
-    let hy=1e9,ht=-1; for(let i=Math.max(0,imp-Math.round(2.0*fps));i<imp-Math.round(0.1*fps);i++){ const h=hands[i]; if(h&&h[1]<hy){hy=h[1];ht=i;} }
-    if(ht>=0){ top=ht; for(let i=ht;i<imp-Math.round(0.1*fps);i++){ const h=hands[i]; if(h&&h[1]<=hy+8) top=i; } } }   // end of the top hold
+    let hy=1e9,ht=-1; for(let i=Math.max(0,imp-Math.round(2.0*fps));i<imp-Math.round(0.18*fps);i++){ const h=hands[i]; if(h&&h[1]<hy){hy=h[1];ht=i;} }
+    if(ht>=0){ top=ht; for(let i=ht;i<imp-Math.round(0.18*fps);i++){ const h=hands[i]; if(h&&h[1]<=hy+8) top=i; } } }   // end of the top hold
   // address: last still stretch before the takeaway; takeaway = first frame >10px from the address position going toward the top
   const a0=Math.max(0,imp-Math.round(2.8*fps)); let addr=null;
   for(let i=a0;i<top;i++){ if(tr[i]){ addr=i; break; } }

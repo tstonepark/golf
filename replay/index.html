@@ -6,18 +6,17 @@
 :root{--bg:#0b1310;--panel:#14201b;--ink:#eef4ef;--dim:#9db0a6;--line:#273830;--back:#ffd23f;--down:#ff4d4d;--after:#59c8ff;--shaft:#5be37a;--shoulder:#ff9f2e;--ok:#5be37a;--warn:#ffb648;--bad:#ff6b6b}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,"Apple SD Gothic Neo",sans-serif}
-#app{display:grid;grid-template-columns:minmax(0,1fr) 400px;height:100%;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
-@media (orientation:portrait){#app{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}}
+#app{display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr);height:100%;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
 #left{display:flex;flex-direction:column;min-height:0;min-width:0}
 #stage{position:relative;flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
-video{max-width:100%;max-height:100%;display:block}
-#ov{position:absolute;inset:0;pointer-events:none}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+#ov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #ctl{display:flex;flex-wrap:wrap;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
 button{font-size:21px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:#20302a;color:var(--ink);flex:1 1 auto;min-width:96px}
 button.main{background:var(--back);color:#111;font-weight:800;border-color:var(--back)}
 button.on{outline:3px solid var(--back)}
 #right{overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:16px}
-@media (orientation:portrait){#right{border-left:0;border-top:1px solid var(--line);max-height:42vh}}
+@media (orientation:portrait){#right{border-left:0;border-top:1px solid var(--line)}}
 h2{margin:6px 0 10px;font-size:24px}
 .card{background:#0f1915;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
 .card h3{margin:0 0 6px;font-size:18px;color:var(--dim);font-weight:600}
@@ -34,6 +33,17 @@ h2{margin:6px 0 10px;font-size:24px}
 #pt{font-size:22px;margin-top:10px}
 input[type=file]{display:none}
 [hidden]{display:none!important}
+@media (orientation:portrait){
+  html,body{height:auto}
+  #app{display:block;height:auto}
+  #left{display:block}
+  #stage{height:74vh}
+  #ctl{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px}
+  #ctl button{font-size:17px;padding:13px 2px;min-width:0;border-radius:10px}
+  #ctl #play{grid-column:span 2}
+  #phase{font-size:20px;padding:4px 10px;left:8px;top:8px}
+  #legend{font-size:12px;right:6px;bottom:6px;padding:4px 6px}
+}
 </style></head><body>
 <div id="app">
   <div id="left">
@@ -94,7 +104,7 @@ const tick=()=>new Promise(r=>setTimeout(r,0));
 
 // ---------- analysis ----------
 async function analyze(file){
-  $("pick").disabled=true;
+  $("pick").disabled=true; const T0=performance.now();
   prog("모델 준비 중…",0.02);
   const [ep,pd]=await Promise.all([loadHead("../"),loadPose()]);
   prog("영상 읽는 중…",0.05);
@@ -121,7 +131,7 @@ async function analyze(file){
   ph=A.phases(tr,fps,pose.map(p=>p&&p.hands))||ph;
   const cv=A.curves(tr,ph,fps), pl=A.plane(tr,ph,pose,fps), bd=A.body(pose,ph);
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
-  R={fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+  R={secs:(performance.now()-T0)/1000,name:file.name||'',fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -151,12 +161,15 @@ function results(){
       <div class="dimt">카메라 1대 추정값이라 오차가 큽니다(특히 뒤에서 찍을 때). 참고용.</div></div>`;
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
-    <div class="row"><span>영상</span><b>${Math.round(fps)}fps</b></div><div class="dimt">엔진 ${R.ep}/${R.pd}</div></div>`;
+    <div class="row"><span>영상</span><b>${Math.round(fps)}fps</b></div><div class="row"><span>분석 시간</span><b>${Math.round(R.secs||0)}초</b></div>
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd}</div></div>`;
   $("res").innerHTML=h;
 }
 // ---------- overlay ----------
 const ov=$("ov"), ox=ov.getContext("2d"), vid=$("vid");
-function vrect(){ const s=$("stage").getBoundingClientRect(), r=vid.getBoundingClientRect(); return {x:r.left-s.left,y:r.top-s.top,w:r.width,h:r.height,sw:s.width,sh:s.height}; }
+function vrect(){ // displayed video content box inside the stage (object-fit: contain)
+  const s=$("stage").getBoundingClientRect(), vw=vid.videoWidth||W, vh=vid.videoHeight||H, k=Math.min(s.width/vw,s.height/vh), w=vw*k, h=vh*k;
+  return {x:(s.width-w)/2,y:(s.height-h)/2,w,h,sw:s.width,sh:s.height}; }
 function frameAt(t){ return Math.max(0,Math.min(R.n-1,Math.floor(t*R.fps+1e-6))); }
 function phaseName(i){ const p=R.ph; return i<p.start?"어드레스":i<=p.top?"백스윙":i<=p.imp?"다운스윙":"팔로스루"; }
 function draw(){
@@ -199,4 +212,5 @@ $("file").onchange=()=>{ const f=$("file").files[0]; if(f) run(f); };
 const ck=new URLSearchParams(location.search).get("clip");
 if(ck) idbGet(ck).then(v=>{ if(v&&v.blob){ prog("폰에서 받은 영상: "+(v.name||"")+" 분석 시작",0.01); run(v.blob); } else prog("받은 영상이 없습니다. '영상 불러오기'를 눌러 주세요.",0); }).catch(e=>prog("저장된 영상을 읽지 못했습니다: "+e,0));
 window.__R=()=>R;
+window.__show=async(r,url)=>{ R=r; vid.src=url; await new Promise(q=>vid.addEventListener("loadedmetadata",q,{once:true})); $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false; results(); seekFrame(R.ph.imp); };
 </script></body></html>
