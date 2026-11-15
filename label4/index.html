@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>헤드·그립 표시 4차</title>
+<style>
+:root{--bg:#0c1512;--panel:#16231e;--ink:#eaf2ec;--dim:#8fa39a;--acc:#ffd23f;--ok:#58d68d;--warn:#ff8a65;--line:#2a3b34}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,"Apple SD Gothic Neo",sans-serif;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+#app{display:flex;flex-direction:column;height:100%;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+#top{padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+#top h1{margin:0;font-size:22px;color:var(--acc)}
+#top p{margin:4px 0 0;font-size:17px;line-height:1.4;color:var(--ink)}
+#bar{height:8px;background:#22332c;border-radius:4px;margin-top:8px;overflow:hidden}#bar i{display:block;height:100%;background:var(--ok);width:0}
+#stage{flex:1;min-height:0;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#000}
+#wrap{position:relative;height:100%;max-width:100%;transition:transform .2s}
+#img{height:100%;max-width:100%;object-fit:contain;display:block;filter:brightness(1.9) contrast(1.15)}
+.mk{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;pointer-events:none}
+#mh{border:3px solid var(--acc);box-shadow:0 0 0 2px #000}
+#mg{border:3px solid #4fd1ff;box-shadow:0 0 0 2px #000}
+.mk.pred{border-style:dashed!important;border-width:4px!important}
+.mk.dim{opacity:.45}
+#step{position:absolute;right:10px;top:10px;font:800 26px system-ui;padding:6px 14px;border-radius:8px;background:rgba(0,0,0,.7)}
+#line{position:absolute;inset:0;pointer-events:none}
+button:disabled{opacity:.35}
+#prevmk{border:2px dashed rgba(127,214,255,.8)}
+#info{position:absolute;left:10px;top:10px;font:700 18px ui-monospace,monospace;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:6px}
+#btns{display:flex;flex-wrap:wrap;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
+button{font-size:20px;padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:#22332c;color:var(--ink);flex:1 1 auto;min-width:120px}
+button.main{background:var(--acc);color:#111;font-weight:700;border-color:var(--acc)}
+button.warn{color:var(--warn)}
+#done{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:24px;text-align:center}
+#done[hidden]{display:none}
+#done h2{color:var(--ok);font-size:28px;margin:0}#done p{font-size:19px;max-width:28em;line-height:1.5}
+</style></head><body>
+<div id="app">
+  <div id="top">
+    <h1>헤드 + 그립 끝 표시 (4차 · 86장)</h1>
+    <p>사진마다 두 번: <b style="color:var(--acc)">① 헤드</b> → <b style="color:#4fd1ff">② 그립 끝(손잡이 맨 끝)</b>. 점선 원이 맞으면 <b>"맞음"</b>, 틀리면 진짜 위치를 누르세요. 안 보이면 <b>"안 보임"</b>.</p>
+    <div id="bar"><i></i></div>
+  </div>
+  <div id="stage"><div id="wrap"><img id="img" alt="스윙 프레임"><svg id="line"><line id="ln" stroke="#fff" stroke-width="2" stroke-dasharray="6 5" opacity=".7"/></svg><div id="mh" class="mk" hidden></div><div id="mg" class="mk" hidden></div></div><div id="info"></div><div id="step"></div></div>
+  <div id="btns">
+    <button id="ok" class="main">맞음 ▶</button>
+    <button id="back">◀ 이전</button>
+    <button id="none" class="warn">안 보임</button>
+    <button id="zoom">확대 끄기</button>
+    <button id="save">결과 저장</button>
+  </div>
+</div>
+<div id="done" hidden><h2>다 했습니다!</h2><p>"결과 저장"을 눌러 파일을 저장한 뒤 채팅에 보내 주세요. 저장된 파일은 파일 앱 → 다운로드에 있습니다.</p><button class="main" id="save2">결과 저장</button><button id="close">계속 보기</button></div>
+<script>
+const KEY="clublabel4";
+const $=id=>document.getElementById(id);
+let items=[], lab={}, i=0, st=0; // st 0=head 1=grip
+try{ lab=JSON.parse(localStorage.getItem(KEY)||"{}"); }catch(e){ lab={}; }
+const save=()=>{ try{ localStorage.setItem(KEY,JSON.stringify(lab)); }catch(e){} };
+const F=()=>items[i].file, P=()=>st?"grip":"head";
+function crect(){ const im=$("img"), b=im.getBoundingClientRect(), nw=im.naturalWidth||540, nh=im.naturalHeight||960, s=Math.min(b.width/nw,b.height/nh), w=nw*s, h=nh*s;
+  return {left:b.left+(b.width-w)/2, top:b.top+(b.height-h)/2, width:w, height:h, ox:(b.width-w)/2, oy:(b.height-h)/2}; }
+function lrect(){ const im=$("img"), W=im.offsetWidth, H=im.offsetHeight, nw=im.naturalWidth||540, nh=im.naturalHeight||960, s=Math.min(W/nw,H/nh), w=nw*s, h=nh*s;
+  return {W,H,width:w,height:h,ox:im.offsetLeft+(W-w)/2,oy:im.offsetTop+(H-h)/2}; }
+function xy(p){ const c=lrect(); return [c.ox+p.x*c.width, c.oy+p.y*c.height]; }
+let zoomOn=true, boxes={};
+function applyZoom(){
+  const w=$("wrap"); if(!zoomOn||!items.length){ w.style.transform=""; return; }
+  const b=boxes[items[i].clip]; if(!b){ w.style.transform=""; return; }
+  const c=lrect(), cx=c.ox+(b.x0+b.x1)/2*c.width, cy=c.oy+(b.y0+b.y1)/2*c.height;
+  const st=$("stage").getBoundingClientRect();
+  const z=Math.max(1,Math.min(2.6, st.height/((b.y1-b.y0)*c.height), st.width/((b.x1-b.x0)*c.width)));
+  w.style.transformOrigin=cx+"px "+cy+"px";
+  w.style.transform="translate("+(w.offsetWidth/2-cx)+"px,"+(w.offsetHeight/2-cy)+"px) scale("+z+")";
+}
+function cur(k){ const L=lab[F()]||{}; if(k in L) return {p:L[k],pred:false}; return {p:items[i][k],pred:true}; }
+function draw(){
+  const ln=$("ln"); let pts={};
+  for(const [k,el] of [["head",$("mh")],["grip",$("mg")]]){
+    const c=cur(k); if(!c.p){ el.hidden=true; continue; }
+    const [x,y]=xy(c.p); el.hidden=false; el.style.left=x+"px"; el.style.top=y+"px";
+    el.classList.toggle("pred",c.pred); el.classList.toggle("dim",(k==="head")!==(st===0)); pts[k]=[x,y];
+  }
+  if(pts.head&&pts.grip){ ln.setAttribute("x1",pts.head[0]);ln.setAttribute("y1",pts.head[1]);ln.setAttribute("x2",pts.grip[0]);ln.setAttribute("y2",pts.grip[1]);ln.style.display=""; } else ln.style.display="none";
+  $("step").textContent=st?"② 그립 끝":"① 헤드"; $("step").style.color=st?"#4fd1ff":"var(--acc)";
+  const pr=items[i][P()], L=lab[F()]||{}; $("ok").disabled=!(P() in L ? L[P()] : pr);
+}
+function show(){
+  i=Math.max(0,Math.min(items.length-1,i));
+  if($("img").getAttribute("src")!=="f/"+F()) $("img").src="f/"+F(); else draw();
+  const n=Object.values(lab).filter(v=>"head" in v&&"grip" in v).length; $("bar").firstElementChild.style.width=(n/items.length*100)+"%";
+  $("info").textContent=(i+1)+" / "+items.length+(items[i].set==="test"?" · 평가용(원 없음)":"");
+}
+$("img").onload=()=>{ applyZoom(); draw(); }; window.addEventListener("resize",()=>{ applyZoom(); draw(); });
+$("zoom").onclick=()=>{ zoomOn=!zoomOn; $("zoom").textContent=zoomOn?"확대 끄기":"확대 켜기"; applyZoom(); draw(); };
+function setv(v){ const L=lab[F()]||{}; L[P()]=v; lab[F()]=L; save(); advance(); }
+function advance(){ if(st===0){ st=1; show(); } else { st=0; if(i<items.length-1){ i++; show(); } else { show(); $("done").hidden=false; } } }
+$("img").addEventListener("pointerdown",e=>{
+  const r=crect(); const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height;
+  if(x<0||x>1||y<0||y>1) return;
+  const L=lab[F()]||{}; L[P()]={x:+x.toFixed(4),y:+y.toFixed(4),src:"tap"}; lab[F()]=L; save(); draw();
+  setTimeout(advance,200);
+});
+$("ok").onclick=()=>{ const c=cur(P()); if(!c.p) return; setv({x:c.p.x,y:c.p.y,src:c.pred?"ok":(c.p.src||"tap")}); };
+$("none").onclick=()=>setv(null);
+$("back").onclick=()=>{ if(st===1){ st=0; } else if(i>0){ i--; st=1; } show(); };
+function download(){
+  const out={set:"label4",w:540,h:960,frames:items.map(it=>{ const L=lab[it.file]||{}; return {clip:it.clip,n:it.n,file:it.file,split:it.set,pred:{head:it.head,grip:it.grip},head:"head" in L?L.head:"todo",grip:"grip" in L?L.grip:"todo"}; })};
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(out)],{type:"application/json"}));
+  a.download="clubhead-labels4.json"; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },3000);
+}
+$("save").onclick=download; $("save2").onclick=download; $("close").onclick=()=>{ $("done").hidden=true; };
+fetch("items.json").then(r=>r.json()).then(a=>{ items=a;
+  for(const it of items){ for(const k of ["head","grip"]){ const p=it[k]; if(!p) continue; const b=boxes[it.clip]||(boxes[it.clip]={x0:1,y0:1,x1:0,y1:0}); b.x0=Math.min(b.x0,p.x);b.x1=Math.max(b.x1,p.x);b.y0=Math.min(b.y0,p.y);b.y1=Math.max(b.y1,p.y); } }
+  for(const k in boxes){ const b=boxes[k]; b.x0=Math.max(0,b.x0-0.06);b.x1=Math.min(1,b.x1+0.06);b.y0=Math.max(0,b.y0-0.05);b.y1=Math.min(1,b.y1+0.05); }
+  const k=items.findIndex(it=>{ const L=lab[it.file]||{}; return !("head" in L&&"grip" in L); });
+  i=k<0?0:k; st=(lab[items[i].file]&&"head" in lab[items[i].file])?1:0; show(); });
+</script></body></html>
