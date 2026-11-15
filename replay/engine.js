@@ -36,7 +36,7 @@ export function demux(buf){
   });
 }
 // decode frames in [a,b] (sample index, presentation order) and call cb(i, canvas)
-export async function decodeRange(dm,a,b,cb,rot){
+export async function decodeRange(dm,a,b,cb,rot,want){
   const cv=document.createElement("canvas"); cv.width=W; cv.height=H; const cx=cv.getContext("2d",{willReadFrequently:true});
   const order=dm.samples.map((s,k)=>[s.cts,k]).sort((x,y)=>x[0]-y[0]).map(z=>z[1]); // presentation order -> sample idx
   const pos=new Map(order.map((k,i)=>[dm.samples[k].cts,i]));
@@ -46,7 +46,7 @@ export async function decodeRange(dm,a,b,cb,rot){
   const dec=new VideoDecoder({output:f=>queue.push(f),error:e=>err=e});
   dec.configure({codec:dm.codec,description:dm.desc,optimizeForLatency:true});
   const flushOut=async()=>{ while(queue.length){ const f=queue.shift(); const i=pos.get(f.timestamp);
-      if(i>=a&&i<=b){ draw(cx,f,rot); await cb(i,cv); } f.close(); } };
+      if(i>=a&&i<=b&&(!want||want(i))){ draw(cx,f,rot); await cb(i,cv); } f.close(); } };
   for(let k=k0;k<=lastDec+8&&k<dm.samples.length;k++){
     const s=dm.samples[k]; dec.decode(new EncodedVideoChunk({type:s.is_sync?"key":"delta",timestamp:s.cts,duration:s.duration,data:s.data}));
     while(dec.decodeQueueSize>8) await new Promise(r=>setTimeout(r,1));

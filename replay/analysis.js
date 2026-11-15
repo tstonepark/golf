@@ -25,9 +25,17 @@ export function track(pts,maxjump=80){
   return out;
 }
 // 3) drop isolated points
-export function clean(tr){
+export function clean(tr,win=4,maxd=60){
   const n=tr.length;
-  return tr.map((p,i)=>{ if(!p) return null; for(let j=Math.max(0,i-4);j<Math.min(n,i+5);j++){ if(j!==i&&tr[j]&&Math.abs(tr[j][0]-p[0])+Math.abs(tr[j][1]-p[1])<60) return p; } return null; });
+  return tr.map((p,i)=>{ if(!p) return null; for(let j=Math.max(0,i-win);j<Math.min(n,i+win+1);j++){ if(j!==i&&tr[j]&&Math.abs(tr[j][0]-p[0])+Math.abs(tr[j][1]-p[1])<maxd) return p; } return null; });
+}
+// sampling gaps (frames we skipped on purpose) -> linear fill, not marked as estimated
+export function fillGaps(tr,maxg){
+  const o=tr.slice(); let last=-1;
+  for(let i=0;i<o.length;i++){ if(!tr[i]) continue;
+    if(last>=0&&i-last>1&&i-last<=maxg){ for(let k=last+1;k<i;k++){ const u=(k-last)/(i-last); o[k]=[tr[last][0]+(tr[i][0]-tr[last][0])*u,tr[last][1]+(tr[i][1]-tr[last][1])*u]; } }
+    last=i; }
+  return o;
 }
 // 4) club length check against hands (needs pose): head must be 0.45..1.25 L from the hands
 export function clubLengthFilter(tr,hands){
@@ -110,4 +118,13 @@ export function body(pose,ph){
     const t=(a,b)=>((ang(P.world,a,b)-ang(A.world,a,b)+540)%360)-180;
     const chest=t(11,12),pelvis=t(23,24); return {chest,pelvis,x:chest-pelvis,ok:Math.abs(chest)<=100&&Math.abs(pelvis)<=70}; };
   return {top:at(ph.top),imp:at(ph.imp)};
+}
+// coarse impact for the sparse first pass: the biggest fall of the head from high (above the shoulders) to ball height within 0.25s
+export function coarseImpact(tr,fps){
+  const ys=tr.filter(Boolean).map(p=>p[1]).sort((a,b)=>a-b); if(ys.length<10) return -1;
+  const ballY=ys[Math.floor(ys.length*0.93)], win=Math.round(0.25*fps); let best=0,bi=-1;
+  for(let i=0;i<tr.length;i++){ const p=tr[i]; if(!p||p[1]<ballY-90) continue;
+    let mn=1e9; for(let j=Math.max(0,i-win);j<i;j++) if(tr[j]&&tr[j][1]<mn) mn=tr[j][1];
+    const fall=p[1]-mn; if(fall>best+5&&ballY-mn>220){ best=fall; bi=i; } }
+  return bi;
 }

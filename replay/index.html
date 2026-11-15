@@ -110,25 +110,27 @@ async function analyze(file){
   prog("영상 읽는 중…",0.05);
   const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps=dm.fps; vfps=fps;
   if(fps<100) prog("※ "+Math.round(fps)+"fps 영상입니다. 240fps 원본이 가장 정확합니다.",0.06);
-  // pass 1: head model on every 2nd frame of the whole clip -> find impact
-  const pts=new Array(n).fill(null); let done=0;
-  await decodeRange(dm,0,n-1,async(i,cv)=>{ if(i%2===0){ pts[i]=await headInfer(cv); } done++; if(done%20===0){ prog("1/2 헤드 찾는 중… "+Math.round(done/n*100)+"%",0.06+0.44*done/n); await tick(); } },dm.rot);
-  let tr=A.clean(A.track(A.staticFilter(pts.map(p=>p||[]))));
-  const t1=tr.map((p,i)=>p||(i>0&&i<n-1&&tr[i-1]&&tr[i+1]?[(tr[i-1][0]+tr[i+1][0])/2,(tr[i-1][1]+tr[i+1][1])/2]:null)); // stride-2 gaps
-  let ph=A.phases(t1,fps);
-  if(!ph) throw new Error("스윙(빠른 다운스윙)을 찾지 못했습니다. 스윙 전체가 담긴 영상인지 확인해 주세요.");
-  // pass 2: full rate + pose inside the swing window
-  const a=Math.max(0,ph.imp-Math.round(2.8*fps)), b=Math.min(n-1,ph.imp+Math.round(1.3*fps));
-  const pose=new Array(n).fill(null); done=0; const tot=b-a+1;
+  // pass 1: head model on every 8th frame (30fps) -> coarse impact
+  const pts=new Array(n).fill(null); let done=0; const n1=Math.ceil(n/8);
+  await decodeRange(dm,0,n-1,async(i,cv)=>{ pts[i]=await headInfer(cv); done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중… "+Math.round(done/n1*100)+"%",0.06+0.24*done/n1); await tick(); } },dm.rot,i=>i%8===0);
+  const t1=A.fillGaps(A.clean(A.track(A.staticFilter(pts.map(p=>p||[])),160),8,200),8);
+  const ci=A.coarseImpact(t1,fps);
+  if(ci<0) throw new Error("스윙(빠른 다운스윙)을 찾지 못했습니다. 스윙 전체가 담긴 영상인지 확인해 주세요.");
+  // pass 2: dense around the downswing, sparse elsewhere
+  const a=Math.max(0,ci-Math.round(2.8*fps)), b=Math.min(n-1,ci+Math.round(1.3*fps));
+  const d0=ci-Math.round(0.45*fps), d1=ci+Math.round(0.15*fps), dense=i=>i>=d0&&i<=d1;
+  const needH=i=>dense(i)||(i-a)%4===0, needP=i=>(dense(i)&&(i-a)%3===0)||(i-a)%6===0;
+  let tot=0; for(let i=a;i<=b;i++) if(needH(i)||needP(i)) tot++;
+  const pts2=new Array(n).fill(null), pose=new Array(n).fill(null); done=0;
   await decodeRange(dm,a,b,async(i,cv)=>{
-    if(i%2===1) pts[i]=await headInfer(cv);
-    if((i-a)%2===0){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,Math.round(i*1000/fps))); }catch(e){} }
-    done++; if(done%10===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.5+0.48*done/tot); await tick(); } },dm.rot);
-  for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];       // carry pose to skipped frames
-  const win=pts.map((p,i)=>i>=a&&i<=b? (p||[]) : []);
-  tr=A.clean(A.track(A.bodyFilter(A.staticFilter(win),pose)));
-  const cl=A.clubLengthFilter(tr,pose.map(p=>p&&p.hands)); tr=cl.tr;
-  ph=A.phases(tr,fps,pose.map(p=>p&&p.hands))||ph;
+    if(needH(i)) pts2[i]=(i%8===0&&pts[i])? pts[i] : await headInfer(cv);
+    if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,Math.round(i*1000/fps))); }catch(e){} }
+    done++; if(done%8===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.3+0.68*done/tot); await tick(); } },dm.rot,i=>needH(i)||needP(i));
+  for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];
+  let tr=A.fillGaps(A.clean(A.track(A.bodyFilter(A.staticFilter(pts2.map(p=>p||[])),pose)),4,80),4);
+  tr=A.clubLengthFilter(tr,pose.map(p=>p&&p.hands)).tr;
+  const ph=A.phases(tr,fps,pose.map(p=>p&&p.hands));
+  if(!ph) throw new Error("스윙 구간을 판정하지 못했습니다.");
   const cv=A.curves(tr,ph,fps), pl=A.plane(tr,ph,pose,fps), bd=A.body(pose,ph);
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   R={secs:(performance.now()-T0)/1000,name:file.name||'',fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
