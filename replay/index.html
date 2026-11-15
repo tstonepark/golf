@@ -149,7 +149,7 @@ function results(){
     h+=`<div class="card"><h3>스윙 플레인 (뒤에서 본 2D 기준)</h3>
       ${fz?`<div class="big ${fz[1]}">${fz[2]}</div><div class="row"><span>임팩트 진입</span><b class="${fz[1]}">${fz[0]}</b></div>`:`<div class="dimt">임팩트 직전 헤드가 가려져 판정 불가</div>`}
       <div class="row"><span>테이크백</span><b class="${pl.takeawayOver>0.5?'warn':'ok'}">${pl.takeawayOver>0.5?'어깨선 바깥으로 들어 올림':'두 선 사이'}</b></div>
-      <div class="row"><span>다운스윙 하단</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>
+      <div class="row"><span>다운스윙</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>
       <div class="dimt">초록=어드레스 샤프트선, 주황=공-어깨선. 다운스윙이 두 선 사이로 오면 정상.</div></div>`;
   } else h+=`<div class="card"><h3>스윙 플레인</h3><div class="dimt">어드레스 자세(손·어깨)를 찾지 못해 판정하지 않았습니다.</div></div>`;
   if(bd&&bd.top){
@@ -160,7 +160,7 @@ function results(){
       <div class="row"><span>탑 · 가슴</span><b>${v(bd.top,"chest")}</b></div><div class="row"><span>탑 · 골반</span><b>${v(bd.top,"pelvis")}</b></div>
       <div class="row"><span>탑 · X-팩터</span><b>${bd.top.ok?Math.abs(bd.top.x).toFixed(0)+"°":"<span class='warn'>측정 이상</span>"}</b></div>
       <div class="row"><span>임팩트 · 가슴</span><b>${oc(bd.imp,"chest")}</b></div><div class="row"><span>임팩트 · 골반</span><b>${oc(bd.imp,"pelvis")}</b></div>
-      <div class="dimt">카메라 1대 추정값이라 오차가 큽니다(특히 뒤에서 찍을 때). 참고용.</div></div>`;
+      <div class="dimt">투어 평균(참고): 탑 가슴 약 90°·골반 약 45°, 임팩트 때는 골반 약 40°·가슴 약 25° 타깃 쪽으로 열림. 카메라 1대 추정값이라 오차가 큽니다(특히 뒤에서 찍을 때).</div></div>`;
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps</b></div><div class="row"><span>분석 시간</span><b>${Math.round(R.secs||0)}초</b></div>
