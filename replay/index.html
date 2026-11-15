@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>스윙 리플레이 분석</title>
+<style>
+:root{--bg:#0b1310;--panel:#14201b;--ink:#eef4ef;--dim:#9db0a6;--line:#273830;--back:#ffd23f;--down:#ff4d4d;--after:#59c8ff;--shaft:#5be37a;--shoulder:#ff9f2e;--ok:#5be37a;--warn:#ffb648;--bad:#ff6b6b}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,"Apple SD Gothic Neo",sans-serif}
+#app{display:grid;grid-template-columns:minmax(0,1fr) 400px;height:100%;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+@media (orientation:portrait){#app{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}}
+#left{display:flex;flex-direction:column;min-height:0;min-width:0}
+#stage{position:relative;flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
+video{max-width:100%;max-height:100%;display:block}
+#ov{position:absolute;inset:0;pointer-events:none}
+#ctl{display:flex;flex-wrap:wrap;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
+button{font-size:21px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:#20302a;color:var(--ink);flex:1 1 auto;min-width:96px}
+button.main{background:var(--back);color:#111;font-weight:800;border-color:var(--back)}
+button.on{outline:3px solid var(--back)}
+#right{overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:16px}
+@media (orientation:portrait){#right{border-left:0;border-top:1px solid var(--line);max-height:42vh}}
+h2{margin:6px 0 10px;font-size:24px}
+.card{background:#0f1915;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+.card h3{margin:0 0 6px;font-size:18px;color:var(--dim);font-weight:600}
+.big{font-size:30px;font-weight:800;line-height:1.25}
+.row{display:flex;justify-content:space-between;gap:10px;font-size:21px;padding:4px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.dimt{color:var(--dim);font-size:16px;line-height:1.45}
+#phase{position:absolute;left:12px;top:12px;font-size:28px;font-weight:800;background:rgba(0,0,0,.6);padding:6px 14px;border-radius:10px;pointer-events:none}
+#legend{position:absolute;right:12px;bottom:12px;font-size:16px;background:rgba(0,0,0,.6);padding:6px 10px;border-radius:8px;pointer-events:none;line-height:1.5}
+#start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px}
+#start p{font-size:20px;max-width:30em;line-height:1.5;color:var(--dim)}
+#prog{width:min(560px,90%);display:none}
+#bar{height:14px;background:#22332c;border-radius:7px;overflow:hidden}#bar i{display:block;height:100%;width:0;background:var(--ok)}
+#pt{font-size:22px;margin-top:10px}
+input[type=file]{display:none}
+[hidden]{display:none!important}
+</style></head><body>
+<div id="app">
+  <div id="left">
+    <div id="stage">
+      <video id="vid" playsinline muted preload="auto"></video>
+      <canvas id="ov"></canvas>
+      <div id="phase" hidden></div>
+      <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
+      <div id="start">
+        <div class="big">스윙 영상 분석</div>
+        <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
+        <button class="main" id="pick">영상 불러오기</button>
+        <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
+      </div>
+    </div>
+    <div id="ctl" hidden>
+      <button id="play" class="main">▶ 1/8 느리게</button>
+      <button id="prev">◀ 1프레임</button><button id="next">1프레임 ▶</button>
+      <button data-j="start">어드레스</button><button data-j="top">탑</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
+      <button id="lines" class="on">선 표시</button>
+      <button id="again">다른 영상</button>
+    </div>
+  </div>
+  <div id="right"><h2>분석 결과</h2><div id="res"><div class="dimt">영상을 불러오면 여기에 결과가 나옵니다.</div></div></div>
+</div>
+<input type="file" id="file" accept="video/*">
+<script src="../vendor/ort/ort.webgpu.min.js"></script>
+<script src="../vendor/mp4box/mp4box.all.min.js"></script>
+<script type="module">
+import {W,H,loadHead,headInfer,demux,decodeRange} from "./engine.js";
+import * as A from "./analysis.js";
+const $=id=>document.getElementById(id);
+let R=null, showLines=true, vfps=240;
+
+// ---------- pose (MediaPipe tasks, same files as the live page) ----------
+let lmk=null;
+async function loadPose(){
+  const MPV=await import("../vendor/tasks/vision_bundle.mjs");
+  const vision=await MPV.FilesetResolver.forVisionTasks(new URL("../vendor/tasks/wasm",location.href).href);
+  const fp=new URLSearchParams(location.search).get("pd");
+  for(const delegate of (fp?[fp]:["GPU","CPU"])){
+    try{ lmk=await MPV.PoseLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:new URL("../vendor/models/pose_landmarker_heavy.task",location.href).href,delegate},runningMode:"VIDEO",numPoses:1}); return delegate; }
+    catch(e){ console.warn("pose",delegate,e); }
+  }
+  throw new Error("뼈대 모델을 불러오지 못했습니다");
+}
+function poseOf(r){
+  if(!r||!r.landmarks||!r.landmarks.length) return null;
+  const L=r.landmarks[0], g=k=>[L[k].x*W,L[k].y*H];
+  const hands=[0,1].map(d=>([15,16,19,20].reduce((s,k)=>s+g(k)[d],0)/4));
+  const sh=[(g(11)[0]+g(12)[0])/2,(g(11)[1]+g(12)[1])/2];
+  return {hands,sh,joints:[[...g(11),28],[...g(12),28],[...g(15),20],[...g(16),20]],
+    world:r.worldLandmarks&&r.worldLandmarks[0]? r.worldLandmarks[0].map(p=>[p.x,p.y,p.z]) : null};
+}
+// ---------- progress ----------
+function prog(t,f){ $("prog").style.display="block"; $("pt").textContent=t; $("bar").firstElementChild.style.width=Math.round((f||0)*100)+"%"; }
+const tick=()=>new Promise(r=>setTimeout(r,0));
+
+// ---------- analysis ----------
+async function analyze(file){
+  $("pick").disabled=true;
+  prog("모델 준비 중…",0.02);
+  const [ep,pd]=await Promise.all([loadHead("../"),loadPose()]);
+  prog("영상 읽는 중…",0.05);
+  const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps=dm.fps; vfps=fps;
+  if(fps<100) prog("※ "+Math.round(fps)+"fps 영상입니다. 240fps 원본이 가장 정확합니다.",0.06);
+  // pass 1: head model on every 2nd frame of the whole clip -> find impact
+  const pts=new Array(n).fill(null); let done=0;
+  await decodeRange(dm,0,n-1,async(i,cv)=>{ if(i%2===0){ pts[i]=await headInfer(cv); } done++; if(done%20===0){ prog("1/2 헤드 찾는 중… "+Math.round(done/n*100)+"%",0.06+0.44*done/n); await tick(); } },dm.rot);
+  let tr=A.clean(A.track(A.staticFilter(pts.map(p=>p||[]))));
+  const t1=tr.map((p,i)=>p||(i>0&&i<n-1&&tr[i-1]&&tr[i+1]?[(tr[i-1][0]+tr[i+1][0])/2,(tr[i-1][1]+tr[i+1][1])/2]:null)); // stride-2 gaps
+  let ph=A.phases(t1,fps);
+  if(!ph) throw new Error("스윙(빠른 다운스윙)을 찾지 못했습니다. 스윙 전체가 담긴 영상인지 확인해 주세요.");
+  // pass 2: full rate + pose inside the swing window
+  const a=Math.max(0,ph.imp-Math.round(2.8*fps)), b=Math.min(n-1,ph.imp+Math.round(1.3*fps));
+  const pose=new Array(n).fill(null); done=0; const tot=b-a+1;
+  await decodeRange(dm,a,b,async(i,cv)=>{
+    if(i%2===1) pts[i]=await headInfer(cv);
+    if((i-a)%2===0){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,Math.round(i*1000/fps))); }catch(e){} }
+    done++; if(done%10===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.5+0.48*done/tot); await tick(); } },dm.rot);
+  for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];       // carry pose to skipped frames
+  const win=pts.map((p,i)=>i>=a&&i<=b? (p||[]) : []);
+  tr=A.clean(A.track(A.bodyFilter(A.staticFilter(win),pose)));
+  const cl=A.clubLengthFilter(tr,pose.map(p=>p&&p.hands)); tr=cl.tr;
+  ph=A.phases(tr,fps,pose.map(p=>p&&p.hands))||ph;
+  const cv=A.curves(tr,ph,fps), pl=A.plane(tr,ph,pose,fps), bd=A.body(pose,ph);
+  const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
+  R={fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+  prog("완료",1);
+}
+// ---------- results panel ----------
+function fmt(x,d=0){ return (x>=0?"":"−")+Math.abs(x).toFixed(d); }
+function results(){
+  const {ph,fps,pl,bd,seen,span}=R, back=(ph.top-ph.start)/fps, down=(ph.imp-ph.top)/fps;
+  const zoneTxt={over:["어깨선 위(바깥)","bad","아웃-인(엎어 치기) 경향"],slot:["두 선 사이","ok","정상 범위"],under:["샤프트선 아래(안쪽)","warn","인-아웃 경향"]};
+  let h=`<div class="card"><h3>템포</h3><div class="big">${(back/down).toFixed(1)} : 1</div>
+    <div class="row"><span>백스윙</span><b>${back.toFixed(2)}초</b></div><div class="row"><span>다운스윙</span><b>${down.toFixed(2)}초</b></div>
+    <div class="dimt">프로 평균은 약 3 : 1 (백스윙 0.7~0.9초)</div></div>`;
+  if(pl){
+    const fz=pl.finalZone&&zoneTxt[pl.finalZone];
+    h+=`<div class="card"><h3>스윙 플레인 (뒤에서 본 2D 기준)</h3>
+      ${fz?`<div class="big ${fz[1]}">${fz[2]}</div><div class="row"><span>임팩트 진입</span><b class="${fz[1]}">${fz[0]}</b></div>`:`<div class="dimt">임팩트 직전 헤드가 가려져 판정 불가</div>`}
+      <div class="row"><span>테이크백</span><b class="${pl.takeawayOver>0.5?'warn':'ok'}">${pl.takeawayOver>0.5?'어깨선 바깥으로 들어 올림':'두 선 사이'}</b></div>
+      <div class="row"><span>다운스윙 하단</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>
+      <div class="dimt">초록=어드레스 샤프트선, 주황=공-어깨선. 다운스윙이 두 선 사이로 오면 정상.</div></div>`;
+  } else h+=`<div class="card"><h3>스윙 플레인</h3><div class="dimt">어드레스 자세(손·어깨)를 찾지 못해 판정하지 않았습니다.</div></div>`;
+  if(bd&&bd.top){
+    const v=(o,k)=>o&&o.ok? Math.abs(o[k]).toFixed(0)+"°" : "<span class='warn'>측정 이상</span>";
+    const sg=bd.top&&bd.top.ok? Math.sign(bd.top.chest)||-1 : -1;   // backswing direction
+    const oc=(o,k)=>o&&o.ok? (o[k]*sg>0? Math.abs(o[k]).toFixed(0)+"° 덜 돌아옴(닫힘)" : Math.abs(o[k]).toFixed(0)+"° 열림") : "<span class='warn'>측정 이상</span>";
+    h+=`<div class="card"><h3>몸 회전 (어드레스 대비)</h3>
+      <div class="row"><span>탑 · 가슴</span><b>${v(bd.top,"chest")}</b></div><div class="row"><span>탑 · 골반</span><b>${v(bd.top,"pelvis")}</b></div>
+      <div class="row"><span>탑 · X-팩터</span><b>${bd.top.ok?Math.abs(bd.top.x).toFixed(0)+"°":"<span class='warn'>측정 이상</span>"}</b></div>
+      <div class="row"><span>임팩트 · 가슴</span><b>${oc(bd.imp,"chest")}</b></div><div class="row"><span>임팩트 · 골반</span><b>${oc(bd.imp,"pelvis")}</b></div>
+      <div class="dimt">카메라 1대 추정값이라 오차가 큽니다(특히 뒤에서 찍을 때). 참고용.</div></div>`;
+  }
+  h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
+    <div class="row"><span>영상</span><b>${Math.round(fps)}fps</b></div><div class="dimt">엔진 ${R.ep}/${R.pd}</div></div>`;
+  $("res").innerHTML=h;
+}
+// ---------- overlay ----------
+const ov=$("ov"), ox=ov.getContext("2d"), vid=$("vid");
+function vrect(){ const s=$("stage").getBoundingClientRect(), r=vid.getBoundingClientRect(); return {x:r.left-s.left,y:r.top-s.top,w:r.width,h:r.height,sw:s.width,sh:s.height}; }
+function frameAt(t){ return Math.max(0,Math.min(R.n-1,Math.floor(t*R.fps+1e-6))); }
+function phaseName(i){ const p=R.ph; return i<p.start?"어드레스":i<=p.top?"백스윙":i<=p.imp?"다운스윙":"팔로스루"; }
+function draw(){
+  if(!R) return; const r=vrect(), dpr=devicePixelRatio||1;
+  if(ov.width!==Math.round(r.sw*dpr)){ ov.width=Math.round(r.sw*dpr); ov.height=Math.round(r.sh*dpr); }
+  ox.setTransform(dpr,0,0,dpr,0,0); ox.clearRect(0,0,r.sw,r.sh);
+  const sx=r.w/W, sy=r.h/H, P=(x,y)=>[r.x+x*sx,r.y+y*sy], i=frameAt(vid.currentTime);
+  $("phase").textContent=phaseName(i)+"  "+((i-R.ph.imp)/R.fps>=0?"+":"")+((i-R.ph.imp)/R.fps).toFixed(2)+"초";
+  if(showLines&&R.pl){ const {ball,hands,sh}=R.pl;
+    const line=(q,c)=>{ const dx=q[0]-ball[0],dy=q[1]-ball[1],l=Math.hypot(dx,dy); ox.strokeStyle=c; ox.lineWidth=3; ox.setLineDash([]); ox.beginPath(); ox.moveTo(...P(ball[0]-dx/l*30,ball[1]-dy/l*30)); ox.lineTo(...P(ball[0]+dx/l*900,ball[1]+dy/l*900)); ox.stroke(); };
+    line(hands,"#5be37a"); line(sh,"#ff9f2e"); }
+  const seg=(arr,col)=>{ ox.strokeStyle=col; ox.lineWidth=4; ox.lineCap="round"; let prev=null;
+    for(const q of arr){ if(!q){prev=null;continue;} if(q.i>i) break;
+      if(prev){ ox.setLineDash(q.est||prev.est?[7,7]:[]); ox.beginPath(); ox.moveTo(...P(prev.x,prev.y)); ox.lineTo(...P(q.x,q.y)); ox.stroke(); } prev=q; } ox.setLineDash([]); };
+  seg(R.cv.back,"#ffd23f"); seg(R.cv.down,"#ff4d4d"); seg(R.cv.after,"#59c8ff");
+  const p=R.tr[i]; if(p){ ox.strokeStyle="#fff"; ox.lineWidth=3; ox.beginPath(); ox.arc(...P(p[0],p[1]),12,0,7); ox.stroke(); }
+}
+function loop(){ draw(); if(!vid.paused) requestAnimationFrame(loop); }
+if("requestVideoFrameCallback" in HTMLVideoElement.prototype){ const f=()=>{ draw(); vid.requestVideoFrameCallback(f); }; vid.requestVideoFrameCallback(f); }
+vid.addEventListener("seeked",draw); window.addEventListener("resize",draw);
+const seekFrame=i=>{ vid.pause(); vid.currentTime=Math.max(0,Math.min(vid.duration-0.001,(i+0.5)/R.fps)); };
+$("play").onclick=()=>{ if(vid.paused){ if(frameAt(vid.currentTime)>=R.ph.fin) seekFrame(R.ph.start-Math.round(0.3*R.fps)); vid.playbackRate=0.125; vid.play(); $("play").textContent="⏸ 멈춤"; loop(); } else { vid.pause(); $("play").textContent="▶ 1/8 느리게"; } };
+vid.addEventListener("timeupdate",()=>{ if(R&&frameAt(vid.currentTime)>=R.ph.fin&&!vid.paused){ vid.pause(); $("play").textContent="▶ 1/8 느리게"; } });
+$("prev").onclick=()=>seekFrame(frameAt(vid.currentTime)-1);
+$("next").onclick=()=>seekFrame(frameAt(vid.currentTime)+1);
+document.querySelectorAll("[data-j]").forEach(b=>b.onclick=()=>seekFrame(R.ph[b.dataset.j]));
+$("lines").onclick=()=>{ showLines=!showLines; $("lines").classList.toggle("on",showLines); draw(); };
+$("again").onclick=()=>location.reload();
+$("pick").onclick=()=>$("file").click();
+function idbGet(key){ return new Promise((res,rej)=>{ const q=indexedDB.open("swingclips",1); q.onupgradeneeded=()=>q.result.createObjectStore("c");
+  q.onsuccess=()=>{ const g=q.result.transaction("c").objectStore("c").get(key); g.onsuccess=()=>res(g.result); g.onerror=()=>rej(g.error); }; q.onerror=()=>rej(q.error); }); }
+async function run(f){
+  try{ await analyze(f);
+    vid.src=URL.createObjectURL(f); await new Promise(r=>vid.addEventListener("loadedmetadata",r,{once:true}));
+    $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false;
+    results(); seekFrame(R.ph.imp);
+  }catch(e){ console.error(e); prog("오류: "+(e.message||e),0); $("pick").disabled=false; }
+}
+$("file").onchange=()=>{ const f=$("file").files[0]; if(f) run(f); };
+const ck=new URLSearchParams(location.search).get("clip");
+if(ck) idbGet(ck).then(v=>{ if(v&&v.blob){ prog("폰에서 받은 영상: "+(v.name||"")+" 분석 시작",0.01); run(v.blob); } else prog("받은 영상이 없습니다. '영상 불러오기'를 눌러 주세요.",0); }).catch(e=>prog("저장된 영상을 읽지 못했습니다: "+e,0));
+window.__R=()=>R;
+</script></body></html>

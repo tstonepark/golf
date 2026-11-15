@@ -329,9 +329,38 @@ public class MainActivity extends Activity {
             ui.post(() -> {
                 saveBtn.setEnabled(true); saveBtn.setText("지금 원본 저장 (최근 12초)");
                 if (nm != null) { toast("원본 저장: 동영상/SwingCam/" + nm + " (" + nn + "장)");
-                    try { sendData(new JSONObject().put("t", "saved").put("name", nm).put("fps", f).put("frames", nn).put("why", why)); } catch (Exception ignore) {} }
+                    try { sendData(new JSONObject().put("t", "saved").put("name", nm).put("fps", f).put("frames", nn).put("why", why)); } catch (Exception ignore) {}
+                    sendClip(tmp, nm, f); }
                 else toast("원본 저장 실패");
             });
+        }).start();
+    }
+
+    /** 저장한 원본을 아이패드로 전송 (데이터 채널, base64 조각). 아이패드가 직접 고속 분석한다. */
+    private volatile int clipSeq = 0;
+    private void sendClip(File src, String name, int fps) {
+        if (dc == null || dc.state() != DataChannel.State.OPEN) return;
+        final int id = ++clipSeq;
+        new Thread(() -> {
+            File f = new File(getCacheDir(), "send_" + id + ".mp4");
+            try {
+                try (InputStream in = new FileInputStream(src); OutputStream o = new java.io.FileOutputStream(f)) {
+                    byte[] b = new byte[1 << 16]; int k; while ((k = in.read(b)) > 0) o.write(b, 0, k); }
+                long size = f.length(); final int CH = 48 * 1024; int n = (int) ((size + CH - 1) / CH);
+                sendData(new JSONObject().put("t", "clipstart").put("id", id).put("name", name).put("size", size).put("n", n).put("fps", fps));
+                byte[] b = new byte[CH];
+                try (InputStream in = new FileInputStream(f)) {
+                    for (int i = 0; i < n; i++) {
+                        int got = 0, k; while (got < CH && (k = in.read(b, got, CH - got)) > 0) got += k;
+                        String d = android.util.Base64.encodeToString(b, 0, got, android.util.Base64.NO_WRAP);
+                        while (dc != null && dc.state() == DataChannel.State.OPEN && dc.bufferedAmount() > 4L * 1024 * 1024) Thread.sleep(5);
+                        if (dc == null || dc.state() != DataChannel.State.OPEN || id != clipSeq) return;
+                        sendData(new JSONObject().put("t", "clip").put("id", id).put("i", i).put("d", d));
+                    }
+                }
+                sendData(new JSONObject().put("t", "clipend").put("id", id));
+            } catch (Exception e) { ui.post(() -> toast("아이패드 전송 실패: " + e.getMessage())); }
+            finally { f.delete(); }
         }).start();
     }
 
