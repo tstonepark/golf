@@ -439,7 +439,8 @@ public class MainActivity extends Activity {
         if (dc == null || dc.state() != DataChannel.State.OPEN) return;
         final int id = ++clipSeq;
         new Thread(() -> {
-            File f = new File(getCacheDir(), "send_" + id + ".mp4");
+            final File f = new File(getCacheDir(), "send_" + id + ".mp4");
+            java.util.concurrent.Future<?> an = null;
             try {
                 // 자동 저장이면 스윙 구간(최근 5초)만 따로 묶어 보냄 → 전송량 약 30% 감소. 수동 저장은 전체.
                 int made = 0;
@@ -448,7 +449,9 @@ public class MainActivity extends Activity {
                     byte[] b = new byte[1 << 16]; int k; while ((k = in.read(b)) > 0) o.write(b, 0, k); }
                 sending = true;   // 전송 중에는 실시간 화면 전송을 쉬어 와이파이를 원본 전송에 몰아줌
                 long size = f.length(); final int CH = 12 * 1024; /* base64 후 약 16KB: 데이터 채널 메시지 한도(64KB)보다 충분히 작게 */ int n = (int) ((size + CH - 1) / CH);
-                sendData(new JSONObject().put("t", "clipstart").put("id", id).put("name", name).put("size", size).put("n", n).put("fps", fps));
+                // 폰에서 바로 분석(전송과 동시에). 측정값만 아이패드로 보내고, 실패하면 아이패드가 대신 분석한다.
+                sendData(new JSONObject().put("t", "clipstart").put("id", id).put("name", name).put("size", size).put("n", n).put("fps", fps).put("det", 1));
+                an = Analyzer.EX.submit(() -> analyzeAndSend(f, id));
                 byte[] b = new byte[CH];
                 try (InputStream in = new FileInputStream(f)) {
                     for (int i = 0; i < n; i++) {
@@ -461,8 +464,24 @@ public class MainActivity extends Activity {
                 }
                 sendData(new JSONObject().put("t", "clipend").put("id", id));
             } catch (Exception e) { ui.post(() -> toast("아이패드 전송 실패: " + e.getMessage())); }
-            finally { sending = false; f.delete(); }
+            finally { sending = false;
+                if (an != null) try { an.get(180, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignore) {}   // 분석이 파일을 다 읽은 뒤 지움
+                f.delete(); }
         }).start();
+    }
+
+    /** 폰 안 분석 → 측정값(JSON)을 12KB씩 나눠 아이패드로 */
+    private void analyzeAndSend(File f, int id) {
+        try {
+            Analyzer.Result r = Analyzer.run(getApplicationContext(), f, line -> status(line, false));
+            String s = r.json; final int CH = 12000; int n = (s.length() + CH - 1) / CH;
+            for (int i = 0; i < n; i++) sendData(new JSONObject().put("t", "det").put("id", id).put("i", i).put("n", n).put("d", s.substring(i * CH, Math.min(s.length(), (i + 1) * CH))));
+            status(r.summary, false);
+        } catch (Throwable e) {
+            String m = String.valueOf(e.getMessage() != null ? e.getMessage() : e);
+            try { sendData(new JSONObject().put("t", "det").put("id", id).put("err", m)); } catch (Exception ignore) {}
+            status("폰 분석 실패: " + m + " · 아이패드가 대신 분석합니다", true);
+        }
     }
 
     /** 셔터 적용. 수동일 때 ISO는 '자동일 때의 밝기'를 유지하도록 계산(셔터가 짧아진 만큼 ISO를 올림, 최대치 제한) */

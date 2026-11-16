@@ -65,7 +65,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v63</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v64</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -118,8 +118,27 @@ function prog(t,f){ $("prog").style.display="block"; $("pt").textContent=t; $("b
 const tick=()=>new Promise(r=>setTimeout(r,0));
 
 // ---------- analysis ----------
-async function analyze(file){
+// 폰이 보낸 측정값(뼈대 좌표·헤드 후보)을 분석 입력 형태로. 형식이 맞지 않으면 null → 이 기기에서 직접 분석
+function fromDet(d){
+  if(!d||d.v!==1||!(d.n>30)||!(d.fps>10)||!Array.isArray(d.pose)||!Array.isArray(d.pts)||!(d.ci>=0)) return null;
+  if(!((d.W===540&&d.H===960)||(d.W===960&&d.H===540))) return null;
+  setFrame(d.W>d.H); const n=d.n|0, pose=new Array(n).fill(null), pts2=new Array(n).fill(null);
+  for(const q of d.pose){ const i=q[0]|0; if(i<0||i>=n||q.length<23) continue; const g=k=>[q[1+2*k],q[2+2*k]];
+    const m=(a,b)=>[(g(a)[0]+g(b)[0])/2,(g(a)[1]+g(b)[1])/2];   // 순서: 코, 어깨L/R, 손목L/R, 검지L/R, 골반L/R, 발목L/R
+    let world=null; if(q.length>=35&&q.slice(23,35).every(v=>typeof v==="number")){ world=[]; [11,12,23,24].forEach((k,j)=>{ world[k]=[q[23+3*j],q[24+3*j],q[25+3*j]]; }); }
+    pose[i]={hands:[0,1].map(c=>(g(3)[c]+g(4)[c]+g(5)[c]+g(6)[c])/4),sh:m(1,2),hip:m(7,8),ls:g(1),rs:g(2),nose:g(0),ank:m(9,10),
+      joints:[[...g(1),28],[...g(2),28],[...g(3),20],[...g(4),20]],world}; }
+  for(const q of d.pts){ const i=q[0]|0; if(i<0||i>=n) continue; const c=[]; for(let k=1;k+2<q.length;k+=3) c.push([q[k],q[k+1],q[k+2]]); pts2[i]=c; }
+  const eng=String(d.eng||"").split("/");
+  return {n,fps:+d.fps,ci:d.ci|0,pts2,pose,crop:Array.isArray(d.crop)?{x:d.crop[0],y:d.crop[1],s:d.crop[2]}:null,ep:"폰 "+(eng[0]||"?"),pd:eng[1]||"?",t0:+d.t0||0,secs:+d.secs||0,phone:true};
+}
+async function analyze(file,det){
   $("pick").disabled=true; const T0=performance.now();
+  let D=null; if(det){ try{ D=fromDet(det); }catch(e){ console.warn("det",e); } if(D) prog("폰에서 분석한 값으로 진단 중…",0.6); }
+  if(!D) D=await detect(file);
+  window.__D=D; finish(D,file,T0);
+}
+async function detect(file){
   prog("모델 준비 중…",0.02);
   const ep=await loadHead("../");   // one at a time: iPad Safari runs out of memory loading both at once
   prog("뼈대 모델 준비 중…",0.04);
@@ -155,6 +174,12 @@ async function analyze(file){
     if(needH(i)) pts2[i]=await headInfer(cv,crop);
     if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,TOFF+Math.round(i*1000/fps))); }catch(e){} }
     done++; if(done%8===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.2+0.78*done/tot); await tick(); } },dm.rot,i=>needH(i)||needP(i));
+  return {n,fps,ci,pts2,pose,crop,ep,pd,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+}
+// 측정값 → 궤적·구간·진단 (폰에서 온 값이든 이 기기에서 뽑은 값이든 같은 규칙)
+function finish(D,file,T0){
+  const {n,fps,ci,pts2,pose,crop,ep,pd}=D; vfps=fps;
+  const a=Math.max(0,ci-Math.round(2.8*fps)), b=Math.min(n-1,ci+Math.round(1.3*fps));
   for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];
   let tr=A.fillGaps(A.clean(A.track(A.bodyFilter(A.staticFilter(pts2.map(p=>p||[])),pose),110),6,110),6);
   tr=A.clubLengthFilter(tr,pose.map(p=>p&&p.hands)).tr;
@@ -170,7 +195,7 @@ async function analyze(file){
   const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view);
-  R={crop,secs:(performance.now()-T0)/1000,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -212,8 +237,8 @@ function detailHtml(){
       <div class="dimt">투어 평균(참고): 탑 가슴 약 90°·골반 약 45°, 임팩트 때는 골반 약 40°·가슴 약 25° 타깃 쪽으로 열림. 카메라 1대 추정값이라 오차가 큽니다(특히 뒤에서 찍을 때).</div></div>`;
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
-    <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v63</div></div>`;
+    <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v64</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -287,8 +312,8 @@ if(new URLSearchParams(location.search).get("from")==="live"){ $("live").hidden=
 $("pick").onclick=()=>$("file").click();
 function idbGet(key){ return new Promise((res,rej)=>{ const q=indexedDB.open("swingclips",1); q.onupgradeneeded=()=>q.result.createObjectStore("c");
   q.onsuccess=()=>{ const g=q.result.transaction("c").objectStore("c").get(key); g.onsuccess=()=>res(g.result); g.onerror=()=>rej(g.error); }; q.onerror=()=>rej(q.error); }); }
-async function run(f){
-  try{ await analyze(f);
+async function run(f,det){
+  try{ await analyze(f,det);
     vid.src=URL.createObjectURL(f); await new Promise(r=>vid.addEventListener("loadedmetadata",r,{once:true}));
     $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false;
     results(true); seekFrame(R.ph.imp);
@@ -296,7 +321,7 @@ async function run(f){
 }
 $("file").onchange=()=>{ const f=$("file").files[0]; if(f) run(f); };
 const ck=new URLSearchParams(location.search).get("clip");
-if(ck) idbGet(ck).then(v=>{ if(v&&v.blob){ prog("폰에서 받은 영상: "+(v.name||"")+" 분석 시작",0.01); run(v.blob); } else prog("받은 영상이 없습니다. '영상 불러오기'를 눌러 주세요.",0); }).catch(e=>prog("저장된 영상을 읽지 못했습니다: "+e,0));
-window.__R=()=>R;
+if(ck) idbGet(ck).then(v=>{ if(v&&v.blob){ prog("폰에서 받은 영상: "+(v.name||"")+" 분석 시작",0.01); if(v.name&&!v.blob.name){ try{ v.blob.name=v.name; }catch(e){} } run(v.blob,v.det); } else prog("받은 영상이 없습니다. '영상 불러오기'를 눌러 주세요.",0); }).catch(e=>prog("저장된 영상을 읽지 못했습니다: "+e,0));
+window.__R=()=>R; window.__run=run;
 window.__show=async(r,url)=>{ R=r; vid.src=url; await new Promise(q=>vid.addEventListener("loadedmetadata",q,{once:true})); $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false; results(); seekFrame(R.ph.imp); };
 </script></body></html>

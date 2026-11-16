@@ -211,7 +211,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v63</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v64</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -525,7 +525,7 @@ function onRemoteData(d){
   if(!d) return;
   remoteLast=Date.now();
   if(d.t==="tilt"&&isFinite(d.pitch)&&isFinite(d.roll)){ tilt.pitch=+d.pitch; tilt.roll=+d.roll; tilt.ok=true; }
-  else if(d.t==="clipstart"||d.t==="clip"||d.t==="clipend"){ clipRecv(d,"last"); }
+  else if(d.t==="clipstart"||d.t==="clip"||d.t==="clipend"||d.t==="det"){ clipRecv(d,"last"); }
   else if(d.t==="saved"){ dlog("폰 원본 저장: "+String(d.name||"").slice(0,60)+" · "+(d.fps|0)+"fps · "+(d.frames|0)+"장"); toast("폰에 원본 저장됨 ("+(d.fps|0)+"fps) · 갤러리 동영상/SwingCam"); }
   else if(d.t==="info"){ camFps=isFinite(d.fps)?+d.fps:null; remoteZoom=isFinite(d.zoom)?+d.zoom:1; $("flip").textContent="폰 렌즈";
     dlog("폰 카메라: "+String(d.label||"").slice(0,40)+" "+(d.w|0)+"x"+(d.h|0)+" "+(camFps?Math.round(camFps)+"fps":"")); }
@@ -545,17 +545,33 @@ function openHS(key){
   try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
   location.href="replay/?clip="+encodeURIComponent(key)+"&from=live";
 }
+// 폰이 영상과 함께 분석 측정값(det)도 보낸다. 둘 다 오면 저장하고 분석 화면으로. 측정값이 안 오면(실패·60초 초과) 영상만으로 열어 아이패드가 분석.
+const clipSt={};
+function clipDone(key){ const s=clipSt[key]; if(!s||!s.clip||s.opened) return;
+  if(s.wantDet&&s.det===undefined){ clipBtn("영상 받음 · 폰에서 분석 중…",false,key); return; }
+  s.opened=true; clearTimeout(s.to);
+  idbPut(key,{blob:s.clip.blob,name:s.clip.name,fps:s.clip.fps,t:Date.now(),det:s.det||null})
+    .then(()=>{ clipBtn("▶ 고속 리플레이 분석 ("+s.clip.fps+"fps)",true,key); dlog("고속 원본 수신: "+s.clip.name+(s.det?" · 폰 분석 "+(s.det.secs||"?")+"초":" · 폰 분석 없음")); if(key==="last") openHS(key); })
+    .catch(e=>clipBtn("저장 실패: "+(e&&e.message||e),false,key)); }
 function clipRecv(d,key){
-  if(d.t==="clipstart"){ clipRxs[key]={id:d.id,n:d.n|0,name:String(d.name||""),fps:d.fps|0,parts:new Array(d.n|0),got:0}; clipBtn("고속 원본 받는 중… 0%",false,key); return; }
+  if(d.t==="clipstart"){ clipRxs[key]={id:d.id,n:d.n|0,name:String(d.name||""),fps:d.fps|0,parts:new Array(d.n|0),got:0};
+    if(clipSt[key]) clearTimeout(clipSt[key].to); clipSt[key]={id:d.id,wantDet:!!d.det,det:undefined,clip:null,dp:[],dg:0};
+    clipBtn("고속 원본 받는 중… 0%",false,key); return; }
+  if(d.t==="det"){ const s=clipSt[key]; if(!s||s.id!==d.id||s.det!==undefined) return;
+    if(d.err){ s.det=null; dlog("폰 분석 실패: "+String(d.err).slice(0,80)); clipDone(key); return; }
+    const i=d.i|0, n=d.n|0; if(i>=0&&i<n&&s.dp[i]===undefined&&typeof d.d==="string"){ s.dp[i]=d.d; s.dg++; }
+    if(n>0&&s.dg===n){ try{ s.det=JSON.parse(s.dp.join("")); }catch(e){ s.det=null; dlog("폰 분석값 해석 실패"); } s.dp=[]; clipDone(key); }
+    return; }
   const clipRx=clipRxs[key]; if(!clipRx||d.id!==clipRx.id) return;
   if(d.t==="clip"){ const i=d.i|0; if(i>=0&&i<clipRx.n&&!clipRx.parts[i]&&typeof d.d==="string"){
       const bin=atob(d.d), u=new Uint8Array(bin.length); for(let k=0;k<bin.length;k++) u[k]=bin.charCodeAt(k); clipRx.parts[i]=u; clipRx.got++;
       if(clipRx.got%25===0) clipBtn("고속 원본 받는 중… "+Math.round(clipRx.got/clipRx.n*100)+"%",false,key); } return; }
   if(d.t==="clipend"){ const r=clipRx; delete clipRxs[key];
     if(r.got!==r.n){ clipBtn("고속 원본 일부 누락 ("+r.got+"/"+r.n+")",false,key); return; }
-    idbPut(key,{blob:new Blob(r.parts,{type:"video/mp4"}),name:r.name,fps:r.fps,t:Date.now()})
-      .then(()=>{ clipBtn("▶ 고속 리플레이 분석 ("+r.fps+"fps)",true,key); dlog("고속 원본 수신: "+r.name); if(key==="last") openHS(key); })
-      .catch(e=>clipBtn("저장 실패: "+(e&&e.message||e),false,key)); }
+    const s=clipSt[key]; if(!s||s.id!==r.id) return;
+    s.clip={blob:new Blob(r.parts,{type:"video/mp4"}),name:r.name,fps:r.fps};
+    if(s.wantDet&&s.det===undefined) s.to=setTimeout(()=>{ if(s.det===undefined){ s.det=null; dlog("폰 분석 대기 시간 초과"); clipDone(key); } },60000);
+    clipDone(key); }
 }
 function remoteReset(){   // 폰 모드를 완전히 끄고 이 기기 카메라를 쓸 수 있게 되돌림
   remoteCode=null; remoteUp=false; clearInterval(remoteRetry); remoteRetry=null;
@@ -598,7 +614,7 @@ const cam2={code:null,peer:null,conn:null,up:false,last:0,retry:false,tilt:null,
         try{ if(this.conn) this.conn.close(); }catch(e){}
         const c=p.connect(PFX+code,{serialization:"json"}); this.conn=c;
         c.on("open",()=>{ dlog("2번 폰: 데이터 연결"); this.tag("폰 찾음 · 영상 기다리는 중"); });
-        c.on("data",d=>{ this.last=Date.now(); if(d&&d.t==="tilt"&&isFinite(d.pitch)&&isFinite(d.roll)) this.tilt={pitch:+d.pitch,roll:+d.roll}; else if(d&&(d.t==="clipstart"||d.t==="clip"||d.t==="clipend")) clipRecv(d,"last2"); });
+        c.on("data",d=>{ this.last=Date.now(); if(d&&d.t==="tilt"&&isFinite(d.pitch)&&isFinite(d.roll)) this.tilt={pitch:+d.pitch,roll:+d.roll}; else if(d&&(d.t==="clipstart"||d.t==="clip"||d.t==="clipend"||d.t==="det")) clipRecv(d,"last2"); });
         c.on("close",()=>this.lost("데이터 닫힘")); };
       p.on("open",()=>{ dlog("2번 폰: 중개 서버 접속"); go(); });
       p.on("error",e=>{ dlog("2번 폰 오류: "+(e&&e.type)); if(e.type==="peer-unavailable"&&!done){ this.tag("폰 찾는 중 · 번호 확인"); setTimeout(go,3000); } else fail(e.type); });
