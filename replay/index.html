@@ -65,7 +65,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석</div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v63</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -213,7 +213,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd}</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v63</div></div>`;
   return h;
 }
 const HK="swinghist";
