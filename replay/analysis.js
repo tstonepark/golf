@@ -83,7 +83,7 @@ export function curves(tr,ph,fps){
   const seg=(a,b,fill)=>{ const out=[]; let prev=null;
     for(let i=a;i<=b;i++){ const p=tr[i]; if(!p) continue;
       if(prev&&i-prev.i>1){ const g=i-prev.i;
-        if(fill&&g<=Math.round(0.06*fps)+1){ const v0=vel(prev.i,-1,g),v1=vel(i,1,g);
+        if(fill&&g<=Math.round(0.06*fps)+1&&Math.hypot(p[0]-prev.x,p[1]-prev.y)<90){   // only bridge short gaps; never draw a long guessed line const v0=vel(prev.i,-1,g),v1=vel(i,1,g);
           for(let s=1;s<g;s++){ const u=s/g,h00=2*u**3-3*u**2+1,h10=u**3-2*u**2+u,h01=-2*u**3+3*u**2,h11=u**3-u**2;
             out.push({i:prev.i+s,x:h00*prev.x+h10*v0[0]+h01*p[0]+h11*v1[0],y:h00*prev.y+h10*v0[1]+h01*p[1]+h11*v1[1],est:true}); } }
         else out.push(null); }
