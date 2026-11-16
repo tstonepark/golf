@@ -335,6 +335,7 @@ public class MainActivity extends Activity {
         saveBtn.setEnabled(false); saveBtn.setText("저장 중…");
         new Thread(() -> {
             File tmp = new File(getCacheDir(), "clip.mp4"); if (tmp.exists()) tmp.delete();
+            final long endAt = System.currentTimeMillis();
             int n = r.save(preUs, tmp, videoRot());
             String name = null;
             if (n > 0) {
@@ -356,7 +357,7 @@ public class MainActivity extends Activity {
                 saveBtn.setEnabled(true); saveBtn.setText("지금 원본 저장 (최근 12초)");
                 if (nm != null) { toast("원본 저장: 동영상/SwingCam/" + nm + " (" + nn + "장)");
                     try { sendData(new JSONObject().put("t", "saved").put("name", nm).put("fps", f).put("frames", nn).put("why", why)); } catch (Exception ignore) {}
-                    sendClip(tmp, nm, f, !"수동".equals(why)); }
+                    sendClip(tmp, nm, f, !"수동".equals(why), endAt); }
                 else toast("원본 저장 실패");
             });
         }).start();
@@ -399,10 +400,19 @@ public class MainActivity extends Activity {
             final int rot = videoRot();
             final int[] px = Analyzer.i420ToArgb(b.getDataY(), b.getStrideY(), b.getDataU(), b.getStrideU(), b.getDataV(), b.getStrideV(), sw, sh, rot);
             final int W2 = rot % 180 == 0 ? sw : sh, H2 = rot % 180 == 0 ? sh : sw; final long t = System.currentTimeMillis();
-            watchBusy = true;
+            watchBusy = true; wW = W2; wH = H2;
             Analyzer.EX.execute(() -> { try { onWatch(Analyzer.livePose(getApplicationContext(), px, W2, H2), t); } catch (Throwable e) { watchTxt = "골퍼 인식 오류"; } finally { watchBusy = false; } });
         } catch (Throwable e) { watchBusy = false;
         } finally { if (b != null) b.release(); if (sc != null) sc.release(); if (nb != null) nb.release(); }
+    }
+    private volatile long impactAt = 0; private final double[][] boxHist = new double[45][]; private int boxIdx = 0; private volatile int wW = 270, wH = 480;
+    /** 최근 6초 동안 실시간 감시가 본 골퍼 위치의 중앙값 [골반x, 골반y, 키(발목-코)] (화면 비율), 5장 미만이면 null */
+    private double[] liveBox() {
+        long now = System.currentTimeMillis(); java.util.ArrayList<double[]> v = new java.util.ArrayList<>();
+        synchronized (boxHist) { for (double[] e : boxHist) if (e != null && now - e[0] < 6000) v.add(e); }
+        if (v.size() < 5) return null; double[] o = new double[3];
+        for (int k = 0; k < 3; k++) { final int kk = k + 1; double[] a = new double[v.size()]; for (int i = 0; i < a.length; i++) a[i] = v.get(i)[kk]; java.util.Arrays.sort(a); o[k] = a[a.length >> 1]; }
+        return o[2] > 0.05 ? o : null;
     }
     private void onWatch(double[] p, long t) {
         if (p == null) { watchTxt = "골퍼 안 보임"; return; }
@@ -410,9 +420,10 @@ public class MainActivity extends Activity {
         double tl = Math.hypot(shX - hipX, shY - hipY); if (tl < 6) { watchTxt = "골퍼가 너무 작음"; return; }
         double h = (hipY - hy) / tl;   // 손 높이: 0=골반, 1=어깨
         watchTxt = "골퍼 인식됨";
+        synchronized (boxHist) { boxHist[boxIdx] = new double[]{t, hipX / wW, hipY / wH, ((p[19] + p[21]) / 2 - p[1]) / wH}; boxIdx = (boxIdx + 1) % boxHist.length; }
         if (h > 1.0) wTopAt = t;
         else if (h < 0.6 && wTopAt > 0 && t - wTopAt < 700 && t - wFired > 6000) {
-            wFired = t; wTopAt = 0;
+            wFired = t; wTopAt = 0; impactAt = t;
             ui.post(() -> toast("스윙 동작 감지 · 저장합니다"));
             ui.postDelayed(() -> saveClip("스윙", 7_000_000L), 1300);
         }
@@ -449,6 +460,7 @@ public class MainActivity extends Activity {
                 // 충격음: 최대값이 크고(전체의 약 35% 이상) 주변 소음보다 훨씬 큼
                 if (autoOn && peak > 11000 && rms > bg * 6 && now - lastHit > 5000) {
                     lastHit = now;
+                    if (now - impactAt > 1500) impactAt = now;   // 스윙 동작으로 이미 잡았으면 그 시각을 유지
                     float mv = recentMotion(1500);
                     if (mv < 0.02f) {   // 소리는 났지만 이 카메라 앞에서는 스윙이 없었음 → 옆 타석
                         ui.post(() -> toast("소리 감지 · 화면에 스윙이 없어 저장 안 함"));
@@ -468,7 +480,7 @@ public class MainActivity extends Activity {
     /** 저장한 원본을 아이패드로 전송 (데이터 채널, base64 조각). 아이패드가 직접 고속 분석한다. */
     private volatile int clipSeq = 0;
     private volatile boolean sending = false;
-    private void sendClip(File src, String name, int fps, boolean trim) {
+    private void sendClip(File src, String name, int fps, boolean trim, long srcEndAt) {
         if (dc == null || dc.state() != DataChannel.State.OPEN) return;
         final int id = ++clipSeq;
         new Thread(() -> {
@@ -477,14 +489,17 @@ public class MainActivity extends Activity {
             try {
                 // 자동 저장이면 스윙 구간(최근 5초)만 따로 묶어 보냄 → 전송량 약 30% 감소. 수동 저장은 전체.
                 int made = 0;
+                long endAt = System.currentTimeMillis();
                 if (trim && rr != null) { try { made = rr.save(5_000_000L, f, videoRot()); } catch (Exception e) { made = 0; } }
+                if (made <= 0) endAt = srcEndAt;
+                final long ago = (impactAt > 0 && endAt - impactAt > 0 && endAt - impactAt < 4500) ? endAt - impactAt : -1; final double[] box = liveBox();
                 if (made <= 0) try (InputStream in = new FileInputStream(src); OutputStream o = new java.io.FileOutputStream(f)) {
                     byte[] b = new byte[1 << 16]; int k; while ((k = in.read(b)) > 0) o.write(b, 0, k); }
                 sending = true;   // 전송 중에는 실시간 화면 전송을 쉬어 와이파이를 원본 전송에 몰아줌
                 long size = f.length(); final int CH = 12 * 1024; /* base64 후 약 16KB: 데이터 채널 메시지 한도(64KB)보다 충분히 작게 */ int n = (int) ((size + CH - 1) / CH);
                 // 폰에서 바로 분석(전송과 동시에). 측정값만 아이패드로 보내고, 실패하면 아이패드가 대신 분석한다.
                 sendData(new JSONObject().put("t", "clipstart").put("id", id).put("name", name).put("size", size).put("n", n).put("fps", fps).put("det", 1));
-                an = Analyzer.EX.submit(() -> analyzeAndSend(f, id));
+                an = Analyzer.EX.submit(() -> analyzeAndSend(f, id, ago, box));
                 byte[] b = new byte[CH];
                 try (InputStream in = new FileInputStream(f)) {
                     for (int i = 0; i < n; i++) {
@@ -504,9 +519,9 @@ public class MainActivity extends Activity {
     }
 
     /** 폰 안 분석 → 측정값(JSON)을 12KB씩 나눠 아이패드로 */
-    private void analyzeAndSend(File f, int id) {
+    private void analyzeAndSend(File f, int id, long ago, double[] box) {
         try {
-            Analyzer.Result r = Analyzer.run(getApplicationContext(), f, line -> status(line, false));
+            Analyzer.Result r = Analyzer.run(getApplicationContext(), f, line -> status(line, false), ago, box);
             String s = r.json; final int CH = 12000; int n = (s.length() + CH - 1) / CH;
             for (int i = 0; i < n; i++) sendData(new JSONObject().put("t", "det").put("id", id).put("i", i).put("n", n).put("d", s.substring(i * CH, Math.min(s.length(), (i + 1) * CH))));
             status(r.summary, false);

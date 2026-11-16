@@ -288,10 +288,13 @@ public class Analyzer {
     }
 
     // ---------- 전체 흐름 ----------
-    public static Result run(Context ctx, File f, Log log) throws Exception {
-        busy = true; try { return run0(ctx, f, log); } finally { busy = false; }
+    /** agoMs: 임팩트가 영상 끝에서 몇 ms 전인지(폰이 스윙 동작·공 소리로 이미 알고 있을 때, 모르면 -1).
+     *  box: 실시간 감시가 본 골퍼 위치 [골반x/W, 골반y/H, (발목-코)/H] (없으면 null).
+     *  둘 다 있으면 '스윙 위치 찾기(1차)'를 건너뛰어 시간을 절반 가까이 줄인다. 맞지 않으면 처음부터 2단계로 다시 한다. */
+    public static Result run(Context ctx, File f, Log log, long agoMs, double[] box) throws Exception {
+        busy = true; try { return run0(ctx, f, log, agoMs, box); } finally { busy = false; }
     }
-    private static Result run0(Context ctx, File f, Log log) throws Exception {
+    private static Result run0(Context ctx, File f, Log log, long agoMs, double[] box) throws Exception {
         long T0 = System.currentTimeMillis();
         if (log != null) log.line("스윙 분석 준비 중…");
         load(ctx);
@@ -299,28 +302,37 @@ public class Analyzer {
         final Clip c = open(f); final int n = c.n, W = c.W, H = c.H; final double fps = c.fps;
         final Bitmap bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
         final double[][] pose = new double[n][];
-        // 1차: 초당 약 20장만 뼈대 → 스윙(임팩트) 위치
-        final int ST = Math.max(1, (int) Math.round(fps / 20));
-        final long base1 = tsLast + 1000; final int[] cnt = {0}; final int n1 = (n + ST - 1) / ST;
-        decode(f, c, 0, n - 1, i -> i % ST == 0, (i, px) -> {
-            pose[i] = poseAt(bmp, px, W, H, base1 + Math.round(i * 1000.0 / fps));
-            if (++cnt[0] % 10 == 0 && log != null) log.line("스윙 분석 1/2 · " + (cnt[0] * 100 / n1) + "%"); });
-        final int ci = handsImpact(pose, n, fps);
-        if (ci < 0) throw new Exception("스윙을 찾지 못함");
+        int ciH = -1;
+        if (agoMs >= 0 && box != null && box.length >= 3) { int h = n - 1 - (int) Math.round(agoMs / 1000.0 * fps); if (h > 0.6 * fps && h < n - 0.1 * fps) ciH = h; }
+        final boolean hint = ciH >= 0; final int[] cnt = {0};
+        if (!hint) {
+            // 1차: 초당 약 20장만 뼈대 → 스윙(임팩트) 위치
+            final int ST = Math.max(1, (int) Math.round(fps / 20));
+            final long base1 = tsLast + 1000; final int n1 = (n + ST - 1) / ST;
+            decode(f, c, 0, n - 1, i -> i % ST == 0, (i, px) -> {
+                pose[i] = poseAt(bmp, px, W, H, base1 + Math.round(i * 1000.0 / fps));
+                if (++cnt[0] % 10 == 0 && log != null) log.line("스윙 분석 1/2 · " + (cnt[0] * 100 / n1) + "%"); });
+            ciH = handsImpact(pose, n, fps);
+            if (ciH < 0) throw new Exception("스윙을 찾지 못함");
+        }
+        final int ci0 = ciH;
         long T2 = System.currentTimeMillis();
         // 골퍼 주변 정사각형
         double M = Math.max(W, H), cx0 = (W - M) / 2, cy0 = (H - M) / 2, cs0 = M; boolean hasCrop = false;
         { ArrayList<Double> gh = new ArrayList<>(), hx = new ArrayList<>(), hy = new ArrayList<>();
-            for (int i = Math.max(0, ci - (int) Math.round(2.5 * fps)); i <= Math.min(n - 1, ci + (int) Math.round(0.5 * fps)); i++) { double[] p = pose[i]; if (p == null) continue;
+            if (hint) for (int k = 0; k < 4; k++) { gh.add(box[2] * H); hx.add(box[0] * W); hy.add(box[1] * H); }
+            else for (int i = Math.max(0, ci0 - (int) Math.round(2.5 * fps)); i <= Math.min(n - 1, ci0 + (int) Math.round(0.5 * fps)); i++) { double[] p = pose[i]; if (p == null) continue;
                 gh.add((p[19] + p[21]) / 2 - p[1]); hx.add((p[14] + p[16]) / 2); hy.add((p[15] + p[17]) / 2); }
             if (gh.size() >= 4) { double g = Math.max(60, med(gh)), mx = med(hx), my = med(hy) - 0.12 * g, S = Math.max(380, Math.min(M, 2.25 * g));
                 cx0 = S <= W ? Math.max(0, Math.min(W - S, mx - S / 2)) : (W - S) / 2; cy0 = S <= H ? Math.max(0, Math.min(H - S, my - S / 2)) : (H - S) / 2; cs0 = S; hasCrop = true; } }
         final double cx = cx0, cy = cy0, cs = cs0;
         // 2차: 다운스윙 주변은 촘촘히, 나머지는 듬성듬성
-        final int a = Math.max(0, ci - (int) Math.round(2.8 * fps)), b = Math.min(n - 1, ci + (int) Math.round(1.3 * fps));
-        final int d0 = ci - (int) Math.round(0.45 * fps), dm0 = ci - (int) Math.round(0.15 * fps), d1 = ci + (int) Math.round(0.15 * fps);
+        // (임팩트 위치를 미리 받은 경우 ±0.15초쯤 틀릴 수 있어 촘촘한 구간을 넓게, 대신 느린 구간의 뼈대는 초당 20장)
+        final int a = Math.max(0, ci0 - (int) Math.round(2.8 * fps)), b = Math.min(n - 1, ci0 + (int) Math.round(1.3 * fps));
+        final double zPre = hint ? 0.6 : 0.45, zEv = hint ? 0.3 : 0.15; final int SP = hint ? 12 : 6;
+        final int d0 = ci0 - (int) Math.round(zPre * fps), dm0 = ci0 - (int) Math.round(zEv * fps), d1 = ci0 + (int) Math.round(zEv * fps);
         final Want needH = i -> (i >= dm0 && i <= d1) || (i >= d0 && i < dm0 && i % 2 == 0) || i % 6 == 0;
-        final Want needP = i -> pose[i] == null && ((i >= d0 && i <= d1 && i % 3 == 0) || i % 6 == 0);
+        final Want needP = i -> pose[i] == null && ((i >= d0 && i <= d1 && i % 3 == 0) || i % SP == 0);
         int tot0 = 0; for (int i = a; i <= b; i++) if (needH.at(i) || needP.at(i)) tot0++;
         final int tot = Math.max(1, tot0); cnt[0] = 0;
         final long base2 = tsLast + 5000;
@@ -329,9 +341,14 @@ public class Analyzer {
         decode(f, c, a, b, i -> needH.at(i) || needP.at(i), (i, px) -> {
             if (needH.at(i)) { sem.acquire(); futs.add(HEADX.submit(() -> { try { pts[i] = headAt(px, W, H, cx, cy, cs); } catch (Throwable e) { pts[i] = null; } finally { sem.release(); } })); }
             if (needP.at(i)) pose[i] = poseAt(bmp, px, W, H, base2 + Math.round(i * 1000.0 / fps));
-            if (thumb[0] == null && i >= ci - (int) Math.round(0.5 * fps)) thumb[0] = px;   // 확인용: 폰이 실제로 분석한 화면 1장
+            if (thumb[0] == null && i >= ci0 - (int) Math.round(0.5 * fps)) thumb[0] = px;   // 확인용: 폰이 실제로 분석한 화면 1장
             if (++cnt[0] % 12 == 0 && log != null) log.line("스윙 분석 2/2 · " + (cnt[0] * 100 / tot) + "%"); });
         for (Future<?> fu : futs) fu.get();
+        int ci = ci0;
+        if (hint) {   // 미리 받은 위치가 실제 뼈대 움직임과 맞는지 확인. 안 맞으면 처음부터 2단계로
+            ci = handsImpact(pose, n, fps);
+            if (ci < 0 || Math.abs(ci - ci0) > 0.35 * fps) { if (log != null) log.line("스윙 위치 재확인 중…"); return run0(ctx, f, log, -1, null); }
+        }
         long T3 = System.currentTimeMillis();
         // 측정값만 JSON으로 (판정은 화면 쪽)
         StringBuilder sb = new StringBuilder(1 << 18); int nPose = 0, nHead = 0;
@@ -346,7 +363,7 @@ public class Analyzer {
             sb.append('[').append(i); for (int k = 0; k < p.length; k++) sb.append(',').append(num(p[k], k % 3 == 0 ? 2 : 1)); sb.append(']'); }
         double secs = (System.currentTimeMillis() - T0) / 1000.0;
         sb.append("],\"secs\":").append(num(secs, 1)).append(",\"ms\":[").append(T1 - T0).append(',').append(T2 - T1).append(',').append(T3 - T2)
-          .append("],\"eng\":\"").append(headDev).append('/').append(poseDev).append('"');
+          .append("],\"hint\":").append(hint ? 1 : 0).append(",\"eng\":\"").append(headDev).append('/').append(poseDev).append('"');
         if (thumb[0] != null) try {
             Bitmap full = Bitmap.createBitmap(thumb[0], W, H, Bitmap.Config.ARGB_8888), sm = Bitmap.createScaledBitmap(full, W / 2, H / 2, true);
             java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); sm.compress(Bitmap.CompressFormat.JPEG, 60, bo);
@@ -354,7 +371,7 @@ public class Analyzer {
         } catch (Throwable ignore) {}
         sb.append('}');
         Result r = new Result(); r.json = sb.toString();
-        r.summary = String.format(Locale.US, "폰 분석 %.1f초 (준비 %.1f · 1차 %.1f · 2차 %.1f) 뼈대 %d · 헤드 %d장", secs, (T1 - T0) / 1000.0, (T2 - T1) / 1000.0, (T3 - T2) / 1000.0, nPose, nHead);
+        r.summary = String.format(Locale.US, "폰 분석 %.1f초 (준비 %.1f · 1차 %.1f · 2차 %.1f)" + (hint ? " 빠른 경로" : "") + " 뼈대 %d · 헤드 %d장", secs, (T1 - T0) / 1000.0, (T2 - T1) / 1000.0, (T3 - T2) / 1000.0, nPose, nHead);
         return r;
     }
     private static String num(double v, int dec) {
