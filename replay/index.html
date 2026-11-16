@@ -156,6 +156,10 @@ async function analyze(file){
   let ph=view==="dtl"? A.phases(tr,fps,pose.map(p=>p&&p.hands)) : null;
   if(!ph||ph.top<0||ph.imp-ph.top<0.15*fps||(phP&&Math.abs(ph.imp-phP.imp)>0.12*fps)) ph=phP||ph;
   if(!ph) throw new Error("스윙 구간을 판정하지 못했습니다.");
+  { const seenD=tr.slice(ph.top,ph.imp+1).filter(Boolean).length, nP=pose.slice(ph.start,ph.imp+1).filter(Boolean).length;
+    const P0=pose[ph.start]||pose.find(Boolean);
+    const rise=P0&&pose[ph.top]? P0.hands[1]-pose[ph.top].hands[1] : 0, tl=P0? Math.hypot(P0.sh[0]-P0.hip[0],P0.sh[1]-P0.hip[1]) : 1;
+    if(nP<5||rise<0.6*tl) throw new Error("이 영상에서는 골퍼의 스윙을 찾지 못했습니다(손이 어깨 위로 올라가는 동작이 없음). 옆 타석 소리로 저장된 영상일 수 있습니다. 골퍼가 화면 가운데에 전신이 보이게 찍힌 영상을 골라 주세요."); }
   const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view);
