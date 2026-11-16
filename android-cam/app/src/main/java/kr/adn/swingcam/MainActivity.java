@@ -206,7 +206,7 @@ public class MainActivity extends Activity {
         codeTv.setText(code);
         updShutterBtn(); updSpeedBtn(); updAutoBtn();
     }
-    private void updAutoBtn() { autoBtn.setText(autoOn ? "공 맞는 소리로 자동 저장: 켬" : "공 맞는 소리로 자동 저장: 끔"); }
+    private void updAutoBtn() { autoBtn.setText(autoOn ? "자동 저장(스윙 동작·공 소리): 켬" : "자동 저장(스윙 동작·공 소리): 끔"); }
 
     private void updSpeedBtn() { speedBtn.setText(hs ? "원본: 240fps 고속" : "원본: 60fps"); }
     private void updShutterBtn() {
@@ -253,6 +253,7 @@ public class MainActivity extends Activity {
             // 아이패드로는 최대 60fps만 (시간 기준: 미리보기 프레임이 드물게 와도 더 줄이지 않음)
             long tn = frame.getTimestampNs();
             if (tn - lastMotNs > 66_000_000L) { lastMotNs = tn; measureMotion(frame); }
+            if (autoOn && !watchBusy && !Analyzer.busy && tn - lastWatchNs > 60_000_000L) { lastWatchNs = tn; watch(frame); }
             if (sending) return;
             if (hs && tn - lastFwdNs < 15_000_000L) return; lastFwdNs = tn;
             VideoFrame.Buffer nb = SwingFrameUtil.undoRotation(frame.getBuffer(), -sensorOrientation);
@@ -385,6 +386,38 @@ public class MainActivity extends Activity {
         } catch (Exception ignore) {
         } finally { if (b != null) b.release(); }
     }
+    // ---------- 스윙 동작 감지 (폰 자체 판단 · 아이패드 화면 인식에 기대지 않음) ----------
+    // 초당 약 15번 작은 화면에서 뼈대를 찾아, 손이 어깨 위로 올라갔다가 0.7초 안에 골반 쪽으로 내려오면 스윙으로 보고 저장.
+    private long lastWatchNs = 0; private volatile boolean watchBusy = false; private volatile String watchTxt = "골퍼 찾는 중";
+    private long wTopAt = 0, wFired = 0;
+    private void watch(VideoFrame frame) {
+        VideoFrame.Buffer nb = null, sc = null; VideoFrame.I420Buffer b = null;
+        try {
+            nb = SwingFrameUtil.undoRotation(frame.getBuffer(), -sensorOrientation);
+            int bw = nb.getWidth(), bh = nb.getHeight(); final int sw = bw >= bh ? 480 : 270, sh = bw >= bh ? 270 : 480;
+            sc = nb.cropAndScale(0, 0, bw, bh, sw, sh); b = sc.toI420();
+            final int rot = videoRot();
+            final int[] px = Analyzer.i420ToArgb(b.getDataY(), b.getStrideY(), b.getDataU(), b.getStrideU(), b.getDataV(), b.getStrideV(), sw, sh, rot);
+            final int W2 = rot % 180 == 0 ? sw : sh, H2 = rot % 180 == 0 ? sh : sw; final long t = System.currentTimeMillis();
+            watchBusy = true;
+            Analyzer.EX.execute(() -> { try { onWatch(Analyzer.livePose(getApplicationContext(), px, W2, H2), t); } catch (Throwable e) { watchTxt = "골퍼 인식 오류"; } finally { watchBusy = false; } });
+        } catch (Throwable e) { watchBusy = false;
+        } finally { if (b != null) b.release(); if (sc != null) sc.release(); if (nb != null) nb.release(); }
+    }
+    private void onWatch(double[] p, long t) {
+        if (p == null) { watchTxt = "골퍼 안 보임"; return; }
+        double shX = (p[2] + p[4]) / 2, shY = (p[3] + p[5]) / 2, hipX = (p[14] + p[16]) / 2, hipY = (p[15] + p[17]) / 2, hy = (p[7] + p[9] + p[11] + p[13]) / 4;
+        double tl = Math.hypot(shX - hipX, shY - hipY); if (tl < 6) { watchTxt = "골퍼가 너무 작음"; return; }
+        double h = (hipY - hy) / tl;   // 손 높이: 0=골반, 1=어깨
+        watchTxt = "골퍼 인식됨";
+        if (h > 1.0) wTopAt = t;
+        else if (h < 0.6 && wTopAt > 0 && t - wTopAt < 700 && t - wFired > 6000) {
+            wFired = t; wTopAt = 0;
+            ui.post(() -> toast("스윙 동작 감지 · 저장합니다"));
+            ui.postDelayed(() -> saveClip("스윙", 7_000_000L), 1300);
+        }
+    }
+
     /** 최근 ms 동안 화면 가운데에서 가장 크게 바뀐 비율(0~1). 내 스윙이면 다운스윙 때 크게 튄다. */
     private float recentMotion(long ms) {
         long now = System.currentTimeMillis(); float mx = 0;
@@ -555,7 +588,7 @@ public class MainActivity extends Activity {
                 levelTv.setTextColor(bad ? Color.rgb(255, 138, 101) : Color.rgb(88, 214, 141));
             }
             infoTv.setText(String.format("%dx%d · 원본 녹화 %.0ffps · 화면 %.0ffps · 셔터 %s · ISO %d", W, H, recFps, camFps,
-                    curExp > 0 ? "1/" + Math.round(1e9 / curExp) : "?", curIso));
+                    curExp > 0 ? "1/" + Math.round(1e9 / curExp) : "?", curIso) + (autoOn ? " · " + watchTxt : ""));
             if (dc != null && dc.state() == DataChannel.State.OPEN) {
                 try {
                     if (pitch != null) sendData(new JSONObject().put("t", "tilt").put("pitch", pitch).put("roll", roll));

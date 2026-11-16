@@ -264,8 +264,34 @@ public class Analyzer {
     }
     private static double med(ArrayList<Double> v) { Collections.sort(v); return v.get(v.size() >> 1); }
 
+    // ---------- 실시간 감시(스윙 동작 감지용): 작은 화면 1장의 뼈대 ----------
+    public static volatile boolean busy = false;
+    private static Bitmap liveBmp;
+    /** 반환: KP 순서의 x,y(픽셀) … 사람을 못 찾으면 null. EX 스레드에서만 부를 것 */
+    public static double[] livePose(Context ctx, int[] px, int W, int H) throws Exception {
+        load(ctx);
+        if (liveBmp == null || liveBmp.getWidth() != W || liveBmp.getHeight() != H) liveBmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        return poseAt(liveBmp, px, W, H, tsLast + 60);
+    }
+    /** I420(센서 방향) → 회전을 반영한 ARGB. 작은 화면용(단순 추출) */
+    public static int[] i420ToArgb(ByteBuffer y, int ys, ByteBuffer u, int us, ByteBuffer v, int vs, int w, int h, int rot) {
+        boolean swap = rot == 90 || rot == 270; int W = swap ? h : w, H = swap ? w : h; int[] out = new int[W * H];
+        for (int dy = 0; dy < H; dy++) for (int dx = 0; dx < W; dx++) {
+            int sx, sy;
+            if (rot == 90) { sx = dy; sy = h - 1 - dx; } else if (rot == 270) { sx = w - 1 - dy; sy = dx; } else if (rot == 180) { sx = w - 1 - dx; sy = h - 1 - dy; } else { sx = dx; sy = dy; }
+            int cc = (y.get(sy * ys + sx) & 255) - 16, d = (u.get((sy >> 1) * us + (sx >> 1)) & 255) - 128, e = (v.get((sy >> 1) * vs + (sx >> 1)) & 255) - 128; if (cc < 0) cc = 0;
+            int r = (298 * cc + 409 * e + 128) >> 8, g = (298 * cc - 100 * d - 208 * e + 128) >> 8, bl = (298 * cc + 516 * d + 128) >> 8;
+            if (r < 0) r = 0; else if (r > 255) r = 255; if (g < 0) g = 0; else if (g > 255) g = 255; if (bl < 0) bl = 0; else if (bl > 255) bl = 255;
+            out[dy * W + dx] = 0xff000000 | (r << 16) | (g << 8) | bl;
+        }
+        return out;
+    }
+
     // ---------- 전체 흐름 ----------
     public static Result run(Context ctx, File f, Log log) throws Exception {
+        busy = true; try { return run0(ctx, f, log); } finally { busy = false; }
+    }
+    private static Result run0(Context ctx, File f, Log log) throws Exception {
         long T0 = System.currentTimeMillis();
         if (log != null) log.line("스윙 분석 준비 중…");
         load(ctx);
