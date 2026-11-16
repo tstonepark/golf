@@ -93,6 +93,7 @@ public class MainActivity extends Activity {
     private static final int W = 1920, H = 1080, FPS = 60;
     private boolean hs;                       // 고속(240fps) 모드
     private RingRecorder rr; private Surface recSurface;
+    private Button autoBtn; private boolean autoOn = true; private volatile long lastSaveAt = 0; private Thread mic; private volatile boolean micRun = false;
     private int fwd = 0;                      // 고속일 때 아이패드로는 4장 중 1장만(60fps)
     private Button speedBtn, saveBtn;
     private static final long[] SHUTTERS = {0, 500, 1000, 2000};   // 0 = 자동, 나머지 1/n 초
@@ -140,17 +141,19 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("swingcam", MODE_PRIVATE);
         shutterIdx = prefs.getInt("shutter", 2);
         hs = prefs.getBoolean("hs", false);
+        autoOn = prefs.getBoolean("auto", true);
         code = prefs.getString("code", null);
         if (code == null) newCode();
         buildUi();
         checkUpdate();
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, 1);
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO}, 1);
         else startAll();
     }
 
     @Override public void onRequestPermissionsResult(int rc, String[] p, int[] r) {
-        if (r.length > 0 && r[0] == PackageManager.PERMISSION_GRANTED) startAll();
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startAll();
         else status("카메라 권한이 필요합니다. 설정 → 애플리케이션 → 스윙 카메라 → 권한", true);
     }
 
@@ -188,12 +191,15 @@ public class MainActivity extends Activity {
         row2.addView(speedBtn, new LinearLayout.LayoutParams(0, 170, 1));
         row2.addView(saveBtn, new LinearLayout.LayoutParams(0, 170, 1));
         root.addView(row2);
+        autoBtn = btn(""); autoBtn.setOnClickListener(v -> { autoOn = !autoOn; prefs.edit().putBoolean("auto", autoOn).apply(); updAutoBtn(); });
+        root.addView(autoBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
         updBtn = btn("업데이트 확인 중…"); updBtn.setEnabled(false);
         root.addView(updBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140));
         setContentView(root);
         codeTv.setText(code);
-        updShutterBtn(); updSpeedBtn();
+        updShutterBtn(); updSpeedBtn(); updAutoBtn();
     }
+    private void updAutoBtn() { autoBtn.setText(autoOn ? "공 맞는 소리로 자동 저장: 켬" : "공 맞는 소리로 자동 저장: 끔"); }
 
     private void updSpeedBtn() { speedBtn.setText(hs ? "원본: 240fps 고속" : "원본: 60fps"); }
     private void updShutterBtn() {
@@ -215,6 +221,7 @@ public class MainActivity extends Activity {
 
     // ---------- 시작 ----------
     private void startAll() {
+        startMic();
         egl = EglBase.create();
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(getApplicationContext()).createInitializationOptions());
         factory = PeerConnectionFactory.builder()
@@ -307,6 +314,9 @@ public class MainActivity extends Activity {
     /** 최근 6초 폰 원본을 갤러리(동영상/SwingCam)에 저장하고 아이패드에 알림 */
     private void saveClip(String why, long preUs) {
         if (rr == null) { toast("원본 녹화기가 없습니다"); return; }
+        long now = System.currentTimeMillis();
+        if (!"수동".equals(why) && now - lastSaveAt < 6000) return;   // 소리·아이패드 신호가 겹치면 한 번만
+        lastSaveAt = now;
         final RingRecorder r = rr; final int f = r.fps;
         saveBtn.setEnabled(false); saveBtn.setText("저장 중…");
         new Thread(() -> {
@@ -336,6 +346,41 @@ public class MainActivity extends Activity {
                 else toast("원본 저장 실패");
             });
         }).start();
+    }
+
+    /** 마이크로 공 맞는 소리(짧고 큰 충격음)를 감지 → 1.5초 뒤 최근 7초 저장. 아이패드 없이도 동작. */
+    private void startMic() {
+        if (mic != null || checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
+        micRun = true;
+        mic = new Thread(() -> {
+            final int SR = 16000, N = 160;   // 10ms 단위
+            int min = android.media.AudioRecord.getMinBufferSize(SR, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT);
+            android.media.AudioRecord ar;
+            try { ar = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.UNPROCESSED, SR, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, Math.max(min, SR)); }
+            catch (Exception e) { return; }
+            if (ar.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
+                try { ar.release(); ar = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.MIC, SR, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, Math.max(min, SR)); } catch (Exception e) { return; }
+            }
+            short[] b = new short[N]; double bg = 300; long lastHit = 0;
+            try { ar.startRecording(); } catch (Exception e) { ar.release(); return; }
+            while (micRun) {
+                int k = ar.read(b, 0, N); if (k <= 0) continue;
+                double sum = 0; int peak = 0;
+                for (int i = 0; i < k; i++) { int a = Math.abs(b[i]); sum += (double) a * a; if (a > peak) peak = a; }
+                double rms = Math.sqrt(sum / k);
+                long now = System.currentTimeMillis();
+                // 충격음: 최대값이 크고(전체의 약 35% 이상) 주변 소음보다 훨씬 큼
+                if (autoOn && peak > 11000 && rms > bg * 6 && now - lastHit > 5000) {
+                    lastHit = now;
+                    ui.post(() -> toast("공 맞는 소리 감지 · 저장합니다"));
+                    ui.postDelayed(() -> saveClip("소리", 7_000_000L), 1500);
+                }
+                bg = bg * 0.995 + Math.min(rms, bg * 3) * 0.005;   // 주변 소음(충격음은 거의 반영 안 함)
+            }
+            try { ar.stop(); } catch (Exception ignore) {}
+            ar.release();
+        });
+        mic.start();
     }
 
     /** 저장한 원본을 아이패드로 전송 (데이터 채널, base64 조각). 아이패드가 직접 고속 분석한다. */
@@ -684,6 +729,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        micRun = false;
         super.onDestroy();
         ui.removeCallbacks(tick);
         closeRemote();
