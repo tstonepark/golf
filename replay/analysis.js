@@ -221,3 +221,18 @@ export function posture(pose,ph,fps,view){
   if(view==="dtl"){ o.hipFwdImp=pct((I.hip[0]-A.hip[0])*toBall); o.hipFwdTop=pct((T.hip[0]-A.hip[0])*toBall); o.headFwdImp=pct((I.nose[0]-A.nose[0])*toBall); }
   return o;
 }
+
+// ---------- comparison metrics (pose only: works for any club / background) ----------
+// All lengths are % of the golfer's own torso length, so two different bodies / zoom levels can be compared.
+// dir: +1/-1 so that "+" always means toward the ball (down-the-line) or toward the target (face-on).
+export function cmpMetrics(pose,ph,fps,view){
+  const g=i=>pose[i]||nearest(pose,i), A=g(ph.start), T=g(ph.top), I=g(ph.imp);
+  if(!A||!T||!I||!A.hip||!A.nose) return null;
+  const tl=Math.max(1,hyp(A.sh[0]-A.hip[0],A.sh[1]-A.hip[1]));
+  const dir=view==="dtl"? (Math.sign(A.hands[0]-A.hip[0])||1) : (-Math.sign(T.hands[0]-A.hands[0])||1);
+  const tilt=P=>Math.atan2((P.sh[0]-P.hip[0])*dir,P.hip[1]-P.sh[1])*180/Math.PI;
+  const at=P=>({tilt:tilt(P),handH:(P.hip[1]-P.hands[1])/tl*100,handX:(P.hands[0]-P.hip[0])*dir/tl*100,
+    headX:(P.nose[0]-A.nose[0])*dir/tl*100,headY:(A.nose[1]-P.nose[1])/tl*100,hipX:(P.hip[0]-A.hip[0])*dir/tl*100});
+  const back=(ph.top-ph.start)/fps, down=(ph.imp-ph.top)/fps;
+  return {tempo:{back,down,ratio:down>0?back/down:null},addr:{tilt:tilt(A)},top:at(T),imp:at(I)};
+}

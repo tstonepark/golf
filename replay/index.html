@@ -10,6 +10,11 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 #left{display:flex;flex-direction:column;min-height:0;min-width:0}
 #stage{position:relative;flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
 video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+#mainv{position:absolute;inset:0}
+#refv{position:absolute;top:0;bottom:0;right:0;width:50%;border-left:2px solid var(--line);background:#000}
+#stage.cmp #mainv{right:50%}
+#reftag{position:absolute;right:8px;top:8px;font-size:18px;font-weight:800;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:8px;color:var(--back)}
+.cmpt td.d{font-weight:800}
 #ov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #ctl{display:flex;flex-wrap:wrap;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
 button{font-size:21px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:#20302a;color:var(--ink);flex:1 1 auto;min-width:96px}
@@ -60,12 +65,13 @@ input[type=file]{display:none}
 <div id="app">
   <div id="left">
     <div id="stage">
-      <video id="vid" playsinline muted preload="auto"></video>
-      <canvas id="ov"></canvas>
+      <div id="mainv"><video id="vid" playsinline muted preload="auto"></video>
+      <canvas id="ov"></canvas></div>
+      <div id="refv" hidden><video id="rv" playsinline muted preload="auto"></video><div id="reftag">기준(프로)</div></div>
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v68</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v69</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -76,6 +82,7 @@ input[type=file]{display:none}
       <button id="prev">◀ 1프레임</button><button id="next">1프레임 ▶</button>
       <button data-j="start">어드레스</button><button data-k="p2">테이크백</button><button data-j="top">탑</button><button data-k="p6">다운 중간</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
       <button id="lines" class="on">선 표시</button>
+      <button id="cmpb" hidden>비교 보기</button>
       <button id="savev">영상 저장</button>
       <button id="again">다른 영상</button>
       <button id="live" hidden>← 실시간 화면</button>
@@ -204,8 +211,8 @@ function finish(D,file,T0){
     if(nP<5||rise<0.6*tl) throw new Error("이 영상에서는 골퍼의 스윙을 찾지 못했습니다(손이 어깨 위로 올라가는 동작이 없음). 옆 타석 소리로 저장된 영상일 수 있습니다. 골퍼가 화면 가운데에 전신이 보이게 찍힌 영상을 골라 주세요."); }
   const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
-  const po=A.posture(pose,ph,fps,view);
-  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
+  const po=A.posture(pose,ph,fps,view), M=A.cmpMetrics(pose,ph,fps,view);
+  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -248,7 +255,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v68</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v69</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -270,21 +277,79 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v68</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v69</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
   h+=`<details><summary>양호한 항목 ${D.good.length}가지</summary>${D.good.map(card).join("")}</details>`;
+  h+=`<h2>프로(기준) 영상과 비교</h2>`+cmpHtml();
   h+=`<h2>스윙 기록 비교</h2><div class="card">${histHtml()}</div>`;
   h+=`<details><summary>상세 수치</summary>${detailHtml()}</details>`;
   h+=`<div class="dimt">기준 범위는 투어·레슨에서 흔히 쓰는 참고값입니다. 신뢰도 '낮음' 항목은 카메라 1대 추정이라 방향만 참고하세요.</div>`;
   $("res").innerHTML=h;
   for(const k of ["p2","p6"]){ const b=document.querySelector(`[data-k="${k}"]`); if(b) b.hidden=!(R.po&&R.po[k]!=null); }
 }
+// ---------- 기준(프로) 영상과 비교: 뼈대 기반 수치 + 같은 순간끼리 나란히 보기 ----------
+let ref=null, cmpOn=false;
+const VN={dtl:"후면",face:"정면",angle:"비스듬"};
+function isRef(){ return ref&&R&&ref.name===R.name&&ref.ph&&ref.ph.imp===R.ph.imp&&ref.n===R.n; }
+function cmpHtml(){
+  const reg=`<button data-act="setref" style="width:100%;margin-top:8px">이 영상을 ${VN[R.view]||""} 기준(프로)으로 등록</button>`;
+  if(!R.M) return `<div class="card"><div class="dimt">자세를 충분히 찾지 못해 비교 수치를 만들지 못했습니다.</div></div>`;
+  if(!ref||!ref.M) return `<div class="card"><div class="dimt">${VN[R.view]||""} 방향 기준 영상이 아직 없습니다. 프로 영상을 먼저 분석한 뒤 아래 버튼으로 등록하면, 이후 내 스윙을 분석할 때마다 자동으로 비교합니다.</div>${reg}</div>`;
+  if(isRef()) return `<div class="card"><div class="big ok">이 영상이 현재 ${VN[R.view]||""} 기준입니다</div><div class="dimt">이제 내 스윙을 분석하면 이 영상과 비교됩니다.</div><button data-act="delref" style="width:100%;margin-top:8px">기준 해제</button></div>`;
+  const a=R.M, b=ref.M, plus=R.view==="dtl"?"공 쪽":"타깃 쪽", minus=R.view==="dtl"?"몸 쪽":"타깃 반대쪽";
+  // [구간, 항목, 내 값, 기준 값, 자릿수, 단위, '차이 큼' 문턱, 차이 설명(+,-)]
+  const rows=[
+    ["템포","백스윙 시간",a.tempo.back,b.tempo.back,2,"초",0.15,["김","짧음"]],
+    ["템포","다운스윙 시간",a.tempo.down,b.tempo.down,2,"초",0.05,["김","짧음"]],
+    ["템포","백:다운 비율",a.tempo.ratio,b.tempo.ratio,1,"",0.5,["큼","작음"]],
+    ["어드레스","척추 숙임",a.addr.tilt,b.addr.tilt,0,"°",6,["더 숙임","더 섬"]],
+    ...["top","imp"].flatMap(k=>{ const n=k==="top"?"탑":"임팩트", x=a[k], y=b[k]; return [
+      [n,"손 높이",x.handH,y.handH,0,"",k==="top"?15:10,["높음","낮음"]],
+      [n,"손 위치",x.handX,y.handX,0,"",k==="top"?15:12,[plus,minus]],
+      [n,"척추 숙임",x.tilt,y.tilt,0,"°",6,["더 숙임","더 섬"]],
+      [n,"머리 좌우",x.headX,y.headX,0,"",6,[plus,minus]],
+      [n,"머리 상하",x.headY,y.headY,0,"",6,["들림","내려감"]],
+      [n,"골반 이동",x.hipX,y.hipX,0,"",6,[plus,minus]]]; })];
+  const ok=v=>v!=null&&isFinite(v), f=(v,d)=>ok(v)?v.toFixed(d):"측정 안 됨";
+  const big=rows.filter(r=>ok(r[2])&&ok(r[3])&&Math.abs(r[2]-r[3])>r[6]).sort((p,q)=>Math.abs(q[2]-q[3])/q[6]-Math.abs(p[2]-p[3])/p[6]);
+  const say=r=>{ const d=r[2]-r[3]; return `${r[0]} · ${r[1]}: 기준보다 ${Math.abs(d).toFixed(r[4])}${r[5]} ${d>0?r[7][0]:r[7][1]}`; };
+  let h=`<div class="card"><div class="big ${big.length?"warn":"ok"}">${big.length?`차이가 큰 항목 ${big.length}가지`:"큰 차이 없음"}</div>`;
+  h+=big.slice(0,4).map(r=>`<div class="row"><span>${say(r)}</span></div>`).join("");
+  h+=`<div class="tw"><table class="cmpt"><tr><th></th><th>나</th><th>기준</th><th>차이</th></tr>`+rows.map(r=>{ const d=ok(r[2])&&ok(r[3])? r[2]-r[3] : null;
+    return `<tr><td>${r[0]} ${r[1]}</td><td>${f(r[2],r[4])}${ok(r[2])?r[5]:""}</td><td>${f(r[3],r[4])}${ok(r[3])?r[5]:""}</td><td class="d ${d!=null&&Math.abs(d)>r[6]?"warn":""}">${d==null?"-":(d>0?"+":"")+d.toFixed(r[4])}</td></tr>`; }).join("")+`</table></div>
+    <div class="dimt">기준: ${ref.name||"이름 없음"}. 길이는 각자 몸통 길이를 100으로 본 값(손 높이 0=골반·100=어깨), +는 ${plus}. 뼈대 추정이라 5 안팎은 오차입니다. 체형·클럽이 달라 차이가 곧 잘못은 아니니 참고로 보세요.</div>${reg}</div>`;
+  return h;
+}
+// 내 영상의 프레임 → 기준 영상의 같은 순간(어드레스·탑·임팩트·피니시 사이를 비율로)
+function refFrame(i){ const p=R.ph, q=ref.ph, seg=[["start","top"],["top","imp"],["imp","fin"]];
+  if(i<=p.start) return Math.max(0,q.start-Math.round((p.start-i)/R.fps*ref.fps));
+  for(const [u,v] of seg) if(i<=p[v]) return Math.round(q[u]+(i-p[u])/Math.max(1,p[v]-p[u])*(q[v]-q[u]));
+  return Math.min(ref.n-1,q.fin+Math.round((i-p.fin)/R.fps*ref.fps)); }
+function syncRef(force){ const rv=$("rv"); if(!cmpOn||!ref||!R||!rv.duration) return;
+  const t=Math.max(0,Math.min(rv.duration-0.001,(refFrame(frameAt($("vid").currentTime))+0.5)/ref.fps));
+  if(force||Math.abs(rv.currentTime-t)>(($("vid").paused)?0.5/ref.fps:0.05)) rv.currentTime=t; }
+function setCmp(on){ cmpOn=!!on&&!!ref&&!!ref.blob&&!isRef(); $("stage").classList.toggle("cmp",cmpOn); $("refv").hidden=!cmpOn; $("cmpb").classList.toggle("on",cmpOn);
+  $("cmpb").hidden=!(ref&&ref.blob&&R&&!isRef()); if(cmpOn) syncRef(true); requestAnimationFrame(()=>draw()); }
+async function loadRef(){ ref=null; try{ const v=await idbGet("ref-"+R.view); if(v&&v.M&&v.ph) ref=v; }catch(e){}
+  const rv=$("rv"); if(ref&&ref.blob){ if(rv.dataset.k!==ref.name+ref.t){ rv.src=URL.createObjectURL(ref.blob); rv.dataset.k=ref.name+ref.t; rv.addEventListener("loadedmetadata",()=>syncRef(true),{once:true}); } } }
+$("cmpb").onclick=()=>setCmp(!cmpOn);
+// 느린 재생 중에는 기준 영상도 같은 구간 비율의 속도로 함께 재생(끊김 없이), 멈추면 정확한 순간으로 맞춤
+$("vid").addEventListener("play",()=>{ const rv=$("rv"); if(!cmpOn||!ref) return; const p=R.ph,q=ref.ph;
+  const k=((q.imp-q.start)/ref.fps)/Math.max(0.05,(p.imp-p.start)/R.fps); syncRef(true);
+  try{ rv.playbackRate=Math.max(0.0625,Math.min(1,$("vid").playbackRate*k)); rv.play().catch(()=>{}); }catch(e){} });
+$("vid").addEventListener("pause",()=>{ const rv=$("rv"); try{ rv.pause(); }catch(e){} syncRef(true); });
+$("res").addEventListener("click",async e=>{ const b=e.target.closest("[data-act]"); if(!b||!R) return;
+  try{ if(b.dataset.act==="setref"){ if(!R.M||!curFile){ b.textContent="등록할 수 없습니다(자세 측정 없음)"; return; }
+      b.textContent="등록 중…"; await idbPut("ref-"+R.view,{blob:curFile,name:R.name||"기준 영상",view:R.view,fps:R.fps,n:R.n,ph:R.ph,M:R.M,t:Date.now()}); }
+    else if(b.dataset.act==="delref") await idbPut("ref-"+R.view,null);
+    await loadRef(); results(); setCmp(true);
+  }catch(err){ b.textContent="저장 실패: "+(err&&err.message||err); } });
 // ---------- overlay ----------
 const ov=$("ov"), ox=ov.getContext("2d"), vid=$("vid");
 function vrect(){ // displayed video content box inside the stage (object-fit: contain)
-  const s=$("stage").getBoundingClientRect(), vw=vid.videoWidth||W, vh=vid.videoHeight||H, k=Math.min(s.width/vw,s.height/vh), w=vw*k, h=vh*k;
+  const s=$("mainv").getBoundingClientRect(), vw=vid.videoWidth||W, vh=vid.videoHeight||H, k=Math.min(s.width/vw,s.height/vh), w=vw*k, h=vh*k;
   return {x:(s.width-w)/2,y:(s.height-h)/2,w,h,sw:s.width,sh:s.height}; }
 function frameAt(t){ return Math.max(0,Math.min(R.n-1,Math.floor(t*R.fps+1e-6))); }
 function phaseName(i){ const p=R.ph; return i<p.start?"어드레스":i<=p.top?"백스윙":i<=p.imp?"다운스윙":"팔로스루"; }
@@ -309,7 +374,7 @@ function draw(){
 }
 function loop(){ draw(); if(!vid.paused) requestAnimationFrame(loop); }
 if("requestVideoFrameCallback" in HTMLVideoElement.prototype){ const f=()=>{ draw(); vid.requestVideoFrameCallback(f); }; vid.requestVideoFrameCallback(f); }
-vid.addEventListener("seeked",draw); window.addEventListener("resize",draw);
+vid.addEventListener("seeked",()=>{ draw(); syncRef(); }); vid.addEventListener("timeupdate",()=>syncRef()); window.addEventListener("resize",draw);
 const seekFrame=i=>{ vid.pause(); vid.currentTime=Math.max(0,Math.min(vid.duration-0.001,(i+0.5)/R.fps)); };
 $("play").onclick=()=>{ if(vid.paused){ if(frameAt(vid.currentTime)>=R.ph.fin) seekFrame(R.ph.start-Math.round(0.3*R.fps)); vid.playbackRate=0.125; vid.play(); $("play").textContent="⏸ 멈춤"; loop(); } else { vid.pause(); $("play").textContent="▶ 1/8 느리게"; } };
 vid.addEventListener("timeupdate",()=>{ if(R&&frameAt(vid.currentTime)>=R.ph.fin&&!vid.paused){ vid.pause(); $("play").textContent="▶ 1/8 느리게"; } });
@@ -322,6 +387,8 @@ $("again").onclick=()=>{ location.href=location.pathname+(new URLSearchParams(lo
 if(new URLSearchParams(location.search).get("from")==="live"){ $("live").hidden=false; $("live").onclick=()=>{ location.href="../"; };
   const bb=document.createElement("button"); bb.textContent="← 실시간 화면"; bb.style.cssText="position:absolute;left:12px;top:12px;z-index:5;flex:0 0 auto"; bb.onclick=()=>{ location.href="../"; }; $("start").appendChild(bb); }
 $("pick").onclick=()=>$("file").click();
+function idbPut(key,val){ return new Promise((res,rej)=>{ const q=indexedDB.open("swingclips",1); q.onupgradeneeded=()=>q.result.createObjectStore("c");
+  q.onsuccess=()=>{ const tx=q.result.transaction("c","readwrite"); tx.objectStore("c").put(val,key); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }; q.onerror=()=>rej(q.error); }); }
 function idbGet(key){ return new Promise((res,rej)=>{ const q=indexedDB.open("swingclips",1); q.onupgradeneeded=()=>q.result.createObjectStore("c");
   q.onsuccess=()=>{ const g=q.result.transaction("c").objectStore("c").get(key); g.onsuccess=()=>res(g.result); g.onerror=()=>rej(g.error); }; q.onerror=()=>rej(q.error); }); }
 let curFile=null;
@@ -337,7 +404,7 @@ async function run(f,det){
   try{ await analyze(f,det); curFile=f;
     vid.src=URL.createObjectURL(f); await new Promise(r=>vid.addEventListener("loadedmetadata",r,{once:true}));
     $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false;
-    results(true); seekFrame(R.ph.imp);
+    await loadRef(); results(true); setCmp(true); seekFrame(R.ph.imp);
   }catch(e){ console.error(e); prog("오류: "+(e.message||e),0); $("pick").disabled=false; }
 }
 $("file").onchange=()=>{ const f=$("file").files[0]; if(f) run(f); };
