@@ -393,14 +393,14 @@ public class MainActivity extends Activity {
             try {
                 try (InputStream in = new FileInputStream(src); OutputStream o = new java.io.FileOutputStream(f)) {
                     byte[] b = new byte[1 << 16]; int k; while ((k = in.read(b)) > 0) o.write(b, 0, k); }
-                long size = f.length(); final int CH = 48 * 1024; int n = (int) ((size + CH - 1) / CH);
+                long size = f.length(); final int CH = 12 * 1024;   // base64 후 약 16KB: 데이터 채널 메시지 한도(64KB)보다 충분히 작게 int n = (int) ((size + CH - 1) / CH);
                 sendData(new JSONObject().put("t", "clipstart").put("id", id).put("name", name).put("size", size).put("n", n).put("fps", fps));
                 byte[] b = new byte[CH];
                 try (InputStream in = new FileInputStream(f)) {
                     for (int i = 0; i < n; i++) {
                         int got = 0, k; while (got < CH && (k = in.read(b, got, CH - got)) > 0) got += k;
                         String d = android.util.Base64.encodeToString(b, 0, got, android.util.Base64.NO_WRAP);
-                        while (dc != null && dc.state() == DataChannel.State.OPEN && dc.bufferedAmount() > 4L * 1024 * 1024) Thread.sleep(5);
+                        while (dc != null && dc.state() == DataChannel.State.OPEN && dc.bufferedAmount() > 1L * 1024 * 1024) Thread.sleep(5);
                         if (dc == null || dc.state() != DataChannel.State.OPEN || id != clipSeq) return;
                         sendData(new JSONObject().put("t", "clip").put("id", id).put("i", i).put("d", d));
                     }

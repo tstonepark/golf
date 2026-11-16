@@ -24,6 +24,16 @@ h2{margin:6px 0 10px;font-size:24px}
 .row{display:flex;justify-content:space-between;gap:10px;font-size:21px;padding:4px 0;border-top:1px solid var(--line)}
 .row:first-of-type{border-top:0}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.dimt{color:var(--dim);font-size:16px;line-height:1.45}
+.sum{font-size:24px;font-weight:800;padding:12px 14px;border-radius:14px;margin-bottom:12px;background:#0f1915;border:2px solid var(--line)}
+.sum.bad{border-color:var(--bad)}.sum.warn{border-color:var(--warn)}.sum.ok{border-color:var(--ok)}
+.dx{background:#0f1915;border:1px solid var(--line);border-left:8px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+.dx.bad{border-left-color:var(--bad)}.dx.warn{border-left-color:var(--warn)}.dx.ok{border-left-color:var(--ok)}
+.dx.bad,.dx.warn,.dx.ok{color:var(--ink)}
+.dt{font-size:23px;font-weight:800;line-height:1.3;margin-bottom:6px}
+.drill{font-size:18px;line-height:1.45;margin:8px 0;padding:8px 10px;border-radius:10px;background:#1b2a24}
+.drill b{color:var(--back)}
+details{margin-bottom:12px}summary{font-size:21px;font-weight:700;padding:12px 4px;cursor:pointer}
+.tw{overflow-x:auto}table{border-collapse:collapse;font-size:18px;width:100%}th,td{padding:6px 8px;border-top:1px solid var(--line);text-align:right;white-space:nowrap}td:first-child,th:first-child{text-align:left}
 #phase{position:absolute;left:12px;top:12px;font-size:28px;font-weight:800;background:rgba(0,0,0,.6);padding:6px 14px;border-radius:10px;pointer-events:none}
 #legend{position:absolute;right:12px;bottom:12px;font-size:16px;background:rgba(0,0,0,.6);padding:6px 10px;border-radius:8px;pointer-events:none;line-height:1.5}
 #start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px}
@@ -62,12 +72,12 @@ input[type=file]{display:none}
     <div id="ctl" hidden>
       <button id="play" class="main">▶ 1/8 느리게</button>
       <button id="prev">◀ 1프레임</button><button id="next">1프레임 ▶</button>
-      <button data-j="start">어드레스</button><button data-j="top">탑</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
+      <button data-j="start">어드레스</button><button data-k="p2">테이크백</button><button data-j="top">탑</button><button data-k="p6">다운 중간</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
       <button id="lines" class="on">선 표시</button>
       <button id="again">다른 영상</button>
     </div>
   </div>
-  <div id="right"><h2>분석 결과</h2><div id="res"><div class="dimt">영상을 불러오면 여기에 결과가 나옵니다.</div></div></div>
+  <div id="right"><h2>종합 진단</h2><div id="res"><div class="dimt">영상을 불러오면 여기에 결과가 나옵니다.</div></div></div>
 </div>
 <input type="file" id="file" accept="video/*">
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
@@ -75,6 +85,7 @@ input[type=file]{display:none}
 <script type="module">
 import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js";
 import * as A from "./analysis.js";
+import {diagnose,summary} from "./diagnose.js";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
 
@@ -142,12 +153,13 @@ async function analyze(file){
   if(!ph) throw new Error("스윙 구간을 판정하지 못했습니다.");
   const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
-  R={secs:(performance.now()-T0)/1000,name:file.name||'',view,vw,fo,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+  const po=A.posture(pose,ph,fps,view);
+  R={secs:(performance.now()-T0)/1000,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
   prog("완료",1);
 }
 // ---------- results panel ----------
 function fmt(x,d=0){ return (x>=0?"":"−")+Math.abs(x).toFixed(d); }
-function results(){
+function detailHtml(){
   const {ph,fps,pl,bd,seen,span}=R, back=(ph.top-ph.start)/fps, down=(ph.imp-ph.top)/fps;
   const zoneTxt={over:["어깨선 위(바깥)","bad","아웃-인(엎어 치기) 경향"],slot:["두 선 사이","ok","정상 범위"],under:["샤프트선 아래(안쪽)","warn","인-아웃 경향"]};
   let h=`<div class="card"><h3>템포</h3><div class="big">${(back/down).toFixed(1)} : 1</div>
@@ -186,7 +198,35 @@ function results(){
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${Math.round(R.secs||0)}초</b></div>
     <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd}</div></div>`;
+  return h;
+}
+const HK="swinghist";
+function hist(){ try{ return JSON.parse(localStorage.getItem(HK)||"[]"); }catch(e){ return []; } }
+function saveHist(rec){ try{ const a=hist().filter(x=>!(x.name&&x.name===rec.name&&Math.abs((x.down||0)-(rec.down||0))<0.005)); a.push(rec); localStorage.setItem(HK,JSON.stringify(a.slice(-200))); }catch(e){} }
+function histHtml(){
+  const a=hist().filter(x=>x.view===R.view).slice(-8); if(a.length<2) return `<div class="dimt">스윙을 2개 이상 분석하면 여기에서 비교됩니다. (이 기기에 저장)</div>`;
+  const z={over:"아웃-인",under:"인-아웃",slot:"정상"}, c=(v,d=2,u="")=>v==null?"-":v.toFixed(d)+u;
+  const rows=[["탑 멈춤(초)",x=>c(x.hold)],["백스윙(초)",x=>c(x.back)],["다운(초)",x=>c(x.down)],["진입 궤도",x=>x.entry?z[x.entry]:"-"],["가슴°",x=>c(x.chest,0)],["골반°",x=>c(x.pelvis,0)],["엉덩이 전진%",x=>c(x.ee,0)],["머리 들림%",x=>c(x.headUp,0)]];
+  return `<div class="tw"><table><tr><th></th>${a.map((x,i)=>`<th>${i===a.length-1?"이번":"-"+(a.length-1-i)}</th>`).join("")}</tr>`+
+    rows.map(([n,f])=>`<tr><td>${n}</td>${a.map(x=>`<td>${f(x)}</td>`).join("")}</tr>`).join("")+`</table></div><div class="dimt">최근 ${a.length}개(같은 카메라 방향). 오른쪽이 이번 스윙.</div>`;
+}
+function results(save){
+  const D=diagnose(R); R.D=D; if(save) saveHist(summary(R,D));
+  const card=x=>`<div class="dx ${x.sev}"><div class="dt">${x.title}</div>
+    <div class="row"><span>측정</span><b class="${x.sev==="na"?"warn":x.sev}">${x.value}</b></div>${x.ref?`<div class="row"><span>기준</span><b>${x.ref}</b></div>`:""}
+    <div class="dimt">${x.why}</div>${x.drill&&x.sev!=="ok"?`<div class="drill"><b>연습</b> ${x.drill}</div>`:""}
+    <div class="dimt">${x.area} · 신뢰도 ${x.conf}</div></div>`;
+  const na=D.items.filter(x=>x.sev==="na");
+  let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
+  if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
+    if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
+  if(na.length) h+=na.map(card).join("");
+  h+=`<details><summary>양호한 항목 ${D.good.length}가지</summary>${D.good.map(card).join("")}</details>`;
+  h+=`<h2>스윙 기록 비교</h2><div class="card">${histHtml()}</div>`;
+  h+=`<details><summary>상세 수치</summary>${detailHtml()}</details>`;
+  h+=`<div class="dimt">기준 범위는 투어·레슨에서 흔히 쓰는 참고값입니다. 신뢰도 '낮음' 항목은 카메라 1대 추정이라 방향만 참고하세요.</div>`;
   $("res").innerHTML=h;
+  for(const k of ["p2","p6"]){ const b=document.querySelector(`[data-k="${k}"]`); if(b) b.hidden=!(R.po&&R.po[k]!=null); }
 }
 // ---------- overlay ----------
 const ov=$("ov"), ox=ov.getContext("2d"), vid=$("vid");
@@ -221,6 +261,7 @@ vid.addEventListener("timeupdate",()=>{ if(R&&frameAt(vid.currentTime)>=R.ph.fin
 $("prev").onclick=()=>seekFrame(frameAt(vid.currentTime)-1);
 $("next").onclick=()=>seekFrame(frameAt(vid.currentTime)+1);
 document.querySelectorAll("[data-j]").forEach(b=>b.onclick=()=>seekFrame(R.ph[b.dataset.j]));
+document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{ const i=R.po&&R.po[b.dataset.k]; if(i!=null) seekFrame(i); });
 $("lines").onclick=()=>{ showLines=!showLines; $("lines").classList.toggle("on",showLines); draw(); };
 $("again").onclick=()=>location.reload();
 $("pick").onclick=()=>$("file").click();
@@ -230,12 +271,13 @@ async function run(f){
   try{ await analyze(f);
     vid.src=URL.createObjectURL(f); await new Promise(r=>vid.addEventListener("loadedmetadata",r,{once:true}));
     $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false;
-    results(); seekFrame(R.ph.imp);
+    results(true); seekFrame(R.ph.imp);
   }catch(e){ console.error(e); prog("오류: "+(e.message||e),0); $("pick").disabled=false; }
 }
 $("file").onchange=()=>{ const f=$("file").files[0]; if(f) run(f); };
 const ck=new URLSearchParams(location.search).get("clip");
 if(ck) idbGet(ck).then(v=>{ if(v&&v.blob){ prog("폰에서 받은 영상: "+(v.name||"")+" 분석 시작",0.01); run(v.blob); } else prog("받은 영상이 없습니다. '영상 불러오기'를 눌러 주세요.",0); }).catch(e=>prog("저장된 영상을 읽지 못했습니다: "+e,0));
+if(window!==window.top) $("right").style.paddingTop="76px";   // room for the host page's close button
 window.__R=()=>R;
 window.__show=async(r,url)=>{ R=r; vid.src=url; await new Promise(q=>vid.addEventListener("loadedmetadata",q,{once:true})); $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false; results(); seekFrame(R.ph.imp); };
 </script></body></html>

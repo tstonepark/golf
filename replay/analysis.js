@@ -180,3 +180,24 @@ export function faceOn(pose,ph,tr){
   if(h){ const dx=(I.hands[0]-h[0])*away*-1, dy=h[1]-I.hands[1]; if(dy>0) lean=Math.atan2(dx,dy)*180/Math.PI; } // + = hands ahead of the club head
   return {headTop:cm(A.nose,T.nose),headImp:cm(A.nose,I.nose),hipTop:cm(A.hip,T.hip),hipImp:cm(A.hip,I.hip),lean};
 }
+// ---------- posture / timing details for the diagnosis (2D, from the pose) ----------
+export function posture(pose,ph,fps,view){
+  const A=pose[ph.start]||nearest(pose,ph.start), T=pose[ph.top]||nearest(pose,ph.top), I=pose[ph.imp]||nearest(pose,ph.imp);
+  if(!A||!T||!I||!A.hip) return null;
+  const TL=Math.max(1,Math.hypot(A.sh[0]-A.hip[0],A.sh[1]-A.hip[1]));          // torso length (px) = scale
+  const pct=v=>v/TL*100;
+  // top hold: time the hands stay within 8px of their highest point
+  let hy=1e9; for(let i=ph.start;i<=ph.top;i++){ const P=pose[i]; if(P&&P.hands[1]<hy) hy=P.hands[1]; }
+  let hs=ph.top; for(let i=ph.start;i<=ph.top;i++){ const P=pose[i]; if(P&&P.hands[1]<=hy+8){ hs=i; break; } }
+  // P2 / P6: hands at hip height going back / coming down
+  let p2=null,p6=null;
+  for(let i=ph.start;i<=ph.top;i++){ const P=pose[i]; if(P&&P.hands[1]<=P.hip[1]){ p2=i; break; } }
+  for(let i=ph.top;i<=ph.imp;i++){ const P=pose[i]; if(P&&P.hands[1]>=P.hip[1]){ p6=i; break; } }
+  const tilt=P=>Math.atan2(Math.abs(P.sh[0]-P.hip[0]),P.hip[1]-P.sh[1])*180/Math.PI;     // torso angle from vertical
+  const toBall=Math.sign(A.hands[0]-A.hip[0])||1;                                       // DTL: side of the ball
+  const o={TL,holdStart:hs,p2,p6,back:(hs-ph.start)/fps,hold:(ph.top-hs)/fps,down:(ph.imp-ph.top)/fps,
+    headTop:[pct(T.nose[0]-A.nose[0]),pct(T.nose[1]-A.nose[1])], headImp:[pct(I.nose[0]-A.nose[0]),pct(I.nose[1]-A.nose[1])],
+    tiltAddr:tilt(A),tiltTop:tilt(T),tiltImp:tilt(I)};
+  if(view==="dtl"){ o.hipFwdImp=pct((I.hip[0]-A.hip[0])*toBall); o.hipFwdTop=pct((T.hip[0]-A.hip[0])*toBall); o.headFwdImp=pct((I.nose[0]-A.nose[0])*toBall); }
+  return o;
+}

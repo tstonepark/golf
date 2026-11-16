@@ -131,6 +131,9 @@ button:disabled{opacity:.4}
   #side{flex:0 0 300px;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
   #gauges{grid-template-columns:repeat(2,1fr)}
 }
+#hsov{position:fixed;inset:0;z-index:80;background:#000}
+#hsov iframe{width:100%;height:100%;border:0}
+#hsx{position:absolute;right:12px;top:12px;z-index:81;font-size:22px;font-weight:800;padding:12px 18px;border-radius:12px;border:0;background:#ff6b6b;color:#111}
 .clipbtn{position:fixed;left:16px;bottom:16px;z-index:40;font-size:22px;font-weight:800;padding:16px 20px;border-radius:14px;border:0;background:#ffd23f;color:#111;box-shadow:0 4px 18px rgba(0,0,0,.5)}
 .clipbtn[data-ready="0"]{background:#2a3b34;color:#eaf2ec}
 </style>
@@ -208,7 +211,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v58</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v59</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -532,8 +535,15 @@ const clipRxs={};
 function idbPut(key,val){ return new Promise((res,rej)=>{ const q=indexedDB.open("swingclips",1); q.onupgradeneeded=()=>q.result.createObjectStore("c");
   q.onsuccess=()=>{ const tx=q.result.transaction("c","readwrite"); tx.objectStore("c").put(val,key); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }; q.onerror=()=>rej(q.error); }); }
 function clipBtn(txt,ready,key){ const id="clipbtn"+(key==="last2"?"2":""); let b=$(id); if(!b){ b=document.createElement("button"); b.id=id; b.className="clipbtn"; if(key==="last2") b.style.left="auto",b.style.right="16px"; document.body.appendChild(b);
-    b.onclick=()=>{ if(b.dataset.ready==="1") window.open("replay/?clip="+key,"_blank"); }; }
+    b.onclick=()=>{ if(b.dataset.ready==="1") openHS(key); }; }
   b.textContent=(key==="last2"?"[폰2] ":"")+txt; b.dataset.ready=ready?"1":"0"; b.hidden=false; }
+// 받은 240fps 원본을 이 화면 위에서 바로 분석 (전체 화면 덮개, 닫으면 실시간 화면으로)
+function openHS(key){
+  let o=$("hsov"); if(o) o.remove();
+  o=document.createElement("div"); o.id="hsov";
+  o.innerHTML='<iframe src="replay/?clip='+encodeURIComponent(key)+'" allow="autoplay"></iframe><button id="hsx">✕ 닫기</button>';
+  document.body.appendChild(o); $("hsx").onclick=()=>o.remove();
+}
 function clipRecv(d,key){
   if(d.t==="clipstart"){ clipRxs[key]={id:d.id,n:d.n|0,name:String(d.name||""),fps:d.fps|0,parts:new Array(d.n|0),got:0}; clipBtn("고속 원본 받는 중… 0%",false,key); return; }
   const clipRx=clipRxs[key]; if(!clipRx||d.id!==clipRx.id) return;
@@ -543,7 +553,7 @@ function clipRecv(d,key){
   if(d.t==="clipend"){ const r=clipRx; delete clipRxs[key];
     if(r.got!==r.n){ clipBtn("고속 원본 일부 누락 ("+r.got+"/"+r.n+")",false,key); return; }
     idbPut(key,{blob:new Blob(r.parts,{type:"video/mp4"}),name:r.name,fps:r.fps,t:Date.now()})
-      .then(()=>{ clipBtn("▶ 고속 리플레이 분석 ("+r.fps+"fps)",true,key); dlog("고속 원본 수신: "+r.name); })
+      .then(()=>{ clipBtn("▶ 고속 리플레이 분석 ("+r.fps+"fps)",true,key); dlog("고속 원본 수신: "+r.name); if(key==="last") openHS(key); })
       .catch(e=>clipBtn("저장 실패: "+(e&&e.message||e),false,key)); }
 }
 function remoteReset(){   // 폰 모드를 완전히 끄고 이 기기 카메라를 쓸 수 있게 되돌림
