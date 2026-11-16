@@ -3,11 +3,22 @@ export let W=540,H=960;
 // analysis frame: long side 960, short side 540, following the displayed orientation
 export function setFrame(landscape){ if(landscape){W=960;H=540;} else {W=540;H=960;} }
 let ortSess=null;
+export let headErr="";
+function loadScript(src){ return new Promise((res,rej)=>{ const e=document.createElement("script"); e.src=src; e.onload=res; e.onerror=()=>rej(new Error("load "+src)); document.head.appendChild(e); }); }
+async function tryEps(base,eps,errs){
+  const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/ort/",location.href).href; ort.env.wasm.numThreads=1; ort.env.wasm.proxy=false;
+  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead.onnx",location.href).href,{executionProviders:[ep]}); return ep; }
+    catch(e){ errs.push(ep+": "+(e&&e.message||e)); console.warn("ep fail",ep,e); } }
+  return null;
+}
 export async function loadHead(base){
-  const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/ort/",location.href).href; ort.env.wasm.numThreads=1;
-  const force=new URLSearchParams(location.search).get("ep"); const eps=force?[force]:[]; if(!force){ if(navigator.gpu) eps.push("webgpu"); eps.push("wasm"); }
-  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(base+"vendor/models/clubhead.onnx",{executionProviders:[ep]}); return ep; }catch(e){ console.warn("ep fail",ep,e); } }
-  throw new Error("헤드 모델을 불러오지 못했습니다");
+  const force=new URLSearchParams(location.search).get("ep"), errs=[];
+  // 1) WebGPU build (GPU first, then its own wasm)
+  let ep=window.ort? await tryEps(base,force?[force]:(navigator.gpu?["webgpu","wasm"]:["wasm"]),errs) : null;
+  // 2) fallback: plain build (smaller wasm, + WebGL) — iPad Safari sometimes refuses the WebGPU build
+  if(!ep&&!force){ try{ window.ort=undefined; await loadScript(base+"vendor/ort/ort.min.js"); ep=await tryEps(base,["webgl","wasm"],errs); }catch(e){ errs.push("fallback: "+(e&&e.message||e)); } }
+  if(ep) return ep;
+  headErr=errs.join(" | "); throw new Error("헤드 모델을 불러오지 못했습니다 ("+headErr.slice(0,300)+")");
 }
 const lb=document.createElement("canvas"); lb.width=640; lb.height=640; const lbx=lb.getContext("2d",{willReadFrequently:true});
 export async function headInfer(src){ // src: canvas WxH -> top candidates [conf,x,y] in W,H coords

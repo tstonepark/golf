@@ -211,7 +211,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v59</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v60</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -289,7 +289,7 @@ const video=$("cam"), cv=$("view"), ctx=cv.getContext("2d");
 const L={nose:0,lSh:11,rSh:12,lEl:13,rEl:14,lWr:15,rWr:16,lHip:23,rHip:24,lKn:25,rKn:26,lAn:27,rAn:28};
 const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 
-let pose=null, lmk=null, engineName="", stream=null, busy=false, running=false;
+let pose=null, lmk=null, engineName="", stream=null, busy=false, running=false, hsOpen=false;  // hsOpen: 고속 분석 중엔 실시간 뼈대 분석을 쉼(메모리·GPU 양보)
 let facing="user", rightHanded=true;
 let ref=null, noBody=null, wristS=null, wristMiss=0;
 // 폰 기울기(센서). pitch: +면 위를 봄, roll: 좌우 기울기. null이면 센서 없음
@@ -416,7 +416,7 @@ async function boot(remote){
 
 async function loop(){
   if(!running) return;
-  if(!busy && video.readyState>=2){
+  if(!busy && !hsOpen && video.readyState>=2){
     busy=true;
     try{
       if(lmk){
@@ -542,7 +542,7 @@ function openHS(key){
   let o=$("hsov"); if(o) o.remove();
   o=document.createElement("div"); o.id="hsov";
   o.innerHTML='<iframe src="replay/?clip='+encodeURIComponent(key)+'" allow="autoplay"></iframe><button id="hsx">✕ 닫기</button>';
-  document.body.appendChild(o); $("hsx").onclick=()=>o.remove();
+  document.body.appendChild(o); hsOpen=true; $("hsx").onclick=()=>{ o.remove(); hsOpen=false; };
 }
 function clipRecv(d,key){
   if(d.t==="clipstart"){ clipRxs[key]={id:d.id,n:d.n|0,name:String(d.name||""),fps:d.fps|0,parts:new Array(d.n|0),got:0}; clipBtn("고속 원본 받는 중… 0%",false,key); return; }
