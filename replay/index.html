@@ -110,7 +110,7 @@ function poseOf(r){
   const hands=[0,1].map(d=>([15,16,19,20].reduce((s,k)=>s+g(k)[d],0)/4));
   const sh=[(g(11)[0]+g(12)[0])/2,(g(11)[1]+g(12)[1])/2];
   const hip=[(g(23)[0]+g(24)[0])/2,(g(23)[1]+g(24)[1])/2];
-  return {hands,sh,hip,ls:g(11),rs:g(12),nose:g(0),joints:[[...g(11),28],[...g(12),28],[...g(15),20],[...g(16),20]],
+  return {hands,sh,hip,ls:g(11),rs:g(12),nose:g(0),ank:[(g(27)[0]+g(28)[0])/2,(g(27)[1]+g(28)[1])/2],joints:[[...g(11),28],[...g(12),28],[...g(15),20],[...g(16),20]],
     world:r.worldLandmarks&&r.worldLandmarks[0]? r.worldLandmarks[0].map(p=>[p.x,p.y,p.z]) : null};
 }
 // ---------- progress ----------
@@ -137,6 +137,12 @@ async function analyze(file){
     await decodeRange(dm,0,n-1,async(i,cv)=>{ pts[i]=await headInfer(cv); done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중(헤드)… "+Math.round(done/n1*100)+"%",0.1+0.1*done/n1); await tick(); } },dm.rot,i=>i%8===0);
     ci=A.coarseImpact(A.fillGaps(A.clean(A.track(A.staticFilter(pts.map(p=>p||[])),160),8,200),8),fps); }
   if(ci<0) throw new Error("스윙(빠른 다운스윙)을 찾지 못했습니다. 골퍼 전신과 스윙 전체가 담긴 영상인지 확인해 주세요.");
+  // square crop around the golfer for the head model (smaller input = faster, same pixel scale)
+  let crop=null; { const ps=[]; for(let i=Math.max(0,ci-Math.round(2.5*fps));i<=Math.min(n-1,ci+Math.round(0.5*fps));i++) if(pose1[i]&&pose1[i].ank) ps.push(pose1[i]);
+    if(ps.length>=4){ const med=f=>{ const v=ps.map(f).sort((x,y)=>x-y); return v[v.length>>1]; };
+      const gh=Math.max(60,med(p=>p.ank[1]-p.nose[1])), cx=med(p=>p.hip[0]), cy=med(p=>p.hip[1])-0.12*gh, S=Math.max(380,Math.min(Math.max(W,H),2.25*gh));
+      const cl=(v,dim)=>S<=dim? Math.max(0,Math.min(dim-S,v)) : (dim-S)/2;   // keep the crop inside the frame (or centred if larger)
+      crop={x:cl(cx-S/2,W),y:cl(cy-S/2,H),s:S}; } }
   const TOFF=2*T2;   // pose timestamps must keep increasing in pass 2
   // pass 2: dense around the downswing, sparse elsewhere
   const a=Math.max(0,ci-Math.round(2.8*fps)), b=Math.min(n-1,ci+Math.round(1.3*fps));
@@ -146,7 +152,7 @@ async function analyze(file){
   let tot=0; for(let i=a;i<=b;i++) if(needH(i)||needP(i)) tot++;
   const pts2=new Array(n).fill(null), pose=new Array(n).fill(null); done=0;
   await decodeRange(dm,a,b,async(i,cv)=>{
-    if(needH(i)) pts2[i]=(i%8===0&&pts[i])? pts[i] : await headInfer(cv);
+    if(needH(i)) pts2[i]=await headInfer(cv,crop);
     if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,TOFF+Math.round(i*1000/fps))); }catch(e){} }
     done++; if(done%8===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.2+0.78*done/tot); await tick(); } },dm.rot,i=>needH(i)||needP(i));
   for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];
@@ -164,7 +170,7 @@ async function analyze(file){
   const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view);
-  R={secs:(performance.now()-T0)/1000,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+  R={crop,secs:(performance.now()-T0)/1000,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -258,7 +264,9 @@ function draw(){
   const seg=(arr,col)=>{ ox.strokeStyle=col; ox.lineWidth=4; ox.lineCap="round"; let prev=null;
     for(const q of arr){ if(!q){prev=null;continue;} if(q.i>i) break;
       if(prev){ ox.setLineDash(q.est||prev.est?[7,7]:[]); ox.beginPath(); ox.moveTo(...P(prev.x,prev.y)); ox.lineTo(...P(q.x,q.y)); ox.stroke(); } prev=q; } ox.setLineDash([]); };
-  seg(R.cv.back,"#ffd23f"); seg(R.cv.down,"#ff4d4d"); seg(R.cv.after,"#59c8ff");
+  const cur=i<=R.ph.top?"back":i<=R.ph.imp?"down":"after";   // current phase bright, earlier ones faded so the picture stays readable
+  for(const [k,col] of [["back","#ffd23f"],["down","#ff4d4d"],["after","#59c8ff"]]){ ox.globalAlpha=(k===cur||(cur==="after"&&k==="down"))?1:0.3; seg(R.cv[k],col); }
+  ox.globalAlpha=1;
   const p=R.tr[i]; if(p){ ox.strokeStyle="#fff"; ox.lineWidth=3; ox.beginPath(); ox.arc(...P(p[0],p[1]),12,0,7); ox.stroke(); }
   ox.restore();
 }

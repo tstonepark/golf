@@ -92,7 +92,13 @@ export function curves(tr,ph,fps){
   // tangent (per-gap units) from the 3 frames on the far side of the gap
   const vel=(i,dir,g)=>{ const j=i+dir*3; if(!tr[j]) return [0,0];
     return dir<0? [(tr[i][0]-tr[j][0])/3*g,(tr[i][1]-tr[j][1])/3*g] : [(tr[j][0]-tr[i][0])/3*g,(tr[j][1]-tr[i][1])/3*g]; };
-  return {back:seg(ph.start,ph.top,true),down:seg(ph.top,ph.imp,true),after:seg(ph.imp,ph.fin,false)};
+  // smooth each continuous run (5-point average) and drop tiny fragments so the trail reads as one clean line
+  const tidy=(arr,minRun)=>{ const out=[]; let run=[];
+    const flush=()=>{ if(run.length>=minRun){ const r=run.map((q,k)=>{ let sx=0,sy=0,c=0; for(let j=Math.max(0,k-2);j<=Math.min(run.length-1,k+2);j++){ sx+=run[j].x; sy+=run[j].y; c++; } return {...q,x:sx/c,y:sy/c}; });
+        if(out.length) out.push(null); out.push(...r); } run=[]; };
+    for(const q of arr){ if(q) run.push(q); else flush(); } flush(); return out; };
+  const mr=Math.max(4,Math.round(0.05*fps));
+  return {back:tidy(seg(ph.start,ph.top,true),mr),down:tidy(seg(ph.top,ph.imp,true),3),after:tidy(seg(ph.imp,Math.min(ph.fin,ph.imp+Math.round(0.7*fps)),false),mr)};
 }
 // 7) plane check against two lines from the ball: address shaft line (ball->hands) and ball->shoulders
 export function plane(tr,ph,pose,fps){

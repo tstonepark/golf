@@ -7,7 +7,7 @@ export let headErr="";
 function loadScript(src){ return new Promise((res,rej)=>{ const e=document.createElement("script"); e.src=src; e.onload=res; e.onerror=()=>rej(new Error("load "+src)); document.head.appendChild(e); }); }
 async function tryEps(base,eps,errs,dir="ort"){
   const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/"+dir+"/",location.href).href; ort.env.wasm.numThreads=1; ort.env.wasm.proxy=false;
-  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead.onnx",location.href).href,{executionProviders:[ep]}); return ep; }
+  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead416.onnx",location.href).href,{executionProviders:[ep]}); return ep; }
     catch(e){ errs.push(ep+": "+(e&&e.message||e)); console.warn("ep fail",ep,e); } }
   return null;
 }
@@ -23,15 +23,16 @@ export async function loadHead(base){
   if(ep) return ep;
   headErr=errs.join(" | "); throw new Error("헤드 모델을 불러오지 못했습니다 ("+headErr.slice(0,300)+")");
 }
-const lb=document.createElement("canvas"); lb.width=640; lb.height=640; const lbx=lb.getContext("2d",{willReadFrequently:true});
-export async function headInfer(src){ // src: canvas WxH -> top candidates [conf,x,y] in W,H coords
-  const s=640/Math.max(W,H), nw=Math.round(W*s), nh=Math.round(H*s), px=Math.round((640-nw)/2), py=Math.round((640-nh)/2);
-  lbx.fillStyle="rgb(114,114,114)"; lbx.fillRect(0,0,640,640); lbx.drawImage(src,px,py,nw,nh);
-  const d=lbx.getImageData(0,0,640,640).data, N=640*640, f=new Float32Array(3*N);
-  for(let k=0;k<N;k++){ f[k]=d[4*k]/255; f[N+k]=d[4*k+1]/255; f[2*N+k]=d[4*k+2]/255; }
-  const ort=window.ort, t=new ort.Tensor("float32",f,[1,3,640,640]);
+const IN=416, lb=document.createElement("canvas"); lb.width=IN; lb.height=IN; const lbx=lb.getContext("2d",{willReadFrequently:true});
+// src: analysis canvas WxH. crop {x,y,s}: square region around the golfer (may extend past the frame) -> candidates [conf,x,y] in W,H coords
+export async function headInfer(src,crop){
+  const c0=crop||{x:(W-Math.max(W,H))/2,y:(H-Math.max(W,H))/2,s:Math.max(W,H)}, k=IN/c0.s;
+  lbx.fillStyle="rgb(114,114,114)"; lbx.fillRect(0,0,IN,IN); lbx.drawImage(src,-c0.x*k,-c0.y*k,W*k,H*k);
+  const d=lbx.getImageData(0,0,IN,IN).data, N=IN*IN, f=new Float32Array(3*N);
+  for(let i=0;i<N;i++){ f[i]=d[4*i]/255; f[N+i]=d[4*i+1]/255; f[2*N+i]=d[4*i+2]/255; }
+  const ort=window.ort, t=new ort.Tensor("float32",f,[1,3,IN,IN]);
   const out=await ortSess.run({[ortSess.inputNames[0]]:t}); const o=out[ortSess.outputNames[0]].data, A=o.length/5;
-  const c=[]; for(let k=0;k<A;k++){ const cf=o[4*A+k]; if(cf>0.15) c.push([cf,(o[k]-px)/s,(o[A+k]-py)/s]); }
+  const c=[]; for(let i=0;i<A;i++){ const cf=o[4*A+i]; if(cf>0.15) c.push([cf,o[i]/k+c0.x,o[A+i]/k+c0.y]); }
   c.sort((a,b)=>b[0]-a[0]); const keep=[];
   for(const q of c){ if(keep.every(z=>Math.hypot(z[1]-q[1],z[2]-q[2])>12)) keep.push(q); if(keep.length>=3) break; }
   return keep;
