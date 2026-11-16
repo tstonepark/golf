@@ -193,6 +193,13 @@ public class MainActivity extends Activity {
         root.addView(row2);
         autoBtn = btn(""); autoBtn.setOnClickListener(v -> { autoOn = !autoOn; prefs.edit().putBoolean("auto", autoOn).apply(); updAutoBtn(); });
         root.addView(autoBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
+        final Button benchBtn = btn("분석 속도 시험 (약 1분)");
+        benchBtn.setOnClickListener(v -> { benchBtn.setEnabled(false); benchBtn.setText("속도 시험 중… 잠시만요");
+            new Thread(() -> { String r; try { r = Bench.run(getApplicationContext(), line -> ui.post(() -> benchBtn.setText(line))); } catch (Throwable e) { r = "시험 실패: " + e; }
+                final String res = r; ui.post(() -> { benchBtn.setEnabled(true); benchBtn.setText("분석 속도 시험 (약 1분)");
+                    try { ((android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText("bench", res)); } catch (Exception ignore) {}
+                    new android.app.AlertDialog.Builder(MainActivity.this).setTitle("분석 속도 (복사됨 · 채팅에 붙여넣기)").setMessage(res).setPositiveButton("확인", null).show(); }); }).start(); });
+        root.addView(benchBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
         updBtn = btn("업데이트 확인 중…"); updBtn.setEnabled(false);
         root.addView(updBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140));
         setContentView(root);
