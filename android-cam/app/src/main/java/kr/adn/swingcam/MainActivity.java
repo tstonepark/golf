@@ -129,6 +129,8 @@ public class MainActivity extends Activity {
     private SensorManager sm;
     private final float[] grav = new float[3]; private int gravN = 0;
     private volatile Double pitch = null, roll = null;
+    private volatile int devRot = 0;   // 폰을 시계방향으로 돌린 각도(0/90/180/270)
+    private int videoRot() { return (sensorOrientation + devRot) % 360; }
 
     private int latest = 0;
 
@@ -232,7 +234,7 @@ public class MainActivity extends Activity {
             frames++;
             if (hs && (fwd++ % 4) != 0) return;     // 240fps → 아이패드에는 60fps만
             VideoFrame.Buffer nb = SwingFrameUtil.undoRotation(frame.getBuffer(), -sensorOrientation);
-            VideoFrame f = new VideoFrame(nb, sensorOrientation, frame.getTimestampNs());
+            VideoFrame f = new VideoFrame(nb, videoRot(), frame.getTimestampNs());
             vsrc.getCapturerObserver().onFrameCaptured(f);
             f.release();
             long now = System.currentTimeMillis();
@@ -309,7 +311,7 @@ public class MainActivity extends Activity {
         saveBtn.setEnabled(false); saveBtn.setText("저장 중…");
         new Thread(() -> {
             File tmp = new File(getCacheDir(), "clip.mp4"); if (tmp.exists()) tmp.delete();
-            int n = r.save(preUs, tmp, sensorOrientation);
+            int n = r.save(preUs, tmp, videoRot());
             String name = null;
             if (n > 0) {
                 String ts = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.KOREA).format(new java.util.Date());
@@ -410,7 +412,12 @@ public class MainActivity extends Activity {
                 float k = gravN < 10 ? 0.5f : 0.1f;
                 for (int i = 0; i < 3; i++) grav[i] += k * (e.values[i] - grav[i]);
                 gravN++;
-                double sx = grav[0], sy = grav[1], sz = grav[2];
+                double gx = grav[0], gy = grav[1], sz = grav[2];
+                // 폰 방향(세로/가로) 판정: OrientationEventListener 와 같은 기준 (0=세로, 90=시계방향으로 눕힘)
+                double ax = Math.abs(gx), ay = Math.abs(gy);
+                if (ax > ay * 1.4) devRot = gx < 0 ? 90 : 270; else if (ay > ax * 1.4) devRot = gy < 0 ? 180 : 0;
+                double ux = devRot == 90 ? -1 : devRot == 270 ? 1 : 0, uy = devRot == 0 ? 1 : devRot == 180 ? -1 : 0;
+                double sy = gx * ux + gy * uy, sx = gx * uy - gy * ux;   // 화면 위쪽/오른쪽 기준 중력
                 if (sy < 0) { sx = -sx; sy = -sy; sz = -sz; }
                 double r = Math.toDegrees(Math.atan2(-sx, sy)), up = Math.toDegrees(Math.atan2(sz, Math.hypot(sx, sy)));
                 pitch = -up; roll = r;   // 후면 카메라 기준 (cam.html 과 동일)
@@ -426,7 +433,7 @@ public class MainActivity extends Activity {
             long now = System.currentTimeMillis();
             if (pitch != null) {
                 boolean bad = Math.abs(pitch) > 10 || Math.abs(roll) > 3;
-                levelTv.setText((pitch > 0 ? "위로 " : "아래로 ") + Math.abs(Math.round(pitch)) + "° · 좌우 " + Math.round(Math.abs(roll)) + "° " + (bad ? "기울어짐" : "수평"));
+                levelTv.setText((devRot % 180 != 0 ? "가로 · " : "세로 · ") + (pitch > 0 ? "위로 " : "아래로 ") + Math.abs(Math.round(pitch)) + "° · 좌우 " + Math.round(Math.abs(roll)) + "° " + (bad ? "기울어짐" : "수평"));
                 levelTv.setTextColor(bad ? Color.rgb(255, 138, 101) : Color.rgb(88, 214, 141));
             }
             infoTv.setText(String.format("%dx%d · 카메라 %.0ffps · 셔터 %s · ISO %d", W, H, camFps,

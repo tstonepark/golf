@@ -73,7 +73,7 @@ input[type=file]{display:none}
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
 <script src="../vendor/mp4box/mp4box.all.min.js"></script>
 <script type="module">
-import {W,H,loadHead,headInfer,demux,decodeRange} from "./engine.js";
+import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js";
 import * as A from "./analysis.js";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
@@ -109,6 +109,7 @@ async function analyze(file){
   const [ep,pd]=await Promise.all([loadHead("../"),loadPose()]);
   prog("영상 읽는 중…",0.05);
   const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps=dm.fps; vfps=fps;
+  { const r=((dm.rot%360)+360)%360, dw=(r===90||r===270)?dm.ch:dm.cw, dh=(r===90||r===270)?dm.cw:dm.ch; setFrame(dw>dh); }
   if(fps<100) prog("※ "+Math.round(fps)+"fps 영상입니다. 240fps 원본이 가장 정확합니다.",0.06);
   // pass 1: head model on every 8th frame (30fps) -> coarse impact
   const pts=new Array(n).fill(null); let done=0; const n1=Math.ceil(n/8);
@@ -179,6 +180,7 @@ function draw(){
   if(ov.width!==Math.round(r.sw*dpr)){ ov.width=Math.round(r.sw*dpr); ov.height=Math.round(r.sh*dpr); }
   ox.setTransform(dpr,0,0,dpr,0,0); ox.clearRect(0,0,r.sw,r.sh);
   const sx=r.w/W, sy=r.h/H, P=(x,y)=>[r.x+x*sx,r.y+y*sy], i=frameAt(vid.currentTime);
+  ox.save(); ox.beginPath(); ox.rect(r.x,r.y,r.w,r.h); ox.clip();
   $("phase").textContent=phaseName(i)+"  "+((i-R.ph.imp)/R.fps>=0?"+":"")+((i-R.ph.imp)/R.fps).toFixed(2)+"초";
   if(showLines&&R.pl){ const {ball,hands,sh}=R.pl;
     const line=(q,c)=>{ const dx=q[0]-ball[0],dy=q[1]-ball[1],l=Math.hypot(dx,dy); ox.strokeStyle=c; ox.lineWidth=3; ox.setLineDash([]); ox.beginPath(); ox.moveTo(...P(ball[0]-dx/l*30,ball[1]-dy/l*30)); ox.lineTo(...P(ball[0]+dx/l*900,ball[1]+dy/l*900)); ox.stroke(); };
@@ -188,6 +190,7 @@ function draw(){
       if(prev){ ox.setLineDash(q.est||prev.est?[7,7]:[]); ox.beginPath(); ox.moveTo(...P(prev.x,prev.y)); ox.lineTo(...P(q.x,q.y)); ox.stroke(); } prev=q; } ox.setLineDash([]); };
   seg(R.cv.back,"#ffd23f"); seg(R.cv.down,"#ff4d4d"); seg(R.cv.after,"#59c8ff");
   const p=R.tr[i]; if(p){ ox.strokeStyle="#fff"; ox.lineWidth=3; ox.beginPath(); ox.arc(...P(p[0],p[1]),12,0,7); ox.stroke(); }
+  ox.restore();
 }
 function loop(){ draw(); if(!vid.paused) requestAnimationFrame(loop); }
 if("requestVideoFrameCallback" in HTMLVideoElement.prototype){ const f=()=>{ draw(); vid.requestVideoFrameCallback(f); }; vid.requestVideoFrameCallback(f); }

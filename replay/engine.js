@@ -1,5 +1,7 @@
 // Swing analysis engine (browser). All heavy lifting on the iPad; no server.
-export const W=540,H=960;
+export let W=540,H=960;
+// analysis frame: long side 960, short side 540, following the displayed orientation
+export function setFrame(landscape){ if(landscape){W=960;H=540;} else {W=540;H=960;} }
 let ortSess=null;
 export async function loadHead(base){
   const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/ort/",location.href).href; ort.env.wasm.numThreads=1;
@@ -9,13 +11,13 @@ export async function loadHead(base){
 }
 const lb=document.createElement("canvas"); lb.width=640; lb.height=640; const lbx=lb.getContext("2d",{willReadFrequently:true});
 export async function headInfer(src){ // src: canvas WxH -> top candidates [conf,x,y] in W,H coords
-  const s=640/H, nw=Math.round(W*s), px=Math.round((640-nw)/2);
-  lbx.fillStyle="rgb(114,114,114)"; lbx.fillRect(0,0,640,640); lbx.drawImage(src,px,0,nw,640);
+  const s=640/Math.max(W,H), nw=Math.round(W*s), nh=Math.round(H*s), px=Math.round((640-nw)/2), py=Math.round((640-nh)/2);
+  lbx.fillStyle="rgb(114,114,114)"; lbx.fillRect(0,0,640,640); lbx.drawImage(src,px,py,nw,nh);
   const d=lbx.getImageData(0,0,640,640).data, N=640*640, f=new Float32Array(3*N);
   for(let k=0;k<N;k++){ f[k]=d[4*k]/255; f[N+k]=d[4*k+1]/255; f[2*N+k]=d[4*k+2]/255; }
   const ort=window.ort, t=new ort.Tensor("float32",f,[1,3,640,640]);
   const out=await ortSess.run({[ortSess.inputNames[0]]:t}); const o=out[ortSess.outputNames[0]].data, A=o.length/5;
-  const c=[]; for(let k=0;k<A;k++){ const cf=o[4*A+k]; if(cf>0.15) c.push([cf,(o[k]-px)/s,o[A+k]/s]); }
+  const c=[]; for(let k=0;k<A;k++){ const cf=o[4*A+k]; if(cf>0.15) c.push([cf,(o[k]-px)/s,(o[A+k]-py)/s]); }
   c.sort((a,b)=>b[0]-a[0]); const keep=[];
   for(const q of c){ if(keep.every(z=>Math.hypot(z[1]-q[1],z[2]-q[2])>12)) keep.push(q); if(keep.length>=3) break; }
   return keep;
