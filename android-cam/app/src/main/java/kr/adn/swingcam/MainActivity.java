@@ -124,7 +124,7 @@ public class MainActivity extends Activity {
     private PeerConnection dataPc, mediaPc; private DataChannel dc;
     private final List<IceCandidate> pendData = new ArrayList<>(), pendMedia = new ArrayList<>();
     private boolean dataRemoteSet = false, mediaRemoteSet = false;
-    private long frames = 0, fpsT = 0; private double camFps = 0;
+    private long frames = 0, fpsT = 0, recCnt = 0, lastFwdNs = 0; private double camFps = 0; private volatile double recFps = 0;
 
     // 기울기
     private SensorManager sm;
@@ -239,13 +239,16 @@ public class MainActivity extends Activity {
         vsrc.getCapturerObserver().onCapturerStarted(true);
         sth.startListening(frame -> {
             frames++;
-            if (hs && (fwd++ % 4) != 0) return;     // 240fps → 아이패드에는 60fps만
+            { long now0 = System.currentTimeMillis();
+              if (now0 - fpsT > 1000) { camFps = frames * 1000.0 / Math.max(1, now0 - fpsT); frames = 0;
+                  if (rr != null) { long c = rr.encCount; recFps = (c - recCnt) * 1000.0 / Math.max(1, now0 - fpsT); recCnt = c; }
+                  fpsT = now0; } }
+            // 아이패드로는 최대 60fps만 (시간 기준: 미리보기 프레임이 드물게 와도 더 줄이지 않음)
+            long tn = frame.getTimestampNs(); if (hs && tn - lastFwdNs < 15_000_000L) return; lastFwdNs = tn;
             VideoFrame.Buffer nb = SwingFrameUtil.undoRotation(frame.getBuffer(), -sensorOrientation);
             VideoFrame f = new VideoFrame(nb, videoRot(), frame.getTimestampNs());
             vsrc.getCapturerObserver().onFrameCaptured(f);
             f.release();
-            long now = System.currentTimeMillis();
-            if (now - fpsT > 1000) { camFps = frames * 1000.0 / Math.max(1, now - fpsT); frames = 0; fpsT = now; }
         });
 
         camThread = new HandlerThread("cam"); camThread.start(); camH = new Handler(camThread.getLooper());
@@ -481,7 +484,7 @@ public class MainActivity extends Activity {
                 levelTv.setText((devRot % 180 != 0 ? "가로 · " : "세로 · ") + (pitch > 0 ? "위로 " : "아래로 ") + Math.abs(Math.round(pitch)) + "° · 좌우 " + Math.round(Math.abs(roll)) + "° " + (bad ? "기울어짐" : "수평"));
                 levelTv.setTextColor(bad ? Color.rgb(255, 138, 101) : Color.rgb(88, 214, 141));
             }
-            infoTv.setText(String.format("%dx%d · 카메라 %.0ffps · 셔터 %s · ISO %d", W, H, camFps,
+            infoTv.setText(String.format("%dx%d · 원본 녹화 %.0ffps · 화면 %.0ffps · 셔터 %s · ISO %d", W, H, recFps, camFps,
                     curExp > 0 ? "1/" + Math.round(1e9 / curExp) : "?", curIso));
             if (dc != null && dc.state() == DataChannel.State.OPEN) {
                 try {
@@ -498,7 +501,7 @@ public class MainActivity extends Activity {
         try {
             long s = SHUTTERS[shutterIdx];
             sendData(new JSONObject().put("t", "info").put("label", "스윙 카메라 앱 · 셔터 " + (s == 0 ? "자동" : "1/" + s) + " · 원본 " + (hs ? 240 : FPS) + "fps")
-                    .put("w", H).put("h", W).put("fps", camFps > 1 ? (hs ? camFps / 4 : camFps) : FPS).put("zoom", 1).put("zx", 0.5).put("zy", 0.5).put("hw", false));
+                    .put("w", H).put("h", W).put("fps", camFps > 1 ? Math.min(60, camFps) : FPS).put("zoom", 1).put("zx", 0.5).put("zy", 0.5).put("hw", false));
         } catch (Exception ignore) {}
     }
 

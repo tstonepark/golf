@@ -17,6 +17,8 @@ import java.util.List;
  * 스윙이 끝났다는 신호가 오면 그 구간만 mp4로 잘라 저장 → 전송 압축을 거치지 않은 폰 원본.
  */
 public class RingRecorder {
+    /** 지금까지 인코딩된 프레임 수 (실제 녹화 fps 표시용) */
+    public volatile long encCount = 0;
     private static class Sample { final byte[] d; final long pts; final int flags; Sample(byte[] d, long pts, int flags) { this.d = d; this.pts = pts; this.flags = flags; } }
 
     private MediaCodec enc;
@@ -58,6 +60,7 @@ public class RingRecorder {
                     ByteBuffer ob = enc.getOutputBuffer(idx);
                     byte[] d = new byte[bi.size];
                     ob.position(bi.offset); ob.limit(bi.offset + bi.size); ob.get(d);
+                    encCount++;
                     synchronized (ring) {
                         ring.addLast(new Sample(d, bi.presentationTimeUs, bi.flags));
                         while (!ring.isEmpty() && bi.presentationTimeUs - ring.peekFirst().pts > KEEP_US) ring.removeFirst();
