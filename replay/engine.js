@@ -5,8 +5,8 @@ export function setFrame(landscape){ if(landscape){W=960;H=540;} else {W=540;H=9
 let ortSess=null;
 export let headErr="";
 function loadScript(src){ return new Promise((res,rej)=>{ const e=document.createElement("script"); e.src=src; e.onload=res; e.onerror=()=>rej(new Error("load "+src)); document.head.appendChild(e); }); }
-async function tryEps(base,eps,errs){
-  const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/ort/",location.href).href; ort.env.wasm.numThreads=1; ort.env.wasm.proxy=false;
+async function tryEps(base,eps,errs,dir="ort"){
+  const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/"+dir+"/",location.href).href; ort.env.wasm.numThreads=1; ort.env.wasm.proxy=false;
   for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead.onnx",location.href).href,{executionProviders:[ep]}); return ep; }
     catch(e){ errs.push(ep+": "+(e&&e.message||e)); console.warn("ep fail",ep,e); } }
   return null;
@@ -14,9 +14,12 @@ async function tryEps(base,eps,errs){
 export async function loadHead(base){
   const force=new URLSearchParams(location.search).get("ep"), errs=[];
   // 1) WebGPU build (GPU first, then its own wasm)
-  let ep=window.ort? await tryEps(base,force?[force]:(navigator.gpu?["webgpu","wasm"]:["wasm"]),errs) : null;
-  // 2) fallback: plain build (smaller wasm, + WebGL) — iPad Safari sometimes refuses the WebGPU build
-  if(!ep&&!force){ try{ window.ort=undefined; await loadScript(base+"vendor/ort/ort.min.js"); ep=await tryEps(base,["webgl","wasm"],errs); }catch(e){ errs.push("fallback: "+(e&&e.message||e)); } }
+  // iPad/iPhone Safari: ORT 1.20 only ships threaded wasm (4GB shared memory reservation) -> "Out of memory".
+  // Use ORT 1.17 single-thread wasm there (and as the fallback everywhere).
+  const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  let ep=null;
+  if(!ios||force) ep=window.ort? await tryEps(base,force?[force]:(navigator.gpu?["webgpu","wasm"]:["wasm"]),errs) : null;
+  if(!ep&&!force){ try{ window.ort=undefined; await loadScript(base+"vendor/ort117/ort.wasm.min.js"); ep=await tryEps(base,["wasm"],errs,"ort117"); if(ep) ep="wasm1.17"; }catch(e){ errs.push("ort1.17: "+(e&&e.message||e)); } }
   if(ep) return ep;
   headErr=errs.join(" | "); throw new Error("헤드 모델을 불러오지 못했습니다 ("+headErr.slice(0,300)+")");
 }
