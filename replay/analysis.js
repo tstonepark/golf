@@ -132,11 +132,11 @@ export function coarseImpact(tr,fps){
 // coarse impact from the hands: biggest fall of the hands within 0.4s ending near address height
 export function handsImpact(hands,fps){
   const ys=hands.filter(Boolean).map(h=>h[1]).sort((a,b)=>a-b); if(ys.length<10) return -1;
-  const lowY=ys[Math.floor(ys.length*0.85)], win=Math.round(0.4*fps); let best=0,bi=-1;
-  for(let i=0;i<hands.length;i++){ const h=hands[i]; if(!h||h[1]<lowY-0.06*Math.max(...ys)) continue;
+  const lowY=ys[Math.floor(ys.length*0.85)], topY=ys[Math.floor(ys.length*0.02)], win=Math.round(0.3*fps); let best=0,bi=-1;
+  for(let i=0;i<hands.length;i++){ const h=hands[i]; if(!h||h[1]<lowY-0.3*(lowY-topY)) continue;
     let mn=1e9; for(let j=Math.max(0,i-win);j<i;j++) if(hands[j]&&hands[j][1]<mn) mn=hands[j][1];
     const fall=h[1]-mn; if(fall>best+2){ best=fall; bi=i; } }
-  return best>0.12*lowY? bi : -1;
+  return best>0.4*(lowY-topY)? bi : -1;
 }
 // camera view: at address the club head (ball) sits between the feet when filmed face-on,
 // but well in front of the body when filmed from behind (down the line). Falls back to shoulder width.
