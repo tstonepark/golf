@@ -246,6 +246,7 @@ public class MainActivity extends Activity {
             // 아이패드로는 최대 60fps만 (시간 기준: 미리보기 프레임이 드물게 와도 더 줄이지 않음)
             long tn = frame.getTimestampNs();
             if (tn - lastMotNs > 66_000_000L) { lastMotNs = tn; measureMotion(frame); }
+            if (sending) return;
             if (hs && tn - lastFwdNs < 15_000_000L) return; lastFwdNs = tn;
             VideoFrame.Buffer nb = SwingFrameUtil.undoRotation(frame.getBuffer(), -sensorOrientation);
             VideoFrame f = new VideoFrame(nb, videoRot(), frame.getTimestampNs());
@@ -347,7 +348,7 @@ public class MainActivity extends Activity {
                 saveBtn.setEnabled(true); saveBtn.setText("지금 원본 저장 (최근 12초)");
                 if (nm != null) { toast("원본 저장: 동영상/SwingCam/" + nm + " (" + nn + "장)");
                     try { sendData(new JSONObject().put("t", "saved").put("name", nm).put("fps", f).put("frames", nn).put("why", why)); } catch (Exception ignore) {}
-                    sendClip(tmp, nm, f); }
+                    sendClip(tmp, nm, f, !"수동".equals(why)); }
                 else toast("원본 저장 실패");
             });
         }).start();
@@ -426,14 +427,19 @@ public class MainActivity extends Activity {
 
     /** 저장한 원본을 아이패드로 전송 (데이터 채널, base64 조각). 아이패드가 직접 고속 분석한다. */
     private volatile int clipSeq = 0;
-    private void sendClip(File src, String name, int fps) {
+    private volatile boolean sending = false;
+    private void sendClip(File src, String name, int fps, boolean trim) {
         if (dc == null || dc.state() != DataChannel.State.OPEN) return;
         final int id = ++clipSeq;
         new Thread(() -> {
             File f = new File(getCacheDir(), "send_" + id + ".mp4");
             try {
-                try (InputStream in = new FileInputStream(src); OutputStream o = new java.io.FileOutputStream(f)) {
+                // 자동 저장이면 스윙 구간(최근 5초)만 따로 묶어 보냄 → 전송량 약 30% 감소. 수동 저장은 전체.
+                int made = 0;
+                if (trim && rr != null) { try { made = rr.save(5_000_000L, f, videoRot()); } catch (Exception e) { made = 0; } }
+                if (made <= 0) try (InputStream in = new FileInputStream(src); OutputStream o = new java.io.FileOutputStream(f)) {
                     byte[] b = new byte[1 << 16]; int k; while ((k = in.read(b)) > 0) o.write(b, 0, k); }
+                sending = true;   // 전송 중에는 실시간 화면 전송을 쉬어 와이파이를 원본 전송에 몰아줌
                 long size = f.length(); final int CH = 12 * 1024; /* base64 후 약 16KB: 데이터 채널 메시지 한도(64KB)보다 충분히 작게 */ int n = (int) ((size + CH - 1) / CH);
                 sendData(new JSONObject().put("t", "clipstart").put("id", id).put("name", name).put("size", size).put("n", n).put("fps", fps));
                 byte[] b = new byte[CH];
@@ -441,14 +447,14 @@ public class MainActivity extends Activity {
                     for (int i = 0; i < n; i++) {
                         int got = 0, k; while (got < CH && (k = in.read(b, got, CH - got)) > 0) got += k;
                         String d = android.util.Base64.encodeToString(b, 0, got, android.util.Base64.NO_WRAP);
-                        while (dc != null && dc.state() == DataChannel.State.OPEN && dc.bufferedAmount() > 1L * 1024 * 1024) Thread.sleep(5);
+                        while (dc != null && dc.state() == DataChannel.State.OPEN && dc.bufferedAmount() > 2L * 1024 * 1024) Thread.sleep(2);
                         if (dc == null || dc.state() != DataChannel.State.OPEN || id != clipSeq) return;
                         sendData(new JSONObject().put("t", "clip").put("id", id).put("i", i).put("d", d));
                     }
                 }
                 sendData(new JSONObject().put("t", "clipend").put("id", id));
             } catch (Exception e) { ui.post(() -> toast("아이패드 전송 실패: " + e.getMessage())); }
-            finally { f.delete(); }
+            finally { sending = false; f.delete(); }
         }).start();
     }
 
