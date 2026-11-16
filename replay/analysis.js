@@ -128,3 +128,49 @@ export function coarseImpact(tr,fps){
     const fall=p[1]-mn; if(fall>best+5&&ballY-mn>220){ best=fall; bi=i; } }
   return bi;
 }
+// ---------- pose-only helpers (work from any camera angle) ----------
+// coarse impact from the hands: biggest fall of the hands within 0.4s ending near address height
+export function handsImpact(hands,fps){
+  const ys=hands.filter(Boolean).map(h=>h[1]).sort((a,b)=>a-b); if(ys.length<10) return -1;
+  const lowY=ys[Math.floor(ys.length*0.85)], win=Math.round(0.4*fps); let best=0,bi=-1;
+  for(let i=0;i<hands.length;i++){ const h=hands[i]; if(!h||h[1]<lowY-0.06*Math.max(...ys)) continue;
+    let mn=1e9; for(let j=Math.max(0,i-win);j<i;j++) if(hands[j]&&hands[j][1]<mn) mn=hands[j][1];
+    const fall=h[1]-mn; if(fall>best+2){ best=fall; bi=i; } }
+  return best>0.12*lowY? bi : -1;
+}
+// camera view: at address the club head (ball) sits between the feet when filmed face-on,
+// but well in front of the body when filmed from behind (down the line). Falls back to shoulder width.
+export function viewOf(pose,tr,i0,i1){
+  const bx=[],sr=[];
+  for(let i=Math.max(0,i0);i<=i1;i++){ const P=pose[i]; if(!P||!P.hip) continue;
+    const tl=Math.max(1,Math.hypot(P.sh[0]-P.hip[0],P.sh[1]-P.hip[1]));
+    sr.push(Math.hypot(P.ls[0]-P.rs[0],P.ls[1]-P.rs[1])/tl);
+    if(tr[i]) bx.push(Math.abs(tr[i][0]-P.hip[0])/tl); }
+  const med=a=>a.length? a.slice().sort((x,y)=>x-y)[a.length>>1] : null;
+  const b=med(bx), r=med(sr);
+  if(b!=null&&bx.length>=3){ if(b<0.45) return {view:"face",ball:b,ratio:r}; if(b>0.6) return {view:"dtl",ball:b,ratio:r}; }
+  if(r==null) return null;
+  return {view:r>0.6?"face":r<0.35?"dtl":"angle",ball:b,ratio:r};
+}
+export function posePhases(pose,fps,ci){
+  const hy=i=>pose[i]&&pose[i].hands[1];
+  let imp=ci; for(let i=Math.max(0,ci-Math.round(0.15*fps));i<=Math.min(pose.length-1,ci+Math.round(0.15*fps));i++) if(hy(i)!=null&&hy(i)>(hy(imp)??-1)) imp=i;
+  let top=-1,mn=1e9; for(let i=Math.max(0,imp-Math.round(2.2*fps));i<imp-Math.round(0.18*fps);i++){ const y=hy(i); if(y!=null&&y<mn){mn=y;top=i;} }
+  if(top<0) return null;
+  for(let i=top;i<imp-Math.round(0.18*fps);i++){ const y=hy(i); if(y!=null&&y<=mn+8) top=i; }
+  const a0=Math.max(0,imp-Math.round(2.8*fps)); const ad=pose[a0]||pose.find(Boolean); if(!ad) return null;
+  const tol=0.02*Math.max(...pose.filter(Boolean).map(p=>p.hands[1]));
+  let start=a0;
+  for(let i=top;i>a0;i--){ const P=pose[i]; if(P&&Math.hypot(P.hands[0]-ad.hands[0],P.hands[1]-ad.hands[1])<tol){ start=i; break; } }
+  return {addr:a0,start,top,imp,fin:Math.min(pose.length-1,imp+Math.round(1.2*fps))};
+}
+// face-on: lateral head / pelvis shift (cm, using ~40cm shoulder width as the scale) and shaft lean at impact
+export function faceOn(pose,ph,tr){
+  const A=pose[ph.start], T=pose[ph.top], I=pose[ph.imp]; if(!A||!T||!I||!A.nose) return null;
+  const cmPerPx=40/Math.max(1,Math.hypot(A.ls[0]-A.rs[0],A.ls[1]-A.rs[1]));
+  const away=Math.sign(T.hands[0]-A.hands[0])||1;           // direction away from the target
+  const cm=(p,q)=>(q[0]-p[0])*away*cmPerPx;                    // + = toward the back foot (away from target)
+  let lean=null; const h=tr[ph.imp];
+  if(h){ const dx=(I.hands[0]-h[0])*away*-1, dy=h[1]-I.hands[1]; if(dy>0) lean=Math.atan2(dx,dy)*180/Math.PI; } // + = hands ahead of the club head
+  return {headTop:cm(A.nose,T.nose),headImp:cm(A.nose,I.nose),hipTop:cm(A.hip,T.hip),hipImp:cm(A.hip,I.hip),lean};
+}

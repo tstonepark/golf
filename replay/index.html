@@ -95,7 +95,8 @@ function poseOf(r){
   const L=r.landmarks[0], g=k=>[L[k].x*W,L[k].y*H];
   const hands=[0,1].map(d=>([15,16,19,20].reduce((s,k)=>s+g(k)[d],0)/4));
   const sh=[(g(11)[0]+g(12)[0])/2,(g(11)[1]+g(12)[1])/2];
-  return {hands,sh,joints:[[...g(11),28],[...g(12),28],[...g(15),20],[...g(16),20]],
+  const hip=[(g(23)[0]+g(24)[0])/2,(g(23)[1]+g(24)[1])/2];
+  return {hands,sh,hip,ls:g(11),rs:g(12),nose:g(0),joints:[[...g(11),28],[...g(12),28],[...g(15),20],[...g(16),20]],
     world:r.worldLandmarks&&r.worldLandmarks[0]? r.worldLandmarks[0].map(p=>[p.x,p.y,p.z]) : null};
 }
 // ---------- progress ----------
@@ -111,12 +112,16 @@ async function analyze(file){
   const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps=dm.fps; vfps=fps;
   { const r=((dm.rot%360)+360)%360, dw=(r===90||r===270)?dm.ch:dm.cw, dh=(r===90||r===270)?dm.cw:dm.ch; setFrame(dw>dh); }
   if(fps<100) prog("※ "+Math.round(fps)+"fps 영상입니다. 240fps 원본이 가장 정확합니다.",0.06);
-  // pass 1: head model on every 8th frame (30fps) -> coarse impact
-  const pts=new Array(n).fill(null); let done=0; const n1=Math.ceil(n/8);
-  await decodeRange(dm,0,n-1,async(i,cv)=>{ pts[i]=await headInfer(cv); done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중… "+Math.round(done/n1*100)+"%",0.06+0.24*done/n1); await tick(); } },dm.rot,i=>i%8===0);
+  // pass 1: every 8th frame (30fps): head model + pose -> where is the swing, which camera angle
+  const pts=new Array(n).fill(null), pose1=new Array(n).fill(null); let done=0; const n1=Math.ceil(n/8);
+  await decodeRange(dm,0,n-1,async(i,cv)=>{ pts[i]=await headInfer(cv); try{ pose1[i]=poseOf(lmk.detectForVideo(cv,Math.round(i*1000/fps))); }catch(e){}
+    done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중… "+Math.round(done/n1*100)+"%",0.06+0.24*done/n1); await tick(); } },dm.rot,i=>i%8===0);
   const t1=A.fillGaps(A.clean(A.track(A.staticFilter(pts.map(p=>p||[])),160),8,200),8);
-  const ci=A.coarseImpact(t1,fps);
-  if(ci<0) throw new Error("스윙(빠른 다운스윙)을 찾지 못했습니다. 스윙 전체가 담긴 영상인지 확인해 주세요.");
+  const h1=pose1.map(p=>p&&p.hands);
+  const hi=A.handsImpact(h1,fps), ciHead=A.coarseImpact(t1,fps);
+  let ci=(ciHead>=0&&(hi<0||Math.abs(ciHead-hi)<0.4*fps))? ciHead : hi;
+  if(ci<0) throw new Error("스윙(빠른 다운스윙)을 찾지 못했습니다. 골퍼 전신과 스윙 전체가 담긴 영상인지 확인해 주세요.");
+  const TOFF=Math.round(n*1000/fps)+5000;   // pose timestamps must keep increasing in pass 2
   // pass 2: dense around the downswing, sparse elsewhere
   const a=Math.max(0,ci-Math.round(2.8*fps)), b=Math.min(n-1,ci+Math.round(1.3*fps));
   const d0=ci-Math.round(0.45*fps), d1=ci+Math.round(0.15*fps), dense=i=>i>=d0&&i<=d1;
@@ -125,16 +130,19 @@ async function analyze(file){
   const pts2=new Array(n).fill(null), pose=new Array(n).fill(null); done=0;
   await decodeRange(dm,a,b,async(i,cv)=>{
     if(needH(i)) pts2[i]=(i%8===0&&pts[i])? pts[i] : await headInfer(cv);
-    if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,Math.round(i*1000/fps))); }catch(e){} }
+    if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,TOFF+Math.round(i*1000/fps))); }catch(e){} }
     done++; if(done%8===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.3+0.68*done/tot); await tick(); } },dm.rot,i=>needH(i)||needP(i));
   for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];
   let tr=A.fillGaps(A.clean(A.track(A.bodyFilter(A.staticFilter(pts2.map(p=>p||[])),pose)),4,80),4);
   tr=A.clubLengthFilter(tr,pose.map(p=>p&&p.hands)).tr;
-  const ph=A.phases(tr,fps,pose.map(p=>p&&p.hands));
+  const phP=A.posePhases(pose,fps,ci);
+  const vw=phP? A.viewOf(pose,tr,phP.start-Math.round(0.3*fps),phP.start) : null; const view=vw?vw.view:"dtl";
+  let ph=view==="dtl"? A.phases(tr,fps,pose.map(p=>p&&p.hands)) : null;
+  if(!ph||ph.top<0||ph.imp-ph.top<0.15*fps) ph=phP||ph;
   if(!ph) throw new Error("스윙 구간을 판정하지 못했습니다.");
-  const cv=A.curves(tr,ph,fps), pl=A.plane(tr,ph,pose,fps), bd=A.body(pose,ph);
+  const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
-  R={secs:(performance.now()-T0)/1000,name:file.name||'',fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+  R={secs:(performance.now()-T0)/1000,name:file.name||'',view,vw,fo,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -152,6 +160,18 @@ function results(){
       <div class="row"><span>테이크백</span><b class="${pl.takeawayOver>0.5?'warn':'ok'}">${pl.takeawayOver>0.5?'어깨선 바깥으로 들어 올림':'두 선 사이'}</b></div>
       <div class="row"><span>다운스윙</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>
       <div class="dimt">초록=어드레스 샤프트선, 주황=공-어깨선. 다운스윙이 두 선 사이로 오면 정상.</div></div>`;
+  } else if(R.view!=="dtl"){
+    const f=R.fo, c=v=>v==null?"<span class='warn'>측정 안 됨</span>":Math.abs(v)>30?"<span class='warn'>측정 이상</span>":(Math.abs(v)<1?"0":Math.abs(v).toFixed(0))+"cm "+(Math.abs(v)<1?"":v>0?"뒤로":"타깃 쪽");
+    const tone=(v,lim)=>v==null?"":Math.abs(v)>lim?"warn":"ok";
+    h+=`<div class="card"><h3>정면 분석 (어드레스 대비 좌우 이동)</h3>
+      ${f?`<div class="row"><span>탑 · 머리</span><b class="${tone(f.headTop,5)}">${c(f.headTop)}</b></div>
+      <div class="row"><span>탑 · 골반</span><b class="${tone(f.hipTop,6)}">${c(f.hipTop)}</b></div>
+      <div class="row"><span>임팩트 · 머리</span><b class="${tone(f.headImp,5)}">${c(f.headImp)}</b></div>
+      <div class="row"><span>임팩트 · 골반</span><b class="${tone(-f.hipImp,0)}">${c(f.hipImp)}</b></div>
+      <div class="row"><span>임팩트 샤프트 기울기</span><b>${f.lean==null?"<span class='warn'>측정 안 됨</span>":(f.lean>=0?"손이 앞 ":"헤드가 앞 ")+Math.abs(f.lean).toFixed(0)+"°"}</b></div>
+      <div class="dimt">참고: 머리는 탑·임팩트 모두 5cm 이내가 좋고, 골반은 임팩트 때 타깃 쪽으로 이동해 있는 게 일반적입니다. 아이언은 임팩트 때 손이 헤드보다 앞(핸드 퍼스트). 어깨너비를 약 40cm로 보고 환산한 대략값입니다.</div>`
+      :`<div class="dimt">자세를 찾지 못해 측정하지 못했습니다.</div>`}</div>
+      <div class="card"><h3>스윙 플레인</h3><div class="dimt">플레인(인-아웃) 판정은 뒤에서(타깃 방향 뒤) 찍은 영상에서만 합니다.</div></div>`;
   } else h+=`<div class="card"><h3>스윙 플레인</h3><div class="dimt">어드레스 자세(손·어깨)를 찾지 못해 판정하지 않았습니다.</div></div>`;
   if(bd&&bd.top){
     const v=(o,k)=>o&&o.ok? Math.abs(o[k]).toFixed(0)+"°" : "<span class='warn'>측정 이상</span>";
@@ -164,7 +184,7 @@ function results(){
       <div class="dimt">투어 평균(참고): 탑 가슴 약 90°·골반 약 45°, 임팩트 때는 골반 약 40°·가슴 약 25° 타깃 쪽으로 열림. 카메라 1대 추정값이라 오차가 큽니다(특히 뒤에서 찍을 때).</div></div>`;
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
-    <div class="row"><span>영상</span><b>${Math.round(fps)}fps</b></div><div class="row"><span>분석 시간</span><b>${Math.round(R.secs||0)}초</b></div>
+    <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${Math.round(R.secs||0)}초</b></div>
     <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd}</div></div>`;
   $("res").innerHTML=h;
 }
