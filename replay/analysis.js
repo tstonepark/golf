@@ -7,9 +7,11 @@ const dif=(a,b)=>Math.abs(((a-b+540)%360)-180);
 export function staticFilter(pts){
   const N=pts.length, cell=new Map();
   pts.forEach((p,i)=>p&&p.forEach(([c,x,y])=>{const k=Math.round(x/16)+","+Math.round(y/16);(cell.get(k)||cell.set(k,[]).get(k)).push([i,x,y]);}));
-  const cen=[];
+  // judge "present from start to end" over the frames that were actually analysed (pass 2 covers only a window)
+  let i0=-1,i1=-1,nd=0; pts.forEach((p,i)=>{ if(p&&p.length){ if(i0<0) i0=i; i1=i; nd++; } });
+  const span=Math.max(1,i1-i0), cen=[];
   for(const v of cell.values()){ const fr=v.map(z=>z[0]);
-    if(v.length>0.015*N && Math.min(...fr)<0.2*N && Math.max(...fr)>0.8*N)
+    if(v.length>0.03*nd && Math.min(...fr)<i0+0.2*span && Math.max(...fr)>i1-0.2*span)
       cen.push([v.reduce((s,z)=>s+z[1],0)/v.length, v.reduce((s,z)=>s+z[2],0)/v.length]); }
   return pts.map(p=>p? p.filter(([c,x,y])=>c>=0.25 && cen.every(([a,b])=>hyp(x-a,y-b)>14)) : []);
 }
@@ -94,8 +96,12 @@ export function curves(tr,ph,fps){
 }
 // 7) plane check against two lines from the ball: address shaft line (ball->hands) and ball->shoulders
 export function plane(tr,ph,pose,fps){
-  const A=ph.start, P=pose[A]||nearest(pose,A); if(!P||!tr[A]) return null;
-  const ball=tr[A], hands=P.hands, sh=P.sh;
+  const A=ph.start, P=pose[A]||nearest(pose,A); if(!P) return null;
+  // ball = club head at impact (most reliable: the head is at the ball); fall back to the address head position
+  let ball=null; for(let d=0;d<=Math.round(0.015*fps)&&!ball;d++) ball=tr[ph.imp-d]||tr[ph.imp+d]||null;
+  if(!ball){ const q=[]; for(let i=Math.max(0,A-Math.round(0.2*fps));i<=A;i++) if(tr[i]) q.push(tr[i]); if(q.length){ q.sort((a,b)=>a[1]-b[1]); ball=q[q.length>>1]; } }
+  const hands=P.hands, sh=P.sh;
+  if(!ball||ball[1]<=hands[1]) return null;   // ball must be below the hands at address
   const side=(p,q,x)=>{ const dx=q[0]-p[0],dy=q[1]-p[1],l=hyp(dx,dy); return (dx*(x[1]-p[1])-dy*(x[0]-p[0]))/l; }; // >0: above/outside
   const L=hyp(hands[0]-ball[0],hands[1]-ball[1]);
   const cls=(i)=>{ const p=tr[i]; if(!p) return null; const a=side(ball,hands,p), b=side(ball,sh,p);
@@ -106,7 +112,7 @@ export function plane(tr,ph,pose,fps){
   const frac=(arr,z)=>arr.length? arr.filter(c=>c.zone===z).length/arr.length : 0;
   return {ball,hands,sh,L,back,down,
     takeawayOver:frac(back,"over"), downSlot:frac(down,"slot"), downOver:frac(down,"over"), downUnder:frac(down,"under"),
-    finalZone: lastN.length? mode(lastN.map(c=>c.zone)) : null};
+    nDown:down.length, finalZone: (lastN.length>=2&&down.length>=6)? mode(lastN.map(c=>c.zone)) : null};
 }
 const mode=a=>{ const m={}; a.forEach(x=>m[x]=(m[x]||0)+1); return Object.entries(m).sort((x,y)=>y[1]-x[1])[0][0]; };
 function nearest(arr,i){ for(let d=1;d<30;d++){ if(arr[i-d]) return arr[i-d]; if(arr[i+d]) return arr[i+d]; } return null; }

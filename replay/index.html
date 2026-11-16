@@ -156,9 +156,9 @@ function results(){
   if(pl){
     const fz=pl.finalZone&&zoneTxt[pl.finalZone];
     h+=`<div class="card"><h3>스윙 플레인 (뒤에서 본 2D 기준)</h3>
-      ${fz?`<div class="big ${fz[1]}">${fz[2]}</div><div class="row"><span>임팩트 진입</span><b class="${fz[1]}">${fz[0]}</b></div>`:`<div class="dimt">임팩트 직전 헤드가 가려져 판정 불가</div>`}
+      ${fz?`<div class="big ${fz[1]}">${fz[2]}</div><div class="row"><span>임팩트 진입</span><b class="${fz[1]}">${fz[0]}</b></div>`:`<div class="big warn">판정 보류</div><div class="dimt">다운스윙 하단에서 헤드가 보인 장면이 ${pl.nDown}개뿐이라 판정하지 않습니다(6개 이상 필요). 골퍼를 화면에 더 크게, 밝게 찍으면 나아집니다.</div>`}
       <div class="row"><span>테이크백</span><b class="${pl.takeawayOver>0.5?'warn':'ok'}">${pl.takeawayOver>0.5?'어깨선 바깥으로 들어 올림':'두 선 사이'}</b></div>
-      <div class="row"><span>다운스윙</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>
+      ${pl.nDown>=6?`<div class="row"><span>다운스윙</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>`:""}
       <div class="dimt">초록=어드레스 샤프트선, 주황=공-어깨선. 다운스윙이 두 선 사이로 오면 정상.</div></div>`;
   } else if(R.view!=="dtl"){
     const f=R.fo, c=v=>v==null?"<span class='warn'>측정 안 됨</span>":Math.abs(v)>30?"<span class='warn'>측정 이상</span>":(Math.abs(v)<1?"0":Math.abs(v).toFixed(0))+"cm "+(Math.abs(v)<1?"":v>0?"뒤로":"타깃 쪽");
