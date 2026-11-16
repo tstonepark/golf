@@ -124,7 +124,7 @@ public class MainActivity extends Activity {
     private PeerConnection dataPc, mediaPc; private DataChannel dc;
     private final List<IceCandidate> pendData = new ArrayList<>(), pendMedia = new ArrayList<>();
     private boolean dataRemoteSet = false, mediaRemoteSet = false;
-    private long frames = 0, fpsT = 0, recCnt = 0, lastFwdNs = 0; private double camFps = 0; private volatile double recFps = 0;
+    private long frames = 0, fpsT = 0, recCnt = 0, lastFwdNs = 0, lastMotNs = 0; private double camFps = 0; private volatile double recFps = 0;
 
     // 기울기
     private SensorManager sm;
@@ -244,7 +244,9 @@ public class MainActivity extends Activity {
                   if (rr != null) { long c = rr.encCount; recFps = (c - recCnt) * 1000.0 / Math.max(1, now0 - fpsT); recCnt = c; }
                   fpsT = now0; } }
             // 아이패드로는 최대 60fps만 (시간 기준: 미리보기 프레임이 드물게 와도 더 줄이지 않음)
-            long tn = frame.getTimestampNs(); if (hs && tn - lastFwdNs < 15_000_000L) return; lastFwdNs = tn;
+            long tn = frame.getTimestampNs();
+            if (tn - lastMotNs > 66_000_000L) { lastMotNs = tn; measureMotion(frame); }
+            if (hs && tn - lastFwdNs < 15_000_000L) return; lastFwdNs = tn;
             VideoFrame.Buffer nb = SwingFrameUtil.undoRotation(frame.getBuffer(), -sensorOrientation);
             VideoFrame f = new VideoFrame(nb, videoRot(), frame.getTimestampNs());
             vsrc.getCapturerObserver().onFrameCaptured(f);
@@ -351,6 +353,37 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+
+    // ---------- 화면 움직임 측정 (공 소리 오인 방지) ----------
+    // 화면 가운데 세로 60% 영역의 밝기 변화량을 0.066초마다 기록. 최근 2초 기록을 보관.
+    private byte[] motPrev = null; private final float[] motHist = new float[40]; private final long[] motTime = new long[40]; private int motIdx = 0;
+    private void measureMotion(VideoFrame frame) {
+        VideoFrame.I420Buffer b = null;
+        try {
+            VideoFrame.Buffer sc = frame.getBuffer().cropAndScale(0, 0, frame.getBuffer().getWidth(), frame.getBuffer().getHeight(), 96, 54);
+            b = sc.toI420(); sc.release();
+            int w = b.getWidth(), h = b.getHeight(), st = b.getStrideY(); java.nio.ByteBuffer y = b.getDataY();
+            byte[] cur = new byte[w * h];
+            for (int r = 0; r < h; r++) for (int c = 0; c < w; c++) cur[r * w + c] = y.get(r * st + c);
+            float m = 0;
+            if (motPrev != null && motPrev.length == cur.length) {
+                // 센서 기준 가로 영상: 가운데 영역(가장자리 20% 제외)만 — 옆 타석 사람은 보통 화면 가장자리
+                int x0 = w / 5, x1 = w - w / 5, y0 = h / 5, y1 = h - h / 5; long sum = 0; int n = 0;
+                for (int r = y0; r < y1; r++) for (int c = x0; c < x1; c++) { int d = (cur[r * w + c] & 255) - (motPrev[r * w + c] & 255); if (d > 25 || d < -25) sum++; n++; }
+                m = n > 0 ? (float) sum / n : 0;
+            }
+            motPrev = cur;
+            synchronized (motHist) { motHist[motIdx] = m; motTime[motIdx] = System.currentTimeMillis(); motIdx = (motIdx + 1) % motHist.length; }
+        } catch (Exception ignore) {
+        } finally { if (b != null) b.release(); }
+    }
+    /** 최근 ms 동안 화면 가운데에서 가장 크게 바뀐 비율(0~1). 내 스윙이면 다운스윙 때 크게 튄다. */
+    private float recentMotion(long ms) {
+        long now = System.currentTimeMillis(); float mx = 0;
+        synchronized (motHist) { for (int i = 0; i < motHist.length; i++) if (now - motTime[i] <= ms && motHist[i] > mx) mx = motHist[i]; }
+        return mx;
+    }
+
     /** 마이크로 공 맞는 소리(짧고 큰 충격음)를 감지 → 1.5초 뒤 최근 7초 저장. 아이패드 없이도 동작. */
     private void startMic() {
         if (mic != null || checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
@@ -375,6 +408,11 @@ public class MainActivity extends Activity {
                 // 충격음: 최대값이 크고(전체의 약 35% 이상) 주변 소음보다 훨씬 큼
                 if (autoOn && peak > 11000 && rms > bg * 6 && now - lastHit > 5000) {
                     lastHit = now;
+                    float mv = recentMotion(1500);
+                    if (mv < 0.02f) {   // 소리는 났지만 이 카메라 앞에서는 스윙이 없었음 → 옆 타석
+                        ui.post(() -> toast("소리 감지 · 화면에 스윙이 없어 저장 안 함"));
+                        continue;
+                    }
                     ui.post(() -> toast("공 맞는 소리 감지 · 저장합니다"));
                     ui.postDelayed(() -> saveClip("소리", 7_000_000L), 1500);
                 }
