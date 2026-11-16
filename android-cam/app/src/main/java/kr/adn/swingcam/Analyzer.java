@@ -298,10 +298,12 @@ public class Analyzer {
         int tot0 = 0; for (int i = a; i <= b; i++) if (needH.at(i) || needP.at(i)) tot0++;
         final int tot = Math.max(1, tot0); cnt[0] = 0;
         final long base2 = tsLast + 5000;
+        final int[][] thumb = {null};
         final float[][] pts = new float[n][]; final Semaphore sem = new Semaphore(6); final ArrayList<Future<?>> futs = new ArrayList<>();
         decode(f, c, a, b, i -> needH.at(i) || needP.at(i), (i, px) -> {
             if (needH.at(i)) { sem.acquire(); futs.add(HEADX.submit(() -> { try { pts[i] = headAt(px, W, H, cx, cy, cs); } catch (Throwable e) { pts[i] = null; } finally { sem.release(); } })); }
             if (needP.at(i)) pose[i] = poseAt(bmp, px, W, H, base2 + Math.round(i * 1000.0 / fps));
+            if (thumb[0] == null && i >= ci - (int) Math.round(0.5 * fps)) thumb[0] = px;   // 확인용: 폰이 실제로 분석한 화면 1장
             if (++cnt[0] % 12 == 0 && log != null) log.line("스윙 분석 2/2 · " + (cnt[0] * 100 / tot) + "%"); });
         for (Future<?> fu : futs) fu.get();
         long T3 = System.currentTimeMillis();
@@ -318,7 +320,13 @@ public class Analyzer {
             sb.append('[').append(i); for (int k = 0; k < p.length; k++) sb.append(',').append(num(p[k], k % 3 == 0 ? 2 : 1)); sb.append(']'); }
         double secs = (System.currentTimeMillis() - T0) / 1000.0;
         sb.append("],\"secs\":").append(num(secs, 1)).append(",\"ms\":[").append(T1 - T0).append(',').append(T2 - T1).append(',').append(T3 - T2)
-          .append("],\"eng\":\"").append(headDev).append('/').append(poseDev).append("\"}");
+          .append("],\"eng\":\"").append(headDev).append('/').append(poseDev).append('"');
+        if (thumb[0] != null) try {
+            Bitmap full = Bitmap.createBitmap(thumb[0], W, H, Bitmap.Config.ARGB_8888), sm = Bitmap.createScaledBitmap(full, W / 2, H / 2, true);
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); sm.compress(Bitmap.CompressFormat.JPEG, 60, bo);
+            sb.append(",\"thumb\":\"").append(android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP)).append('"');
+        } catch (Throwable ignore) {}
+        sb.append('}');
         Result r = new Result(); r.json = sb.toString();
         r.summary = String.format(Locale.US, "폰 분석 %.1f초 (준비 %.1f · 1차 %.1f · 2차 %.1f) 뼈대 %d · 헤드 %d장", secs, (T1 - T0) / 1000.0, (T2 - T1) / 1000.0, (T3 - T2) / 1000.0, nPose, nHead);
         return r;

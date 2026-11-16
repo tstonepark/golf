@@ -65,7 +65,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v64</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v65</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -135,9 +135,17 @@ function fromDet(d){
 async function analyze(file,det){
   $("pick").disabled=true; const T0=performance.now();
   let D=null; if(det){ try{ D=fromDet(det); }catch(e){ console.warn("det",e); } if(D) prog("폰에서 분석한 값으로 진단 중…",0.6); }
-  if(!D) D=await detect(file);
-  window.__D=D; finish(D,file,T0);
+  if(D){ if(det.thumb) showThumb(det.thumb);
+    try{ window.__D=D; finish(D,file,T0); return; }
+    catch(e){ console.warn("phone det",e); phoneErr=String(e.message||e); prog("폰 측정값으로는 스윙을 찾지 못해 아이패드가 다시 분석합니다…",0.02); await tick(); } }
+  D=await detect(file);
+  window.__D=D;
+  try{ finish(D,file,T0); }catch(e){ if(phoneErr) e.message+=" (폰 분석·아이패드 분석 모두 같은 결과)"; throw e; }
 }
+let phoneErr="";
+// 폰이 실제로 분석한 화면 1장(방향·밝기 확인용)
+function showThumb(b64){ let im=$("pth"); if(!im){ im=document.createElement("img"); im.id="pth"; im.style.cssText="display:block;max-height:38vh;max-width:90%;margin:12px auto;border:2px solid #555;border-radius:8px"; const c=document.createElement("div"); c.className="dimt"; c.style.textAlign="center"; c.textContent="↑ 폰이 분석한 화면"; $("prog").after(im,c); }
+  im.src="data:image/jpeg;base64,"+b64; }
 async function detect(file){
   prog("모델 준비 중…",0.02);
   const ep=await loadHead("../");   // one at a time: iPad Safari runs out of memory loading both at once
@@ -238,7 +246,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v64</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v65</div></div>`;
   return h;
 }
 const HK="swinghist";
