@@ -77,6 +77,7 @@ input[type=file]{display:none}
       <button data-j="start">어드레스</button><button data-k="p2">테이크백</button><button data-j="top">탑</button><button data-k="p6">다운 중간</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
       <button id="lines" class="on">선 표시</button>
       <button id="again">다른 영상</button>
+      <button id="live" hidden>← 실시간 화면</button>
     </div>
   </div>
   <div id="right"><h2>종합 진단</h2><div id="res"><div class="dimt">영상을 불러오면 여기에 결과가 나옵니다.</div></div></div>
@@ -120,7 +121,9 @@ const tick=()=>new Promise(r=>setTimeout(r,0));
 async function analyze(file){
   $("pick").disabled=true; const T0=performance.now();
   prog("모델 준비 중…",0.02);
-  const [ep,pd]=await Promise.all([loadHead("../"),loadPose()]);
+  const ep=await loadHead("../");   // one at a time: iPad Safari runs out of memory loading both at once
+  prog("뼈대 모델 준비 중…",0.04);
+  const pd=await loadPose();
   prog("영상 읽는 중…",0.05);
   const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps=dm.fps; vfps=fps;
   { const r=((dm.rot%360)+360)%360, dw=(r===90||r===270)?dm.ch:dm.cw, dh=(r===90||r===270)?dm.cw:dm.ch; setFrame(dw>dh); }
@@ -265,7 +268,9 @@ $("next").onclick=()=>seekFrame(frameAt(vid.currentTime)+1);
 document.querySelectorAll("[data-j]").forEach(b=>b.onclick=()=>seekFrame(R.ph[b.dataset.j]));
 document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{ const i=R.po&&R.po[b.dataset.k]; if(i!=null) seekFrame(i); });
 $("lines").onclick=()=>{ showLines=!showLines; $("lines").classList.toggle("on",showLines); draw(); };
-$("again").onclick=()=>location.reload();
+$("again").onclick=()=>{ location.href=location.pathname+(new URLSearchParams(location.search).get("from")?"?from=live":""); };
+if(new URLSearchParams(location.search).get("from")==="live"){ $("live").hidden=false; $("live").onclick=()=>{ location.href="../"; };
+  const bb=document.createElement("button"); bb.textContent="← 실시간 화면"; bb.style.cssText="position:absolute;left:12px;top:12px;z-index:5;flex:0 0 auto"; bb.onclick=()=>{ location.href="../"; }; $("start").appendChild(bb); }
 $("pick").onclick=()=>$("file").click();
 function idbGet(key){ return new Promise((res,rej)=>{ const q=indexedDB.open("swingclips",1); q.onupgradeneeded=()=>q.result.createObjectStore("c");
   q.onsuccess=()=>{ const g=q.result.transaction("c").objectStore("c").get(key); g.onsuccess=()=>res(g.result); g.onerror=()=>rej(g.error); }; q.onerror=()=>rej(q.error); }); }
@@ -279,7 +284,6 @@ async function run(f){
 $("file").onchange=()=>{ const f=$("file").files[0]; if(f) run(f); };
 const ck=new URLSearchParams(location.search).get("clip");
 if(ck) idbGet(ck).then(v=>{ if(v&&v.blob){ prog("폰에서 받은 영상: "+(v.name||"")+" 분석 시작",0.01); run(v.blob); } else prog("받은 영상이 없습니다. '영상 불러오기'를 눌러 주세요.",0); }).catch(e=>prog("저장된 영상을 읽지 못했습니다: "+e,0));
-if(window!==window.top) $("right").style.paddingTop="76px";   // room for the host page's close button
 window.__R=()=>R;
 window.__show=async(r,url)=>{ R=r; vid.src=url; await new Promise(q=>vid.addEventListener("loadedmetadata",q,{once:true})); $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false; results(); seekFrame(R.ph.imp); };
 </script></body></html>

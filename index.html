@@ -211,7 +211,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v60</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v61</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -538,11 +538,12 @@ function clipBtn(txt,ready,key){ const id="clipbtn"+(key==="last2"?"2":""); let 
     b.onclick=()=>{ if(b.dataset.ready==="1") openHS(key); }; }
   b.textContent=(key==="last2"?"[폰2] ":"")+txt; b.dataset.ready=ready?"1":"0"; b.hidden=false; }
 // 받은 240fps 원본을 이 화면 위에서 바로 분석 (전체 화면 덮개, 닫으면 실시간 화면으로)
+// 아이패드 사파리는 실시간 분석(카메라·뼈대 모델)과 고속 분석을 한 화면에서 같이 돌리면 메모리가 부족하다.
+// 그래서 이 화면을 통째로 고속 분석 페이지로 바꾼다(실시간 화면의 메모리가 모두 풀림). 돌아오면 번호는 기억돼 있다.
 function openHS(key){
-  let o=$("hsov"); if(o) o.remove();
-  o=document.createElement("div"); o.id="hsov";
-  o.innerHTML='<iframe src="replay/?clip='+encodeURIComponent(key)+'" allow="autoplay"></iframe><button id="hsx">✕ 닫기</button>';
-  document.body.appendChild(o); hsOpen=true; $("hsx").onclick=()=>{ o.remove(); hsOpen=false; };
+  hsOpen=true; running=false;
+  try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+  location.href="replay/?clip="+encodeURIComponent(key)+"&from=live";
 }
 function clipRecv(d,key){
   if(d.t==="clipstart"){ clipRxs[key]={id:d.id,n:d.n|0,name:String(d.name||""),fps:d.fps|0,parts:new Array(d.n|0),got:0}; clipBtn("고속 원본 받는 중… 0%",false,key); return; }
