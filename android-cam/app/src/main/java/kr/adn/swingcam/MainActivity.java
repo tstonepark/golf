@@ -393,7 +393,7 @@ public class MainActivity extends Activity {
             try {
                 try (InputStream in = new FileInputStream(src); OutputStream o = new java.io.FileOutputStream(f)) {
                     byte[] b = new byte[1 << 16]; int k; while ((k = in.read(b)) > 0) o.write(b, 0, k); }
-                long size = f.length(); final int CH = 12 * 1024;   // base64 후 약 16KB: 데이터 채널 메시지 한도(64KB)보다 충분히 작게 int n = (int) ((size + CH - 1) / CH);
+                long size = f.length(); final int CH = 12 * 1024; /* base64 후 약 16KB: 데이터 채널 메시지 한도(64KB)보다 충분히 작게 */ int n = (int) ((size + CH - 1) / CH);
                 sendData(new JSONObject().put("t", "clipstart").put("id", id).put("name", name).put("size", size).put("n", n).put("fps", fps));
                 byte[] b = new byte[CH];
                 try (InputStream in = new FileInputStream(f)) {
