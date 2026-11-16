@@ -102,6 +102,16 @@ export function curves(tr,ph,fps){
   return {back:tidy(seg(ph.start,ph.top,true),mr),down:tidy(seg(ph.top,ph.imp,true),3),after:tidy(seg(ph.imp,Math.min(ph.fin,ph.imp+Math.round(0.7*fps)),false),mr)};
 }
 // 7) plane check against two lines from the ball: address shaft line (ball->hands) and ball->shoulders
+// A club head is never still in the downswing. Detections that sit on one spot there (a logo, a ball, a screen icon)
+// are false: drop them instead of drawing a path or judging the plane from them.
+export function dropStill(tr,ph,fps){
+  const out=tr.slice();
+  const run=(a,b,minT,R=7)=>{ const g=Math.max(2,Math.round(minT*fps));
+    for(let i=a;i<=b;i++){ const p=tr[i]; if(!p) continue;
+      for(let j=a;j<=b;j++){ if(Math.abs(j-i)<g) continue; const q=tr[j]; if(q&&hyp(p[0]-q[0],p[1]-q[1])<R){ out[i]=null; break; } } } };
+  run(ph.top+Math.round(0.04*fps),ph.imp-Math.round(0.012*fps),0.035);          // downswing: fast everywhere
+  return out;
+}
 export function plane(tr,ph,pose,fps){
   const A=ph.start, P=pose[A]||nearest(pose,A); if(!P) return null;
   // ball = club head at impact (most reliable: the head is at the ball); fall back to the address head position
@@ -117,7 +127,10 @@ export function plane(tr,ph,pose,fps){
   const back=pick(ph.start,ph.top), down=pick(ph.top,ph.imp);
   const lastN=down.filter(c=>c.i>=ph.imp-Math.round(0.05*fps));
   const frac=(arr,z)=>arr.length? arr.filter(c=>c.zone===z).length/arr.length : 0;
-  return {ball,hands,sh,L,back,down,
+  // takeaway is judged only if the head was really followed: enough samples that actually travel (a spot that never moves is not a club head)
+  const ext=arr=>{ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const c of arr){ const p=tr[c.i]; x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } return arr.length? hyp(x1-x0,y1-y0) : 0; };
+  const backOk=back.length>=6&&ext(back)>=0.4*L;
+  return {ball,hands,sh,L,back,down,backOk,
     takeawayOver:frac(back,"over"), downSlot:frac(down,"slot"), downOver:frac(down,"over"), downUnder:frac(down,"under"),
     nDown:down.length, finalZone: (lastN.length>=2&&down.length>=6)? mode(lastN.map(c=>c.zone)) : null};
 }

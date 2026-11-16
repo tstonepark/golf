@@ -22,7 +22,8 @@ export function diagnose(R){
   // ---- plane (down-the-line only) ----
   if(view==="dtl"){
     if(pl){
-      add({key:"takeaway",area:"궤도",sev:pl.takeawayOver>0.5?"warn":"ok",title:pl.takeawayOver>0.5?"테이크백을 바깥으로 들어 올립니다":"테이크백 궤도 양호",
+      if(pl.backOk===false) add({key:"takeaway",area:"궤도",sev:"na",title:"테이크백 궤도 판정 보류",value:"헤드 추적 부족",ref:"",conf:"낮음",why:"테이크백 구간에서 헤드를 충분히 따라가지 못했습니다. 판정하지 않습니다.",drill:""});
+      else add({key:"takeaway",area:"궤도",sev:pl.takeawayOver>0.5?"warn":"ok",title:pl.takeawayOver>0.5?"테이크백을 바깥으로 들어 올립니다":"테이크백 궤도 양호",
         value:r0(pl.takeawayOver*100)+"% 구간이 어깨선 밖",ref:"두 선 사이",conf:"보통",
         why:"허리 높이까지 헤드가 공-어깨선보다 바깥(위)으로 올라갑니다. 손과 팔로 들어 올릴 때 생깁니다.",
         drill:"테이크백에서 헤드가 손보다 바깥에 있되 샤프트가 발끝 선과 평행이 되는지 확인. 정렬 스틱을 타깃 라인에 놓고 그 위로 헤드를 빼기."});
