@@ -631,17 +631,24 @@ public class MainActivity extends Activity {
     }
 
     // ---------- 신호(PeerJS) ----------
+    private int sigFails = 0;
     private void restartSignal() {
         closeRemote();
         if (pj != null) pj.close();
         status("중개 서버 접속 중…", false);
         pj = new PeerJs(PFX + code, new PeerJs.Listener() {
-            @Override public void onOpen() { status("아이패드 연결 기다리는 중 · 위 번호를 아이패드에 입력하세요", false); }
+            @Override public void onOpen() { sigFails = 0; status("아이패드 연결 기다리는 중 · 위 번호를 아이패드에 입력하세요", false); }
             @Override public void onMessage(String type, String src, JSONObject p) { onSignal(type, src, p); }
             @Override public void onClosed(String why) {
-                if (why.startsWith("ID-TAKEN")) { status("번호가 이미 쓰이는 중 · 잠시 뒤 다시 시도", true); }
-                else status("중개 서버 연결 끊김 · 다시 접속 중 (" + why + ")", true);   // 원인을 그대로 보여 줌
-                ui.postDelayed(() -> { if (pj != null && !pj.isOpen()) pj.connect(); }, 3000);
+                // 실패할수록 천천히 다시 시도(3초→6→12…최대 60초). 3초마다 계속 두드리면 서버가 이 인터넷 주소 전체를 막는다(429).
+                final boolean limited = why.contains("429");
+                sigFails++;
+                final int wait = limited ? 60 : (int) Math.min(60, 3 * Math.pow(2, Math.min(5, sigFails - 1)));
+                if (why.startsWith("ID-TAKEN")) status("번호가 이미 쓰이는 중 · " + wait + "초 뒤 다시 시도", true);
+                else if (limited) status("중개 서버가 접속을 잠시 제한함(요청 과다) · " + wait + "초 뒤 다시 시도. 급하면 와이파이를 끄고 LTE로", true);
+                else status("중개 서버 연결 끊김 · " + wait + "초 뒤 다시 접속 (" + why + ")", true);
+                final PeerJs me = pj;
+                ui.postDelayed(() -> { if (pj == me && pj != null && !pj.isOpen()) pj.connect(); }, wait * 1000L);
             }
         });
         pj.connect();
