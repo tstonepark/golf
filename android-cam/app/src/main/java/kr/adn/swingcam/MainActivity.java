@@ -172,7 +172,7 @@ public class MainActivity extends Activity {
         root.addView(statusTv);
 
         preview = new SurfaceViewRenderer(this);
-        root.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int) (getResources().getDisplayMetrics().heightPixels * 0.30)));
 
         levelTv = tv("", 22, Color.WHITE); levelTv.setGravity(Gravity.CENTER);
         root.addView(levelTv);
@@ -187,7 +187,7 @@ public class MainActivity extends Activity {
         root.addView(row);
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
         speedBtn = btn(""); speedBtn.setOnClickListener(v -> { hs = !hs; prefs.edit().putBoolean("hs", hs).apply(); updSpeedBtn(); restartSession(); });
-        saveBtn = btn("지금 원본 저장 (최근 12초)"); saveBtn.setOnClickListener(v -> saveClip("수동", 12_000_000L));
+        saveBtn = btn("지금 저장 (12초)"); saveBtn.setOnClickListener(v -> saveClip("수동", 12_000_000L));
         row2.addView(speedBtn, new LinearLayout.LayoutParams(0, 170, 1));
         row2.addView(saveBtn, new LinearLayout.LayoutParams(0, 170, 1));
         root.addView(row2);
@@ -202,7 +202,7 @@ public class MainActivity extends Activity {
         root.addView(benchBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
         updBtn = btn("업데이트 확인 중…"); updBtn.setEnabled(false);
         root.addView(updBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140));
-        setContentView(root);
+        android.widget.ScrollView sv = new android.widget.ScrollView(this); sv.setFillViewport(true); sv.addView(root); setContentView(sv);   // 화면이 모자라면 겹치지 않고 스크롤
         codeTv.setText(code);
         updShutterBtn(); updSpeedBtn(); updAutoBtn();
     }
@@ -354,7 +354,7 @@ public class MainActivity extends Activity {
             }
             final String nm = name; final int nn = n;
             ui.post(() -> {
-                saveBtn.setEnabled(true); saveBtn.setText("지금 원본 저장 (최근 12초)");
+                saveBtn.setEnabled(true); saveBtn.setText("지금 저장 (12초)");
                 if (nm != null) { toast("원본 저장: 동영상/SwingCam/" + nm + " (" + nn + "장)");
                     try { sendData(new JSONObject().put("t", "saved").put("name", nm).put("fps", f).put("frames", nn).put("why", why)); } catch (Exception ignore) {}
                     sendClip(tmp, nm, f, !"수동".equals(why), endAt); }
@@ -640,7 +640,7 @@ public class MainActivity extends Activity {
             @Override public void onMessage(String type, String src, JSONObject p) { onSignal(type, src, p); }
             @Override public void onClosed(String why) {
                 if (why.startsWith("ID-TAKEN")) { status("번호가 이미 쓰이는 중 · 잠시 뒤 다시 시도", true); }
-                else status("중개 서버 연결 끊김 · 다시 접속 중", true);
+                else status("중개 서버 연결 끊김 · 다시 접속 중 (" + why + ")", true);   // 원인을 그대로 보여 줌
                 ui.postDelayed(() -> { if (pj != null && !pj.isOpen()) pj.connect(); }, 3000);
             }
         });
