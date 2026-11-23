@@ -44,7 +44,7 @@ export function clubLengthFilter(tr,hands){
   const ds=[]; tr.forEach((p,i)=>{ if(p&&hands[i]) ds.push(hyp(p[0]-hands[i][0],p[1]-hands[i][1])); });
   if(ds.length<10) return {tr,L:null};
   ds.sort((a,b)=>a-b); const L=ds[Math.floor(ds.length*0.85)];
-  return {L,tr:tr.map((p,i)=>{ if(!p||!hands[i]) return p; const d=hyp(p[0]-hands[i][0],p[1]-hands[i][1]); return (d>0.45*L&&d<1.25*L)?p:null; })};
+  return {L,tr:tr.map((p,i)=>{ if(!p||!hands[i]) return p; const d=hyp(p[0]-hands[i][0],p[1]-hands[i][1]); return (d>0.2*L&&d<1.25*L)?p:null; })};   // lower bound is loose: seen from behind, the club points at the camera mid-downswing and looks short
 }
 // body-part false positives (shoulders, wrists): drop candidates sitting on them
 export function bodyFilter(pts,pose){
@@ -143,7 +143,7 @@ export function plane(tr,ph,pose,fps){
   // The verdict must come from where the lines are apart. Right at the ball all three lines meet, so the last few
   // frames sit within 1-3% of both lines and the "zone" there is just noise (it flipped over/slot/under between identical swings).
   const dist=c=>hyp(tr[c.i][0]-ball[0],tr[c.i][1]-ball[1]);
-  const mid=down.filter(c=>{ const d=dist(c); return d>=0.35*L&&d<=1.25*L; });
+  const mid=down.filter(c=>{ const d=dist(c); return d>=0.35*L&&d<=1.8*L; });   // at 240fps the head crosses this stretch in only ~8 frames
   const widthDeg=Math.abs(Math.atan2(ball[1]-sh[1],ball[0]-sh[0])-Math.atan2(ball[1]-hands[1],ball[0]-hands[0]))*180/Math.PI;
   const M=0.04*L, zoneM=c=> c.shoulder>M? "over" : c.shaft<-M? "under" : (c.shoulder<-M&&c.shaft>M)? "slot" : null;
   const sure=mid.map(zoneM).filter(Boolean);
