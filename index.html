@@ -211,7 +211,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v70</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v71</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <div id="remote">
@@ -543,11 +543,21 @@ function clipBtn(txt,ready,key){ const id="clipbtn"+(key==="last2"?"2":""); let 
 // 받은 240fps 원본을 이 화면 위에서 바로 분석 (전체 화면 덮개, 닫으면 실시간 화면으로)
 // 아이패드 사파리는 실시간 분석(카메라·뼈대 모델)과 고속 분석을 한 화면에서 같이 돌리면 메모리가 부족하다.
 // 그래서 이 화면을 통째로 고속 분석 페이지로 바꾼다(실시간 화면의 메모리가 모두 풀림). 돌아오면 번호는 기억돼 있다.
-function openHS(key){
-  hsOpen=true; running=false;
+// 분석 화면 열기. 폰이 측정값을 보낸 경우(가벼움)에는 이 화면 위에 겹쳐 띄워 폰 연결을 그대로 둔다 →
+// '실시간 화면'으로 돌아와도 다시 연결할 필요가 없고, 보는 중에 다음 스윙이 오면 자동으로 바뀐다.
+// 측정값이 없으면 아이패드가 직접 분석해야 해서(메모리 많이 씀) 예전처럼 화면을 옮긴다.
+function navHS(key){ hsOpen=true; running=false;
   try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
-  location.href="replay/?clip="+encodeURIComponent(key)+"&from=live";
+  location.href="replay/?clip="+encodeURIComponent(key)+"&from=live"; }
+function openHS(key){
+  const s=clipSt[key]; if(!(s&&s.det)){ navHS(key); return; }
+  hsOpen=true; let f=$("hsf");
+  if(!f){ f=document.createElement("iframe"); f.id="hsf"; f.allow="autoplay; fullscreen"; f.style.cssText="position:fixed;inset:0;width:100%;height:100%;border:0;z-index:90;background:#0a1210"; document.body.appendChild(f); }
+  f.src="replay/?clip="+encodeURIComponent(key)+"&from=live&frame=1&t="+Date.now();
 }
+function closeHS(){ const f=$("hsf"); if(f) f.remove(); hsOpen=false; }
+window.addEventListener("message",e=>{ if(e.origin!==location.origin||!e.data) return;
+  if(e.data.t==="hs-close") closeHS(); else if(e.data.t==="hs-nav") navHS(String(e.data.key||"last")); });
 // 폰이 영상과 함께 분석 측정값(det)도 보낸다. 둘 다 오면 저장하고 분석 화면으로. 측정값이 안 오면(실패·60초 초과) 영상만으로 열어 아이패드가 분석.
 const clipSt={};
 function clipDone(key){ const s=clipSt[key]; if(!s||!s.clip||s.opened) return;
@@ -1843,6 +1853,8 @@ $("rconnect").onclick=()=>{
   remoteCode=c;
   boot(c).then(()=>{ const c2=code2(); if(running&&c2.length===6&&c2!==c) cam2.start(c2); });
 };
+// 분석 화면에서 돌아온 경우(?auto=1) 저장된 번호로 바로 다시 연결
+if(new URLSearchParams(location.search).get("auto")&&$("rcode").value.replace(/\D/g,"").length===6) setTimeout(()=>$("rconnect").click(),400);
 $("setref").onclick=saveRef;
 $("hand").onclick=()=>{ rightHanded=!rightHanded; $("hand").textContent=rightHanded?"우타":"좌타"; delete ema.arm; delete ema.hand; };
 $("flip").onclick=async()=>{
