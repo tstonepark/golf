@@ -490,7 +490,9 @@ public class MainActivity extends Activity {
                 // 자동 저장이면 스윙 구간(최근 5초)만 따로 묶어 보냄 → 전송량 약 30% 감소. 수동 저장은 전체.
                 int made = 0;
                 long endAt = System.currentTimeMillis();
-                if (trim && rr != null) { try { made = rr.save(5_000_000L, f, videoRot()); } catch (Exception e) { made = 0; } }
+                // 갤러리 저장에 걸린 시간만큼 뒤로 밀려 있으므로 그만큼 더 길게 잘라, 어드레스부터 들어가게 한다(느린 백스윙이 잘리던 문제)
+                final long late = Math.max(0, Math.min(3000, endAt - srcEndAt));
+                if (trim && rr != null) { try { made = rr.save(5_000_000L + late * 1000L, f, videoRot()); } catch (Exception e) { made = 0; } }
                 if (made <= 0) endAt = srcEndAt;
                 final long ago = (impactAt > 0 && endAt - impactAt > 0 && endAt - impactAt < 4500) ? endAt - impactAt : -1; final double[] box = liveBox();
                 if (made <= 0) try (InputStream in = new FileInputStream(src); OutputStream o = new java.io.FileOutputStream(f)) {

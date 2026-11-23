@@ -102,6 +102,21 @@ export function curves(tr,ph,fps){
   return {back:tidy(seg(ph.start,ph.top,true),mr),down:tidy(seg(ph.top,ph.imp,true),3),after:tidy(seg(ph.imp,Math.min(ph.fin,ph.imp+Math.round(0.7*fps)),false),mr)};
 }
 // 7) plane check against two lines from the ball: address shaft line (ball->hands) and ball->shoulders
+// Takeaway start from the hands, not the club head: the last moment before the top at which the hands were still at
+// address height (within 6% of the torso length of their lowest level). Head-based starts moved by 0.2-0.4s between
+// identical swings (waggles, a head that is found late), which made tempo and the "address" frame jump around.
+// "Hands at rest" by speed does not work: many golfers keep the hands drifting (waggle, forward press) until they go.
+export function refineStart(ph,pose,fps){
+  const A0=Math.max(0,ph.imp-Math.round(2.8*fps));
+  const P0=pose[ph.top]||nearest(pose,ph.top); if(!P0) return ph;
+  const tl=Math.max(1,hyp(P0.sh[0]-P0.hip[0],P0.sh[1]-P0.hip[1]));
+  const ys=[]; for(let i=A0;i<ph.top;i++) if(pose[i]) ys.push(pose[i].hands[1]);
+  if(ys.length<8) return ph; ys.sort((a,b)=>a-b);
+  const yAddr=ys[Math.floor(ys.length*0.95)], yTop=pose[ph.top]? pose[ph.top].hands[1] : ys[0];
+  if(yAddr-yTop<0.6*tl) return ph;                       // not a real backswing: leave as is
+  for(let i=ph.top;i>A0;i--){ const P=pose[i]; if(P&&P.hands[1]>=yAddr-0.06*tl){ return Object.assign({},ph,{start:i,addr:Math.max(A0,i-Math.round(0.25*fps))}); } }
+  return ph;
+}
 // A club head is never still in the downswing. Detections that sit on one spot there (a logo, a ball, a screen icon)
 // are false: drop them instead of drawing a path or judging the plane from them.
 export function dropStill(tr,ph,fps){
@@ -125,14 +140,22 @@ export function plane(tr,ph,pose,fps){
     return {i,shaft:a,shoulder:b,zone: b>0? "over" : a<0? "under" : "slot"}; };
   const pick=(a,b)=>{ const r=[]; for(let i=a;i<=b;i++){ const c=cls(i); if(c&&tr[i][1]>hands[1]-0.5*L) r.push(c); } return r; };
   const back=pick(ph.start,ph.top), down=pick(ph.top,ph.imp);
-  const lastN=down.filter(c=>c.i>=ph.imp-Math.round(0.05*fps));
+  // The verdict must come from where the lines are apart. Right at the ball all three lines meet, so the last few
+  // frames sit within 1-3% of both lines and the "zone" there is just noise (it flipped over/slot/under between identical swings).
+  const dist=c=>hyp(tr[c.i][0]-ball[0],tr[c.i][1]-ball[1]);
+  const mid=down.filter(c=>{ const d=dist(c); return d>=0.35*L&&d<=1.25*L; });
+  const widthDeg=Math.abs(Math.atan2(ball[1]-sh[1],ball[0]-sh[0])-Math.atan2(ball[1]-hands[1],ball[0]-hands[0]))*180/Math.PI;
+  const M=0.04*L, zoneM=c=> c.shoulder>M? "over" : c.shaft<-M? "under" : (c.shoulder<-M&&c.shaft>M)? "slot" : null;
+  const sure=mid.map(zoneM).filter(Boolean);
+  const hold= widthDeg<10? "camera" : mid.length<4? "few" : sure.length<Math.max(3,0.6*mid.length)? "close" : null;
   const frac=(arr,z)=>arr.length? arr.filter(c=>c.zone===z).length/arr.length : 0;
   // takeaway is judged only if the head was really followed: enough samples that actually travel (a spot that never moves is not a club head)
   const ext=arr=>{ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const c of arr){ const p=tr[c.i]; x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } return arr.length? hyp(x1-x0,y1-y0) : 0; };
-  const backOk=back.length>=6&&ext(back)>=0.4*L;
+
+  const backOk=back.length>=6&&ext(back)>=0.4*L&&widthDeg>=10;
   return {ball,hands,sh,L,back,down,backOk,
     takeawayOver:frac(back,"over"), downSlot:frac(down,"slot"), downOver:frac(down,"over"), downUnder:frac(down,"under"),
-    nDown:down.length, finalZone: (lastN.length>=2&&down.length>=6)? mode(lastN.map(c=>c.zone)) : null};
+    nDown:mid.length, widthDeg, hold, finalZone: hold? null : mode(sure)};
 }
 const mode=a=>{ const m={}; a.forEach(x=>m[x]=(m[x]||0)+1); return Object.entries(m).sort((x,y)=>y[1]-x[1])[0][0]; };
 function nearest(arr,i){ for(let d=1;d<30;d++){ if(arr[i-d]) return arr[i-d]; if(arr[i+d]) return arr[i+d]; } return null; }

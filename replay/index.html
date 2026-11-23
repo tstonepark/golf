@@ -71,7 +71,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v71</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v72</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -205,6 +205,7 @@ function finish(D,file,T0){
   let ph=view==="dtl"? A.phases(tr,fps,pose.map(p=>p&&p.hands)) : null;
   if(!ph||ph.top<0||ph.imp-ph.top<0.15*fps||(phP&&Math.abs(ph.imp-phP.imp)>0.12*fps)) ph=phP||ph;
   if(!ph) throw new Error("스윙 구간을 판정하지 못했습니다.");
+  ph=A.refineStart(ph,pose,fps);
   tr=A.dropStill(tr,ph,fps);
   { const seenD=tr.slice(ph.top,ph.imp+1).filter(Boolean).length, nP=pose.slice(ph.start,ph.imp+1).filter(Boolean).length;
     const P0=pose[ph.start]||pose.find(Boolean);
@@ -227,9 +228,9 @@ function detailHtml(){
   if(pl){
     const fz=pl.finalZone&&zoneTxt[pl.finalZone];
     h+=`<div class="card"><h3>스윙 플레인 (뒤에서 본 2D 기준)</h3>
-      ${fz?`<div class="big ${fz[1]}">${fz[2]}</div><div class="row"><span>임팩트 진입</span><b class="${fz[1]}">${fz[0]}</b></div>`:`<div class="big warn">판정 보류</div><div class="dimt">다운스윙 하단에서 헤드가 보인 장면이 ${pl.nDown}개뿐이라 판정하지 않습니다(6개 이상 필요). 골퍼를 화면에 더 크게, 밝게 찍으면 나아집니다.</div>`}
+      ${fz?`<div class="big ${fz[1]}">${fz[2]}</div><div class="row"><span>임팩트 진입</span><b class="${fz[1]}">${fz[0]}</b></div>`:`<div class="big warn">판정 보류</div><div class="dimt">${pl.hold==="camera"?"카메라가 타깃 라인 정후방에서 벗어나 있어 샤프트선과 어깨선이 거의 겹칩니다. 폰을 공–타깃 연장선 뒤, 손 높이에 세워 주세요.":pl.hold==="close"?"헤드가 선에 너무 가까이 지나가 가를 수 없습니다(오차 범위).":"다운스윙 중간에서 헤드를 따라가지 못해 판정하지 않습니다."}</div>`}
       <div class="row"><span>테이크백</span>${pl.backOk===false?`<b class="warn">판정 보류</b>`:`<b class="${pl.takeawayOver>0.5?'warn':'ok'}">${pl.takeawayOver>0.5?'어깨선 바깥으로 들어 올림':'두 선 사이'}</b>`}</div>
-      ${pl.nDown>=6?`<div class="row"><span>다운스윙</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>`:""}
+      ${pl.finalZone?`<div class="row"><span>다운스윙</span><b>${["slot","under","over"].map(z=>({slot:"사이",under:"아래",over:"위"})[z]+" "+Math.round(({slot:pl.downSlot,under:pl.downUnder,over:pl.downOver})[z]*100)+"%").join(" · ")}</b></div>`:""}
       <div class="dimt">초록=어드레스 샤프트선, 주황=공-어깨선. 다운스윙이 두 선 사이로 오면 정상.</div></div>`;
   } else if(R.view!=="dtl"){
     const f=R.fo, c=v=>v==null?"<span class='warn'>측정 안 됨</span>":Math.abs(v)>30?"<span class='warn'>측정 이상</span>":(Math.abs(v)<1?"0":Math.abs(v).toFixed(0))+"cm "+(Math.abs(v)<1?"":v>0?"뒤로":"타깃 쪽");
@@ -256,7 +257,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v71</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v72</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -278,7 +279,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v71</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v72</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
