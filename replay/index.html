@@ -71,7 +71,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v75</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v76</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -137,8 +137,9 @@ function fromDet(d){
     pose[i]={hands:[0,1].map(c=>(g(3)[c]+g(4)[c]+g(5)[c]+g(6)[c])/4),sh:m(1,2),hip:m(7,8),ls:g(1),rs:g(2),nose:g(0),ank:m(9,10),
       joints:[[...g(1),28],[...g(2),28],[...g(3),20],[...g(4),20]],world}; }
   for(const q of d.pts){ const i=q[0]|0; if(i<0||i>=n) continue; const c=[]; for(let k=1;k+2<q.length;k+=3) c.push([q[k],q[k+1],q[k+2]]); pts2[i]=c; }
+  const grip=new Array(n).fill(null); if(Array.isArray(d.grip)) for(const q of d.grip){ const i=q[0]|0; if(i>=0&&i<n&&q.length>=4) grip[i]=[q[1],q[2],q[3]]; }
   const eng=String(d.eng||"").split("/");
-  return {n,fps:+d.fps,ci:d.ci|0,pts2,pose,crop:Array.isArray(d.crop)?{x:d.crop[0],y:d.crop[1],s:d.crop[2]}:null,ep:"폰 "+(eng[0]||"?"),pd:eng[1]||"?",t0:+d.t0||0,secs:+d.secs||0,ms:Array.isArray(d.ms)?d.ms:null,phone:true};
+  return {n,fps:+d.fps,ci:d.ci|0,pts2,pose,grip,crop:Array.isArray(d.crop)?{x:d.crop[0],y:d.crop[1],s:d.crop[2]}:null,ep:"폰 "+(eng[0]||"?"),pd:eng[1]||"?",t0:+d.t0||0,secs:+d.secs||0,ms:Array.isArray(d.ms)?d.ms:null,phone:true};
 }
 async function analyze(file,det){
   $("pick").disabled=true; const T0=performance.now();
@@ -186,18 +187,22 @@ async function detect(file){
   const d0=ci-Math.round(0.45*fps), dm0=ci-Math.round(0.15*fps), d1=ci+Math.round(0.15*fps), dense=i=>i>=d0&&i<=d1;
   const needH=i=>(i>=dm0&&i<=d1)||(i>=d0&&i<dm0&&(i-a)%2===0)||(i-a)%6===0, needP=i=>(dense(i)&&(i-a)%3===0)||(i-a)%6===0;
   let tot=0; for(let i=a;i<=b;i++) if(needH(i)||needP(i)) tot++;
-  const pts2=new Array(n).fill(null), pose=new Array(n).fill(null); done=0;
+  const pts2=new Array(n).fill(null), pose=new Array(n).fill(null), grip=new Array(n).fill(null); done=0;
   await decodeRange(dm,a,b,async(i,cv)=>{
-    if(needH(i)) pts2[i]=await headInfer(cv,crop);
+    if(needH(i)){ pts2[i]=await headInfer(cv,crop); if(pts2[i].grip) grip[i]=pts2[i].grip; }
     if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,TOFF+Math.round(i*1000/fps))); }catch(e){} }
     done++; if(done%8===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.2+0.78*done/tot); await tick(); } },dm.rot,i=>needH(i)||needP(i));
-  return {n,fps,ci,pts2,pose,crop,ep,pd,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
+  return {n,fps,ci,pts2,pose,grip,crop,ep,pd,t0:dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y)[0]};
 }
 // 측정값 → 궤적·구간·진단 (폰에서 온 값이든 이 기기에서 뽑은 값이든 같은 규칙)
 function finish(D,file,T0){
   const {n,fps,ci,pts2,pose,crop,ep,pd}=D; vfps=fps;
   const a=Math.max(0,ci-Math.round(2.8*fps)), b=Math.min(n-1,ci+Math.round(1.3*fps));
   for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];
+  // 손 위치: 그립을 직접 찾은 값이 있으면 뼈대의 손목 추정 대신 그것을 쓴다(최근 6프레임 이내, 뼈대 손과 몸통 길이의 0.6배 이상 떨어지면 믿지 않음)
+  let nGrip=0; if(D.grip){ let g=null, gi=-99; for(let i=a;i<=b;i++){ if(D.grip[i]){ g=D.grip[i]; gi=i; } const P=pose[i]; if(!P||!g||i-gi>6) continue;
+      const tl=Math.hypot(P.sh[0]-P.hip[0],P.sh[1]-P.hip[1]); if(Math.hypot(g[1]-P.hands[0],g[2]-P.hands[1])>0.6*tl) continue;
+      pose[i]=Object.assign({},P,{hands:[g[1],g[2]],poseHands:P.hands}); nGrip++; } }
   let tr=A.fillGaps(A.clean(A.track(A.bodyFilter(A.staticFilter(pts2.map(p=>p||[])),pose),110),6,110),6);
   tr=A.clubLengthFilter(tr,pose.map(p=>p&&p.hands)).tr;
   const phP=A.posePhases(pose,fps,ci);
@@ -216,7 +221,7 @@ function finish(D,file,T0){
   const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view), M=A.cmpMetrics(pose,ph,fps,view);
-  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
+  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -259,7 +264,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v75</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v76</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -281,7 +286,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v75</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v76</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");

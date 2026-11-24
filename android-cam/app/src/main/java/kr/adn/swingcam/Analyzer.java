@@ -219,7 +219,7 @@ public class Analyzer {
     private static double handsY(double[] p) { return (p[7] + p[9] + p[11] + p[13]) / 4; }
 
     /** 골퍼 주변 정사각형(cx,cy,s)을 416으로 줄여 헤드 모델에 넣고 후보 최대 3개 [신뢰도,x,y]… 를 돌려줌 */
-    private static float[] headAt(int[] px, int W, int H, double cx, double cy, double s) throws Exception {
+    private static float[] headAt(int[] px, int W, int H, double cx, double cy, double s, float[][] gripOut, int gi) throws Exception {
         float[] f = new float[3 * IN * IN]; int N = IN * IN; double step = s / IN; final float G = 114 / 255f;
         for (int v = 0; v < IN; v++) {
             double y = cy + (v + 0.5) * step - 0.5; int y0 = (int) Math.floor(y); float fy = (float) (y - y0);
@@ -234,12 +234,13 @@ public class Analyzer {
                 f[2 * N + o] = ((p00 & 255) * w00 + (p01 & 255) * w01 + (p10 & 255) * w10 + (p11 & 255) * w11) / 255f;
             }
         }
-        float[] o;
+        float[] o; int rows = 5;   // 4(상자) + 종류별 점수: 헤드, (7번 모델부터) 그립
         try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(f), new long[]{1, 3, IN, IN});
              OrtSession.Result r = head.run(Collections.singletonMap(headIn, t))) {
-            FloatBuffer fb = ((OnnxTensor) r.get(0)).getFloatBuffer(); o = new float[fb.remaining()]; fb.get(o);
+            OnnxTensor ot = (OnnxTensor) r.get(0); long[] shp = ot.getInfo().getShape(); if (shp.length >= 2 && shp[1] >= 5) rows = (int) shp[1];
+            FloatBuffer fb = ot.getFloatBuffer(); o = new float[fb.remaining()]; fb.get(o);
         }
-        int A = o.length / 5; double k = IN / s;
+        int A = o.length / rows; double k = IN / s;
         ArrayList<float[]> c = new ArrayList<>();
         for (int i = 0; i < A; i++) { float cf = o[4 * A + i]; if (cf > 0.15f) c.add(new float[]{cf, (float) (o[i] / k + cx), (float) (o[A + i] / k + cy)}); }
         Collections.sort(c, (p, q) -> Float.compare(q[0], p[0]));
@@ -248,6 +249,9 @@ public class Analyzer {
             if (far) keep.add(q); if (keep.size() >= 3) break; }
         float[] out = new float[keep.size() * 3];
         for (int i = 0; i < keep.size(); i++) System.arraycopy(keep.get(i), 0, out, 3 * i, 3);
+        // 그립(손으로 쥔 곳): 가장 확실한 하나만. 뼈대의 손목 추정보다 정확해서 화면 쪽이 손 위치로 쓴다
+        if (rows >= 6 && gripOut != null) { int bi = -1; float bc = 0.25f; for (int i = 0; i < A; i++) { float cf = o[5 * A + i]; if (cf > bc) { bc = cf; bi = i; } }
+            gripOut[gi] = bi < 0 ? null : new float[]{bc, (float) (o[bi] / k + cx), (float) (o[A + bi] / k + cy)}; }
         return out;
     }
 
@@ -337,9 +341,9 @@ public class Analyzer {
         final int tot = Math.max(1, tot0); cnt[0] = 0;
         final long base2 = tsLast + 5000;
         final int[][] thumb = {null};
-        final float[][] pts = new float[n][]; final Semaphore sem = new Semaphore(6); final ArrayList<Future<?>> futs = new ArrayList<>();
+        final float[][] pts = new float[n][], grips = new float[n][]; final Semaphore sem = new Semaphore(6); final ArrayList<Future<?>> futs = new ArrayList<>();
         decode(f, c, a, b, i -> needH.at(i) || needP.at(i), (i, px) -> {
-            if (needH.at(i)) { sem.acquire(); futs.add(HEADX.submit(() -> { try { pts[i] = headAt(px, W, H, cx, cy, cs); } catch (Throwable e) { pts[i] = null; } finally { sem.release(); } })); }
+            if (needH.at(i)) { sem.acquire(); futs.add(HEADX.submit(() -> { try { pts[i] = headAt(px, W, H, cx, cy, cs, grips, i); } catch (Throwable e) { pts[i] = null; } finally { sem.release(); } })); }
             if (needP.at(i)) pose[i] = poseAt(bmp, px, W, H, base2 + Math.round(i * 1000.0 / fps));
             if (thumb[0] == null && i >= ci0 - (int) Math.round(0.5 * fps)) thumb[0] = px;   // 확인용: 폰이 실제로 분석한 화면 1장
             if (++cnt[0] % 12 == 0 && log != null) log.line("스윙 분석 2/2 · " + (cnt[0] * 100 / tot) + "%"); });
@@ -361,6 +365,9 @@ public class Analyzer {
         sb.append("],\"pts\":[");
         for (int i = a; i <= b; i++) { float[] p = pts[i]; if (p == null || p.length == 0) continue; if (nHead++ > 0) sb.append(',');
             sb.append('[').append(i); for (int k = 0; k < p.length; k++) sb.append(',').append(num(p[k], k % 3 == 0 ? 2 : 1)); sb.append(']'); }
+        sb.append("],\"grip\":["); int nGrip = 0;
+        for (int i = a; i <= b; i++) { float[] g = grips[i]; if (g == null) continue; if (nGrip++ > 0) sb.append(',');
+            sb.append('[').append(i).append(',').append(num(g[0], 2)).append(',').append(num(g[1], 1)).append(',').append(num(g[2], 1)).append(']'); }
         double secs = (System.currentTimeMillis() - T0) / 1000.0;
         sb.append("],\"secs\":").append(num(secs, 1)).append(",\"ms\":[").append(T1 - T0).append(',').append(T2 - T1).append(',').append(T3 - T2)
           .append("],\"hint\":").append(hint ? 1 : 0).append(",\"eng\":\"").append(headDev).append('/').append(poseDev).append('"');

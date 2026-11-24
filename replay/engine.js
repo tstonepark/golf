@@ -7,7 +7,7 @@ export let headErr="";
 function loadScript(src){ return new Promise((res,rej)=>{ const e=document.createElement("script"); e.src=src; e.onload=res; e.onerror=()=>rej(new Error("load "+src)); document.head.appendChild(e); }); }
 async function tryEps(base,eps,errs,dir="ort"){
   const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/"+dir+"/",location.href).href; ort.env.wasm.numThreads=1; ort.env.wasm.proxy=false;
-  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead416.onnx?v=6",location.href).href,{executionProviders:[ep]}); return ep; }
+  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead416.onnx?v=7",location.href).href,{executionProviders:[ep]}); return ep; }
     catch(e){ errs.push(ep+": "+(e&&e.message||e)); console.warn("ep fail",ep,e); } }
   return null;
 }
@@ -31,10 +31,12 @@ export async function headInfer(src,crop){
   const d=lbx.getImageData(0,0,IN,IN).data, N=IN*IN, f=new Float32Array(3*N);
   for(let i=0;i<N;i++){ f[i]=d[4*i]/255; f[N+i]=d[4*i+1]/255; f[2*N+i]=d[4*i+2]/255; }
   const ort=window.ort, t=new ort.Tensor("float32",f,[1,3,IN,IN]);
-  const out=await ortSess.run({[ortSess.inputNames[0]]:t}); const o=out[ortSess.outputNames[0]].data, A=o.length/5;
+  const out=await ortSess.run({[ortSess.inputNames[0]]:t}); const T=out[ortSess.outputNames[0]], o=T.data, rows=(T.dims&&T.dims[1])||5, A=o.length/rows;   // rows: 4 box + 1 score per class (head, and since model 7: grip)
   const c=[]; for(let i=0;i<A;i++){ const cf=o[4*A+i]; if(cf>0.15) c.push([cf,o[i]/k+c0.x,o[A+i]/k+c0.y]); }
   c.sort((a,b)=>b[0]-a[0]); const keep=[];
   for(const q of c){ if(keep.every(z=>Math.hypot(z[1]-q[1],z[2]-q[2])>12)) keep.push(q); if(keep.length>=3) break; }
+  // the hands on the grip (class 1): the single best one. Far more exact than the body-pose wrists (3.7px vs 11px median on held-out swings).
+  if(rows>=6){ let bi=-1,bc=0.25; for(let i=0;i<A;i++){ const cf=o[5*A+i]; if(cf>bc){ bc=cf; bi=i; } } keep.grip= bi<0? null : [bc,o[bi]/k+c0.x,o[A+bi]/k+c0.y]; }
   return keep;
 }
 // ---- mp4 demux + decode (mp4box.js + WebCodecs) ----
