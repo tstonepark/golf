@@ -460,9 +460,9 @@ public class MainActivity extends Activity {
                 // 충격음: 최대값이 크고(전체의 약 35% 이상) 주변 소음보다 훨씬 큼
                 if (autoOn && peak > 11000 && rms > bg * 6 && now - lastHit > 400) {
                     lastHit = now;   // (옆 타석 소리 직후 내 공 소리를 놓치지 않게, 거절한 소리는 0.4초만 막는다)
-                    // 내 스윙의 소리인지: 폰이 골퍼를 보고 있으면 '방금(1.5초 안에) 손이 어깨 위에 있었는가'로, 못 보고 있으면 화면 가운데 움직임으로 판단
+                    // 내 스윙의 소리인지: 폰이 골퍼를 보고 있으면 '방금(1초 안에) 손이 어깨 위에 있었는가(백스윙 탑)'로, 못 보고 있으면 화면 가운데 움직임으로 판단
                     final boolean poseOk = now - wSeenAt < 2500;
-                    final boolean mine = poseOk ? (wHighAt > 0 && now - wHighAt < 1500) : recentMotion(1500) >= 0.02f;
+                    final boolean mine = poseOk ? (wHighAt > 0 && now - wHighAt < 1000) : recentMotion(1500) >= 0.02f;
                     if (!mine) { ui.post(() -> toast("소리 감지 · 이 화면의 스윙이 아니라 저장 안 함")); }
                     else if (now - lastHitSave > 5000) {
                         lastHitSave = now; impactAt = now;
