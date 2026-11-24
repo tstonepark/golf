@@ -211,7 +211,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v88</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v89</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <button id="openSaved" style="flex:none;padding:14px 28px;font-size:20px;font-weight:800;margin-top:12px">저장된 영상 분석</button>
@@ -724,7 +724,9 @@ function measure(lm,wl,w,h){
     sideCnt=(still&&narrow)? sideCnt+1 : still? 0 : sideCnt;
     if(still&&sideCnt>=30){ noBody="옆에서 찍고 있습니다 · 후방 모드로 바꾸거나 폰을 정면에 두세요"; return null; } }
   if(torso<1) return null;
-  const kneeSeen=[L.lKn,L.rKn].some(i=>lm[i]&&lm[i].visibility>0.5);
+  /* 무릎이 화면 밖으로 잘렸을 때만 막는다. 어두운 바지·어두운 배경에서는 무릎이 화면 안에 있어도 인식 확신도가 0.5 아래로 나와
+     "무릎이 안 보입니다"로 전체 측정이 멈췄다. 무릎 각도 자체는 아래에서 확신도가 충분할 때만 따로 잰다. */
+  const kneeSeen=[L.lKn,L.rKn].some(i=>lm[i]&&(lm[i].visibility>0.5||(lm[i].visibility>0.1&&lm[i].y<0.97)));
   if(torso<h*0.08){ noBody="사람이 너무 작게 잡힙니다 · 몸이 화면 세로의 절반 이상 되게 가까이"; return null; }
   if(!kneeSeen){ noBody="무릎이 안 보입니다 · 무릎까지 화면에 들어오게"; return null; }
   const m={sh,hip,nose,shR,hipR,noseR};
