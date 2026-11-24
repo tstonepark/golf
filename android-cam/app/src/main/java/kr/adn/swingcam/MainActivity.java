@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
     private static final int W = 1920, H = 1080, FPS = 60;
     private boolean hs;                       // 고속(240fps) 모드
     private RingRecorder rr; private Surface recSurface;
-    private Button autoBtn; private boolean autoOn = true; private volatile long lastSaveAt = 0; private Thread mic; private volatile boolean micRun = false;
+    private Button autoBtn; private boolean autoOn = true; private volatile int autoMode = 1;   // 0 끔 · 1 공을 칠 때만(동작+소리) · 2 동작만(빈 스윙 포함) private volatile long lastSaveAt = 0; private Thread mic; private volatile boolean micRun = false;
     private int fwd = 0;                      // 고속일 때 아이패드로는 4장 중 1장만(60fps)
     private Button speedBtn, saveBtn;
     private static final long[] SHUTTERS = {0, 500, 1000, 2000};   // 0 = 자동, 나머지 1/n 초
@@ -141,7 +141,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("swingcam", MODE_PRIVATE);
         shutterIdx = prefs.getInt("shutter", 2);
         hs = prefs.getBoolean("hs", false);
-        autoOn = prefs.getBoolean("auto", true);
+        autoMode = prefs.getInt("autoMode", prefs.getBoolean("auto", true) ? 1 : 0); autoOn = autoMode > 0;
         code = prefs.getString("code", null);
         if (code == null) newCode();
         buildUi();
@@ -191,7 +191,7 @@ public class MainActivity extends Activity {
         row2.addView(speedBtn, new LinearLayout.LayoutParams(0, 170, 1));
         row2.addView(saveBtn, new LinearLayout.LayoutParams(0, 170, 1));
         root.addView(row2);
-        autoBtn = btn(""); autoBtn.setOnClickListener(v -> { autoOn = !autoOn; prefs.edit().putBoolean("auto", autoOn).apply(); updAutoBtn(); });
+        autoBtn = btn(""); autoBtn.setOnClickListener(v -> { autoMode = (autoMode + 1) % 3; autoOn = autoMode > 0; prefs.edit().putInt("autoMode", autoMode).putBoolean("auto", autoOn).apply(); updAutoBtn(); });
         root.addView(autoBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
         final Button benchBtn = btn("분석 속도 시험 (약 1분)");
         benchBtn.setOnClickListener(v -> { benchBtn.setEnabled(false); benchBtn.setText("속도 시험 중… 잠시만요");
@@ -206,7 +206,7 @@ public class MainActivity extends Activity {
         codeTv.setText(code);
         updShutterBtn(); updSpeedBtn(); updAutoBtn();
     }
-    private void updAutoBtn() { autoBtn.setText(autoOn ? "자동 저장(스윙 동작·공 소리): 켬" : "자동 저장(스윙 동작·공 소리): 끔"); }
+    private void updAutoBtn() { autoBtn.setText(autoMode == 1 ? "자동 저장: 공을 칠 때만" : autoMode == 2 ? "자동 저장: 빈 스윙도 포함" : "자동 저장: 끔"); }
 
     private void updSpeedBtn() { speedBtn.setText(hs ? "원본: 240fps 고속" : "원본: 60fps"); }
     private void updShutterBtn() {
@@ -390,7 +390,7 @@ public class MainActivity extends Activity {
     // ---------- 스윙 동작 감지 (폰 자체 판단 · 아이패드 화면 인식에 기대지 않음) ----------
     // 초당 약 15번 작은 화면에서 뼈대를 찾아, 손이 어깨 위로 올라갔다가 0.7초 안에 골반 쪽으로 내려오면 스윙으로 보고 저장.
     private long lastWatchNs = 0; private volatile boolean watchBusy = false; private volatile String watchTxt = "골퍼 찾는 중";
-    private long wTopAt = 0, wFired = 0;
+    private long wTopAt = 0, wFired = 0; private volatile long wHighAt = 0, wSeenAt = 0, lastHitSave = 0;
     private void watch(VideoFrame frame) {
         VideoFrame.Buffer nb = null, sc = null; VideoFrame.I420Buffer b = null;
         try {
@@ -419,10 +419,10 @@ public class MainActivity extends Activity {
         double shX = (p[2] + p[4]) / 2, shY = (p[3] + p[5]) / 2, hipX = (p[14] + p[16]) / 2, hipY = (p[15] + p[17]) / 2, hy = (p[7] + p[9] + p[11] + p[13]) / 4;
         double tl = Math.hypot(shX - hipX, shY - hipY); if (tl < 6) { watchTxt = "골퍼가 너무 작음"; return; }
         double h = (hipY - hy) / tl;   // 손 높이: 0=골반, 1=어깨
-        watchTxt = "골퍼 인식됨";
+        watchTxt = "골퍼 인식됨"; wSeenAt = t; if (h > 1.0) wHighAt = t;
         synchronized (boxHist) { boxHist[boxIdx] = new double[]{t, hipX / wW, hipY / wH, ((p[19] + p[21]) / 2 - p[1]) / wH}; boxIdx = (boxIdx + 1) % boxHist.length; }
         if (h > 1.0) wTopAt = t;
-        else if (h < 0.6 && wTopAt > 0 && t - wTopAt < 700 && t - wFired > 6000) {
+        else if (autoMode == 2 && h < 0.6 && wTopAt > 0 && t - wTopAt < 700 && t - wFired > 6000 && t - lastHitSave > 6000) {   // 동작만으로 저장하는 것은 '빈 스윙도 포함' 모드에서만
             wFired = t; wTopAt = 0; impactAt = t;
             ui.post(() -> toast("스윙 동작 감지 · 저장합니다"));
             ui.postDelayed(() -> saveClip("스윙", 7_000_000L), 1300);
@@ -458,16 +458,17 @@ public class MainActivity extends Activity {
                 double rms = Math.sqrt(sum / k);
                 long now = System.currentTimeMillis();
                 // 충격음: 최대값이 크고(전체의 약 35% 이상) 주변 소음보다 훨씬 큼
-                if (autoOn && peak > 11000 && rms > bg * 6 && now - lastHit > 5000) {
-                    lastHit = now;
-                    if (now - impactAt > 1500) impactAt = now;   // 스윙 동작으로 이미 잡았으면 그 시각을 유지
-                    float mv = recentMotion(1500);
-                    if (mv < 0.02f) {   // 소리는 났지만 이 카메라 앞에서는 스윙이 없었음 → 옆 타석
-                        ui.post(() -> toast("소리 감지 · 화면에 스윙이 없어 저장 안 함"));
-                        continue;
+                if (autoOn && peak > 11000 && rms > bg * 6 && now - lastHit > 400) {
+                    lastHit = now;   // (옆 타석 소리 직후 내 공 소리를 놓치지 않게, 거절한 소리는 0.4초만 막는다)
+                    // 내 스윙의 소리인지: 폰이 골퍼를 보고 있으면 '방금(1.5초 안에) 손이 어깨 위에 있었는가'로, 못 보고 있으면 화면 가운데 움직임으로 판단
+                    final boolean poseOk = now - wSeenAt < 2500;
+                    final boolean mine = poseOk ? (wHighAt > 0 && now - wHighAt < 1500) : recentMotion(1500) >= 0.02f;
+                    if (!mine) { ui.post(() -> toast("소리 감지 · 이 화면의 스윙이 아니라 저장 안 함")); }
+                    else if (now - lastHitSave > 5000) {
+                        lastHitSave = now; impactAt = now;
+                        ui.post(() -> toast("공 맞는 소리 감지 · 저장합니다"));
+                        ui.postDelayed(() -> saveClip("소리", 7_000_000L), 1500);
                     }
-                    ui.post(() -> toast("공 맞는 소리 감지 · 저장합니다"));
-                    ui.postDelayed(() -> saveClip("소리", 7_000_000L), 1500);
                 }
                 bg = bg * 0.995 + Math.min(rms, bg * 3) * 0.005;   // 주변 소음(충격음은 거의 반영 안 함)
             }
@@ -710,7 +711,7 @@ public class MainActivity extends Activity {
                     @Override public void onMessage(DataChannel.Buffer buf) {
                         try { byte[] b = new byte[buf.data.remaining()]; buf.data.get(b); JSONObject m = new JSONObject(new String(b, StandardCharsets.UTF_8));
                             if ("lens".equals(m.optString("t"))) toast("렌즈 바꾸기는 아직 지원하지 않습니다");
-                            else if ("swing".equals(m.optString("t"))) ui.postDelayed(() -> saveClip("스윙", 7_000_000L), 1200);   // 피니시 뒤 조금 더 담고 저장
+                            else if ("swing".equals(m.optString("t"))) { if (autoMode != 1) ui.postDelayed(() -> saveClip("스윙", 7_000_000L), 1200); }   // '공을 칠 때만' 모드에서는 아이패드의 동작 감지로 저장하지 않음(빈 스윙 제외)   // 피니시 뒤 조금 더 담고 저장
                         } catch (Exception ignore) {}
                     }
                 });
