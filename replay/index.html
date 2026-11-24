@@ -71,7 +71,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v78</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v79</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -81,6 +81,7 @@ input[type=file]{display:none}
       <button id="play" class="main">▶ 1/8 느리게</button>
       <button id="prev">◀ 1프레임</button><button id="next">1프레임 ▶</button>
       <button data-j="addr">어드레스</button><button data-k="p2">테이크백</button><button data-j="top">탑</button><button data-k="p6">다운 중간</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
+      <button id="ghost" class="on">클럽 잔상</button>
       <button id="lines" class="on">선 표시</button>
       <button id="cmpb" hidden>비교 보기</button>
       <button id="savev">영상 저장</button>
@@ -222,7 +223,7 @@ function finish(D,file,T0){
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view), M=A.cmpMetrics(pose,ph,fps,view);
   if(po) Object.assign(po,A.clubCheckpoints(tr,ph,pose,fps));   // 테이크백·다운 중간 버튼이 갈 장면
-  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
+  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,hd:pose.map(p=>p?[+p.hands[0].toFixed(1),+p.hands[1].toFixed(1)]:null),name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -265,7 +266,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v78</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v79</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -287,7 +288,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v78</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v79</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
@@ -377,9 +378,22 @@ function draw(){
     for(const q of arr){ if(!q){prev=null;continue;} if(q.i>i) break;
       if(prev){ ox.setLineDash(q.est||prev.est?[7,7]:[]); ox.beginPath(); ox.moveTo(...P(prev.x,prev.y)); ox.lineTo(...P(q.x,q.y)); ox.stroke(); } prev=q; } ox.setLineDash([]); };
   const cur=i<=R.ph.top?"back":i<=R.ph.imp?"down":"after";   // current phase bright, earlier ones faded so the picture stays readable
-  for(const [k,col] of [["back","#ffd23f"],["down","#ff4d4d"],["after","#59c8ff"]]){ ox.globalAlpha=(k===cur||(cur==="after"&&k==="down"))?1:0.3; seg(R.cv[k],col); }
+  const p=R.tr[i];
+  if(showGhost&&R.hd){
+    // 클럽 잔상: 일정 간격의 순간마다 손→헤드를 잇는 클럽을 그대로 남긴다(실제로 헤드와 손을 찾은 순간만). 빠른 구간일수록 촘촘하게.
+    const L=(R.pl&&R.pl.L)||200, gap=Math.max(26,0.15*L);
+    const club=(g,hx,hy,col,a,w)=>{ if(!g) return false; const d=Math.hypot(hx-g[0],hy-g[1]); if(d<0.08*L||d>1.35*L) return false;
+        ox.globalAlpha=a; ox.strokeStyle=col; ox.fillStyle=col; ox.lineWidth=w; ox.lineCap="round"; ox.beginPath(); ox.moveTo(...P(g[0],g[1])); ox.lineTo(...P(hx,hy)); ox.stroke(); ox.beginPath(); ox.arc(...P(hx,hy),w+2.5,0,7); ox.fill(); return true; };
+    // 궤적으로 확인된 헤드 위치만 쓰고(튀는 점 제외), 헤드가 일정 거리만큼 움직일 때마다 하나씩 남겨 간격을 고르게 한다
+    const fan=(arr,col,on)=>{ let lx=null,ly=null; for(const q of arr){ if(!q||q.est) continue; if(q.i>i) break; if(lx!=null&&Math.hypot(q.x-lx,q.y-ly)<gap) continue;
+        if(club(R.hd[q.i],q.x,q.y,col,on?0.9:0.32,on?3:2)){ lx=q.x; ly=q.y; } } };
+    fan(R.cv.back,"#ffd23f",cur==="back"); fan(R.cv.down,"#ff4d4d",cur==="down"||cur==="after"); fan(R.cv.after,"#59c8ff",cur==="after");
+    if(p) club(R.hd[i],p[0],p[1],"#ffffff",1,3.5);
+  } else {
+    for(const [k,col] of [["back","#ffd23f"],["down","#ff4d4d"],["after","#59c8ff"]]){ ox.globalAlpha=(k===cur||(cur==="after"&&k==="down"))?1:0.3; seg(R.cv[k],col); }
+  }
   ox.globalAlpha=1;
-  const p=R.tr[i]; if(p){ ox.strokeStyle="#fff"; ox.lineWidth=3; ox.beginPath(); ox.arc(...P(p[0],p[1]),12,0,7); ox.stroke(); }
+  if(p){ ox.strokeStyle="#fff"; ox.lineWidth=3; ox.beginPath(); ox.arc(...P(p[0],p[1]),12,0,7); ox.stroke(); }
   ox.restore();
 }
 function loop(){ draw(); if(!vid.paused) requestAnimationFrame(loop); }
@@ -392,6 +406,7 @@ $("prev").onclick=()=>seekFrame(frameAt(vid.currentTime)-1);
 $("next").onclick=()=>seekFrame(frameAt(vid.currentTime)+1);
 document.querySelectorAll("[data-j]").forEach(b=>b.onclick=()=>seekFrame(R.ph[b.dataset.j]));
 document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{ const i=R.po&&R.po[b.dataset.k]; if(i!=null) seekFrame(i); });
+let showGhost=true; $("ghost").onclick=()=>{ showGhost=!showGhost; $("ghost").classList.toggle("on",showGhost); $("ghost").textContent=showGhost?"클럽 잔상":"궤적선"; draw(); };
 $("lines").onclick=()=>{ showLines=!showLines; $("lines").classList.toggle("on",showLines); draw(); };
 // 실시간 화면 위에 겹쳐 열린 경우(frame=1): 닫기만 하면 실시간 화면과 폰 연결이 그대로 있다
 const QS=new URLSearchParams(location.search), inFrame=QS.get("frame")==="1"&&window.parent!==window;
