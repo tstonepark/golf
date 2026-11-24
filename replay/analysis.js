@@ -156,6 +156,13 @@ export function plane(tr,ph,pose,fps){
   if(!ball){ const q=[]; for(let i=Math.max(0,A-Math.round(0.2*fps));i<=A;i++) if(tr[i]) q.push(tr[i]); if(q.length){ q.sort((a,b)=>a[1]-b[1]); ball=q[q.length>>1]; } }
   const hands=P.hands, sh=P.sh;
   if(!ball||ball[1]<=hands[1]) return null;   // ball must be below the hands at address
+  /* The two reference lines are the ADDRESS shaft line and the line to the shoulders, so they must start where the club head
+     sat at address. They started at the impact point, which with a driver is 30~40 px from the address head (ball teed up, head
+     behind it). That offset alone put the whole takeaway "outside the shoulder line" once the lines were wide enough to judge. */
+  const hit=ball;
+  { const q=[]; for(let i=Math.max(0,ph.addr-Math.round(0.1*fps));i<=Math.min(ph.start,ph.addr+Math.round(0.05*fps));i++) if(tr[i]) q.push(tr[i]);
+    if(q.length>=5){ const md=k=>q.map(v=>v[k]).sort((x,y)=>x-y)[q.length>>1], a0=[md(0),md(1)];
+      if(a0[1]>hands[1]&&hyp(a0[0]-hit[0],a0[1]-hit[1])<0.35*hyp(hands[0]-hit[0],hands[1]-hit[1])) ball=a0; } }
   /* The ball lies on the ground in front of the golfer. When the head model fails on a clip (other clothes, drawn overlays, outdoor light)
      the "ball" lands on a thigh or a logo; lines and plane verdicts built on it were shown as if they were real. No plane then. */
   if(P.ank&&P.hip){ const leg=P.ank[1]-P.hip[1], tl0=hyp(P.sh[0]-P.hip[0],P.sh[1]-P.hip[1]);
@@ -181,7 +188,7 @@ export function plane(tr,ph,pose,fps){
   const ext=arr=>{ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const c of arr){ const p=tr[c.i]; x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } return arr.length? hyp(x1-x0,y1-y0) : 0; };
 
   const backOk=back.length>=6&&ext(back)>=0.4*L&&widthDeg>=6;
-  return {ball,hands,sh,L,back,down,backOk,
+  return {ball,hit,hands,sh,L,back,down,backOk,
     takeawayOver:frac(back,"over"), downSlot:frac(down,"slot"), downOver:frac(down,"over"), downUnder:frac(down,"under"),
     nDown:mid.length, widthDeg, hold, midShaft, finalZone: hold? null : mode(sure)};
 }
