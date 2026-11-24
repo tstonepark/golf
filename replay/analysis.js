@@ -156,6 +156,10 @@ export function plane(tr,ph,pose,fps){
   if(!ball){ const q=[]; for(let i=Math.max(0,A-Math.round(0.2*fps));i<=A;i++) if(tr[i]) q.push(tr[i]); if(q.length){ q.sort((a,b)=>a[1]-b[1]); ball=q[q.length>>1]; } }
   const hands=P.hands, sh=P.sh;
   if(!ball||ball[1]<=hands[1]) return null;   // ball must be below the hands at address
+  /* The ball lies on the ground in front of the golfer. When the head model fails on a clip (other clothes, drawn overlays, outdoor light)
+     the "ball" lands on a thigh or a logo; lines and plane verdicts built on it were shown as if they were real. No plane then. */
+  if(P.ank&&P.hip){ const leg=P.ank[1]-P.hip[1], tl0=hyp(P.sh[0]-P.hip[0],P.sh[1]-P.hip[1]);
+    if(leg>20&&(ball[1]<P.hip[1]+0.6*leg||Math.abs(ball[0]-P.hip[0])<0.3*tl0)) return null; }
   const side=(p,q,x)=>{ const dx=q[0]-p[0],dy=q[1]-p[1],l=hyp(dx,dy); return (dx*(x[1]-p[1])-dy*(x[0]-p[0]))/l; }; // >0: above/outside
   const L=hyp(hands[0]-ball[0],hands[1]-ball[1]);
   const cls=(i)=>{ const p=tr[i]; if(!p) return null; const a=side(ball,hands,p), b=side(ball,sh,p);
