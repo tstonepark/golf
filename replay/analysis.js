@@ -242,7 +242,7 @@ export function faceOn(pose,ph,tr){
   const cm=(p,q)=>(q[0]-p[0])*away*cmPerPx;                    // + = toward the back foot (away from target)
   let lean=null; const h=tr[ph.imp];
   if(h){ const dx=(I.hands[0]-h[0])*away*-1, dy=h[1]-I.hands[1]; if(dy>0) lean=Math.atan2(dx,dy)*180/Math.PI; } // + = hands ahead of the club head
-  return {headTop:cm(A.nose,T.nose),headImp:cm(A.nose,I.nose),hipTop:cm(A.hip,T.hip),hipImp:cm(A.hip,I.hip),lean};
+  return {headTop:cm(A.nose,T.nose),headImp:cm(A.nose,I.nose),hipTop:cm(A.hip,T.hip),hipImp:cm(A.hip,I.hip),lean,handImp:-cm(A.hands,I.hands) /* + = hands nearer the target than at address */};
 }
 // ---------- posture / timing details for the diagnosis (2D, from the pose) ----------
 export function posture(pose,ph,fps,view,TF){

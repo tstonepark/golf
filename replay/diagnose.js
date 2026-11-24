@@ -7,17 +7,19 @@ export function diagnose(R){
   const add=o=>it.push(o);
   // ---- tempo ----
   if(po){
-    const total=po.back+po.hold, ratio=total/po.down;
-    add({key:"hold",area:"템포",sev:po.hold>0.45?"bad":po.hold>0.2?"warn":"ok",title:po.hold>0.2?"탑에서 멈춤이 깁니다":"탑 전환이 자연스럽습니다",
-      value:f2(po.hold)+"초",ref:"0.2초 이하",conf:"높음",
-      why:"탑에서 손이 최고점 근처에 머문 시간입니다. 길면 백스윙으로 모은 탄력이 풀리고, 팔로만 다시 시작하게 됩니다.",
-      drill:"백스윙이 끝나기 직전에 왼발을 디디며 하체가 먼저 출발하는 연습(스텝 드릴). 메트로놈 3:1 박자에 맞춰 스윙."});
+    const ratio=po.back/po.down;
+    /* The top pause is not judged: some teachers deliberately teach waiting at the top ("두 박자 쉬고 때리기"), tour swings barely pause.
+       It was flagged as the #1 fault on every swing of a golfer who pauses on purpose. Shown as a number; consistency is what matters. */
+    add({key:"hold",area:"템포",sev:"na",title:"참고: 탑 멈춤 "+f2(po.hold)+"초",
+      value:f2(po.hold)+"초",ref:"",conf:"높음",
+      why:"탑에서 손이 최고점 근처에 머문 시간입니다. 탑에서 기다렸다 치는 방식도 있어 좋고 나쁨은 판정하지 않습니다. 아래 '스윙 기록 비교'에서 스윙마다 비슷한지(일정한지)를 보세요.",
+      drill:""});
     add({key:"back",area:"템포",sev:po.back>1.4?"warn":po.back<0.55?"warn":"ok",title:po.back>1.4?"백스윙이 느립니다":po.back<0.55?"백스윙이 급합니다":"백스윙 속도 적정",
       value:f2(po.back)+"초",ref:"0.7~1.1초",conf:"높음",why:"테이크백 시작부터 손이 최고점에 닿을 때까지의 시간입니다.",drill:"하나-둘-셋(백스윙) · 넷(다운) 박자로 연습."});
     add({key:"down",area:"템포",sev:po.down>0.36?"warn":"ok",title:po.down>0.36?"다운스윙이 느립니다":"다운스윙 시간 적정",
       value:f2(po.down)+"초",ref:"0.22~0.32초",conf:"높음",why:"탑에서 임팩트까지의 시간입니다.",drill:""});
     add({key:"ratio",area:"템포",sev:ratio>4.5?"warn":ratio<2.2?"warn":"ok",title:"템포 비율 "+f1(ratio)+" : 1",value:f1(ratio)+" : 1",ref:"2.5~3.5 : 1",conf:"높음",
-      why:"(백스윙+탑 멈춤) ÷ 다운스윙. 탑에서 멈추는 시간이 길면 이 값이 커집니다.",drill:""});
+      why:"백스윙 ÷ 다운스윙(탑에서 멈춘 시간은 빼고 계산).",drill:""});
   }
   // ---- plane (down-the-line only) ----
   if(view==="dtl"){
@@ -72,6 +74,16 @@ export function diagnose(R){
     if(ok(fo.hipImp)) add({key:"shift",area:"자세",sev:fo.hipImp>0?"warn":"ok",title:fo.hipImp>0?"임팩트 때 체중이 뒤에 남습니다":"임팩트 체중 이동 양호",value:r0(Math.abs(fo.hipImp))+"cm "+(fo.hipImp>0?"뒤":"타깃 쪽"),ref:"타깃 쪽으로 이동",conf:"보통",why:"임팩트 때 골반 위치(어드레스 대비).",drill:"왼발에 체중 80%를 싣고 피니시에서 3초 멈추기."});
     if(fo.lean!=null) add({key:"lean",area:"임팩트",sev:fo.lean<0?"warn":"ok",title:fo.lean<0?"임팩트 때 헤드가 손보다 앞섭니다(스쿠핑)":"핸드 퍼스트 임팩트",value:r0(Math.abs(fo.lean))+"° "+(fo.lean>=0?"손이 앞":"헤드가 앞"),ref:"아이언: 손이 5~10° 앞",conf:"보통",why:"임팩트 순간 샤프트 기울기입니다.",drill:"임팩트 백 치기, 펀치 샷."});
   }
+  /* impact positions that depend on the club (face-on). Thresholds are first guesses from lesson material, not calibrated. */
+  if(view!=="dtl"&&fo){ const ok=v=>v!=null&&Math.abs(v)<=40, club=R.club, hd=fo.headImp, hn=fo.handImp;
+    if(!club) add({key:"club",area:"임팩트",sev:"na",title:"클럽을 고르면 임팩트 머리·손 위치를 판정합니다",value:"클럽 선택 안 함",ref:"",conf:"보통",why:"아이언과 드라이버는 임팩트 때 머리·손 위치의 정답이 달라서, 영상 아래 「클럽」 버튼으로 골라야 판정할 수 있습니다.",drill:""});
+    else{ const cn=club==="driver"?"드라이버":"아이언";
+      if(ok(hd)){ const v=r0(Math.abs(hd))+"cm "+(hd>=0?"뒤":"타깃 쪽");
+        if(club==="driver") add({key:"headBehind",area:"임팩트",sev:hd<-3?"warn":"ok",title:hd<-3?"임팩트 때 머리가 타깃 쪽으로 나갑니다":"임팩트 때 머리가 공 뒤에 남아 있습니다",value:v,ref:"드라이버: 어드레스 자리 또는 그 뒤",conf:"보통",why:"드라이버는 머리를 뒤에 둔 채 올려 쳐야 합니다. 머리가 타깃 쪽으로 따라 나가면 엎어 치거나 깎여 맞습니다. (기준은 잠정값)",drill:"고개를 살짝 오른쪽으로 돌려 둔 채, 임팩트까지 오른쪽 귀가 공 뒤에 있도록 스윙."});
+        else add({key:"headBehind",area:"임팩트",sev:Math.abs(hd)>8?"warn":"ok",title:hd>8?"임팩트 때 머리가 뒤에 많이 남습니다":hd<-8?"임팩트 때 머리가 타깃 쪽으로 나갑니다":"임팩트 머리 위치 양호",value:v,ref:"아이언: 어드레스 자리 ±8cm",conf:"보통",why:"아이언은 머리가 어드레스 자리 근처에 있어야 공을 먼저 맞힙니다. 뒤에 많이 남으면 뒤땅·탑볼이 납니다. (기준은 잠정값)",drill:"왼발에 체중을 실은 채 하프 스윙으로 공 앞 잔디를 치는 연습."}); }
+      if(ok(hn)){ const v=r0(Math.abs(hn))+"cm "+(hn>=0?"타깃 쪽":"뒤");
+        if(club==="iron") add({key:"handFwd",area:"임팩트",sev:hn<3?"warn":"ok",title:hn<3?"임팩트 때 손이 앞서지 못합니다":"임팩트 때 손이 앞서 있습니다(핸드 퍼스트)",value:v,ref:"아이언: 어드레스보다 타깃 쪽 3cm 이상",conf:"보통",why:"아이언은 임팩트 때 손이 어드레스보다 타깃 쪽에 있어야 눌러 맞습니다. (기준은 잠정값)",drill:"임팩트 백 치기, 펀치 샷."});
+        else add({key:"handFwd",area:"임팩트",sev:"na",title:"참고: 임팩트 손 위치 "+v,value:v,ref:"드라이버: 어드레스 자리 근처",conf:"보통",why:"드라이버는 손이 많이 앞서지 않고 어드레스 자리 근처에서 맞습니다. 숫자만 참고로 보여 줍니다.",drill:""}); } } }
   const rank={bad:0,warn:1,na:2,ok:3};
   const issues=it.filter(x=>x.sev==="bad"||x.sev==="warn").sort((a,b)=>rank[a.sev]-rank[b.sev]||({"높음":0,"보통":1,"낮음":2})[a.conf]-({"높음":0,"보통":1,"낮음":2})[b.conf]);
   return {items:it,issues,good:it.filter(x=>x.sev==="ok")};
