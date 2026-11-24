@@ -14,11 +14,13 @@ export function diagnose(R){
       value:f2(po.hold)+"초",ref:"",conf:"높음",
       why:"탑에서 손이 최고점 근처에 머문 시간입니다. 탑에서 기다렸다 치는 방식도 있어 좋고 나쁨은 판정하지 않습니다. 아래 '스윙 기록 비교'에서 스윙마다 비슷한지(일정한지)를 보세요.",
       drill:""});
-    add({key:"back",area:"템포",sev:po.back>1.4?"warn":po.back<0.55?"warn":"ok",title:po.back>1.4?"백스윙이 느립니다":po.back<0.55?"백스윙이 급합니다":"백스윙 속도 적정",
-      value:f2(po.back)+"초",ref:"0.7~1.1초",conf:"높음",why:"테이크백 시작부터 손이 최고점에 닿을 때까지의 시간입니다.",drill:"하나-둘-셋(백스윙) · 넷(다운) 박자로 연습."});
+    /* Backswing time and the tempo ratio are style, not faults, for a golfer who swings back slowly and waits at the top on purpose:
+       only "rushed" is still flagged. Slow is shown as a number. */
+    add({key:"back",area:"템포",sev:po.back<0.55?"warn":po.back>1.4?"na":"ok",title:po.back<0.55?"백스윙이 급합니다":po.back>1.4?"참고: 백스윙 "+f2(po.back)+"초(천천히 올리는 편)":"백스윙 속도 적정",
+      value:f2(po.back)+"초",ref:"투어 평균 0.7~1.1초",conf:"높음",why:"테이크백 시작(손이 어드레스 자리를 떠나는 순간)부터 손이 최고점에 닿을 때까지의 시간입니다. 천천히 올리는 것은 결점으로 보지 않고 숫자만 보여 줍니다.",drill:po.back<0.55?"하나-둘-셋(백스윙) · 넷(다운) 박자로 연습.":""});
     add({key:"down",area:"템포",sev:po.down>0.36?"warn":"ok",title:po.down>0.36?"다운스윙이 느립니다":"다운스윙 시간 적정",
       value:f2(po.down)+"초",ref:"0.22~0.32초",conf:"높음",why:"탑에서 임팩트까지의 시간입니다.",drill:""});
-    add({key:"ratio",area:"템포",sev:ratio>4.5?"warn":ratio<2.2?"warn":"ok",title:"템포 비율 "+f1(ratio)+" : 1",value:f1(ratio)+" : 1",ref:"2.5~3.5 : 1",conf:"높음",
+    add({key:"ratio",area:"템포",sev:ratio<2.2?"warn":ratio>4.5?"na":"ok",title:(ratio>4.5?"참고: ":"")+"템포 비율 "+f1(ratio)+" : 1",value:f1(ratio)+" : 1",ref:"투어 평균 2.5~3.5 : 1",conf:"높음",
       why:"백스윙 ÷ 다운스윙(탑에서 멈춘 시간은 빼고 계산).",drill:""});
   }
   // ---- plane (down-the-line only) ----
