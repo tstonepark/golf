@@ -102,6 +102,21 @@ export function curves(tr,ph,fps){
   return {back:tidy(seg(ph.start,ph.top,true),mr),down:tidy(seg(ph.top,ph.imp,true),3),after:tidy(seg(ph.imp,Math.min(ph.fin,ph.imp+Math.round(0.7*fps)),false),mr)};
 }
 // 7) plane check against two lines from the ball: address shaft line (ball->hands) and ball->shoulders
+// Checkpoint frames for the buttons, from the club itself rather than from body height:
+//  p2 "takeaway"      = going back, the first moment the head is as high as the hands (shaft level with the ground)
+//  p6 "mid-downswing" = coming down, the moment the head drops below the hands again
+// Where the head was not followed there, fall back to how far the hands have travelled between address and top height.
+export function clubCheckpoints(tr,ph,pose,fps){
+  const near=i=>{ for(let d=0;d<=3;d++){ if(tr[i-d]) return tr[i-d]; if(tr[i+d]) return tr[i+d]; } return null; };
+  const A=pose[ph.start], T=pose[ph.top]; let p2=null,p6=null;
+  for(let i=ph.start+1;i<=ph.top;i++){ const h=near(i), P=pose[i]; if(h&&P&&h[1]<=P.hands[1]){ p2=i; break; } }
+  for(let i=ph.imp-1;i>=ph.top;i--){ const h=near(i), P=pose[i]; if(h&&P&&h[1]<=P.hands[1]){ p6=Math.min(ph.imp,i+1); break; } }
+  if(A&&T){ const y0=A.hands[1], y1=T.hands[1], span=y0-y1;
+    if(span>20){
+      if(p2==null||p2-ph.start>0.7*(ph.top-ph.start)) for(let i=ph.start;i<=ph.top;i++){ const P=pose[i]; if(P&&P.hands[1]<=y0-0.2*span){ p2=i; break; } }
+      if(p6==null||ph.imp-p6>0.6*(ph.imp-ph.top)) for(let i=ph.top;i<=ph.imp;i++){ const P=pose[i]; if(P&&P.hands[1]>=y1+0.75*span){ p6=i; break; } } } }
+  return {p2,p6};
+}
 // Takeaway start from the hands, not the club head: the last moment before the top at which the hands were still at
 // address height (within 6% of the torso length of their lowest level). Head-based starts moved by 0.2-0.4s between
 // identical swings (waggles, a head that is found late), which made tempo and the "address" frame jump around.

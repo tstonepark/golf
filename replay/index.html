@@ -71,7 +71,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v77</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v78</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -80,7 +80,7 @@ input[type=file]{display:none}
     <div id="ctl" hidden>
       <button id="play" class="main">▶ 1/8 느리게</button>
       <button id="prev">◀ 1프레임</button><button id="next">1프레임 ▶</button>
-      <button data-j="start">어드레스</button><button data-k="p2">테이크백</button><button data-j="top">탑</button><button data-k="p6">다운 중간</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
+      <button data-j="addr">어드레스</button><button data-k="p2">테이크백</button><button data-j="top">탑</button><button data-k="p6">다운 중간</button><button data-j="imp">임팩트</button><button data-j="fin">피니시</button>
       <button id="lines" class="on">선 표시</button>
       <button id="cmpb" hidden>비교 보기</button>
       <button id="savev">영상 저장</button>
@@ -221,6 +221,7 @@ function finish(D,file,T0){
   const cv=A.curves(tr,ph,fps), pl=view==="dtl"? A.plane(tr,ph,pose,fps) : null, bd=A.body(pose,ph), fo=view!=="dtl"? A.faceOn(pose,ph,tr) : null;
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view), M=A.cmpMetrics(pose,ph,fps,view);
+  if(po) Object.assign(po,A.clubCheckpoints(tr,ph,pose,fps));   // 테이크백·다운 중간 버튼이 갈 장면
   R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
@@ -264,7 +265,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v77</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v78</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -286,7 +287,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v77</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v78</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
@@ -361,7 +362,7 @@ function vrect(){ // displayed video content box inside the stage (object-fit: c
   const s=$("mainv").getBoundingClientRect(), vw=vid.videoWidth||W, vh=vid.videoHeight||H, k=Math.min(s.width/vw,s.height/vh), w=vw*k, h=vh*k;
   return {x:(s.width-w)/2,y:(s.height-h)/2,w,h,sw:s.width,sh:s.height}; }
 function frameAt(t){ return Math.max(0,Math.min(R.n-1,Math.floor(t*R.fps+1e-6))); }
-function phaseName(i){ const p=R.ph; return i<p.start?"어드레스":i<=p.top?"백스윙":i<=p.imp?"다운스윙":"팔로스루"; }
+function phaseName(i){ const p=R.ph, q=R.po||{}; return i<p.start?"어드레스": i<=p.top?(q.p2!=null&&i<=q.p2?"테이크백":"백스윙"): i<=p.imp?(i>=p.imp-1?"임팩트":q.p6!=null&&i>=q.p6?"다운스윙 후반":"다운스윙"): i<=p.imp+Math.round(0.02*R.fps)?"임팩트":"팔로스루"; }
 function draw(){
   if(!R) return; const r=vrect(), dpr=devicePixelRatio||1;
   if(ov.width!==Math.round(r.sw*dpr)){ ov.width=Math.round(r.sw*dpr); ov.height=Math.round(r.sh*dpr); }
