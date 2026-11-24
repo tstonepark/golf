@@ -72,7 +72,10 @@ export function diagnose(R){
   if(view!=="dtl"&&fo){ const ok=v=>v!=null&&Math.abs(v)<=30;
     if(ok(fo.hipTop)) add({key:"sway",area:"자세",sev:fo.hipTop>8?"warn":"ok",title:fo.hipTop>8?"백스윙에서 골반이 뒤로 밀립니다(스웨이)":"백스윙 골반 좌우 유지 양호",value:r0(fo.hipTop)+"cm",ref:"6cm 이내",conf:"보통",why:"탑에서 골반이 타깃 반대쪽으로 이동한 거리(어깨너비 40cm 가정).",drill:"오른발 바깥에 공이나 스틱을 두고 오른 무릎이 닿지 않게 회전."});
     if(ok(fo.hipImp)) add({key:"shift",area:"자세",sev:fo.hipImp>0?"warn":"ok",title:fo.hipImp>0?"임팩트 때 체중이 뒤에 남습니다":"임팩트 체중 이동 양호",value:r0(Math.abs(fo.hipImp))+"cm "+(fo.hipImp>0?"뒤":"타깃 쪽"),ref:"타깃 쪽으로 이동",conf:"보통",why:"임팩트 때 골반 위치(어드레스 대비).",drill:"왼발에 체중 80%를 싣고 피니시에서 3초 멈추기."});
-    if(fo.lean!=null) add({key:"lean",area:"임팩트",sev:fo.lean<0?"warn":"ok",title:fo.lean<0?"임팩트 때 헤드가 손보다 앞섭니다(스쿠핑)":"핸드 퍼스트 임팩트",value:r0(Math.abs(fo.lean))+"° "+(fo.lean>=0?"손이 앞":"헤드가 앞"),ref:"아이언: 손이 5~10° 앞",conf:"보통",why:"임팩트 순간 샤프트 기울기입니다.",drill:"임팩트 백 치기, 펀치 샷."});
+    /* shaft lean is an iron criterion; with a driver (or no club chosen) it is shown as a number only */
+    if(fo.lean!=null){ const lv=r0(Math.abs(fo.lean))+"° "+(fo.lean>=0?"손이 앞":"헤드가 앞");
+      if(R.club==="iron") add({key:"lean",area:"임팩트",sev:fo.lean<0?"warn":"ok",title:fo.lean<0?"임팩트 때 헤드가 손보다 앞섭니다(스쿠핑)":"핸드 퍼스트 임팩트",value:lv,ref:"아이언: 손이 5~10° 앞",conf:"보통",why:"임팩트 순간 샤프트 기울기입니다.",drill:"임팩트 백 치기, 펀치 샷."});
+      else add({key:"lean",area:"임팩트",sev:"na",title:"참고: 임팩트 샤프트 기울기 "+lv,value:lv,ref:R.club==="driver"?"드라이버: 거의 수직(0° 근처)":"클럽을 고르면 판정",conf:"보통",why:"임팩트 순간 샤프트 기울기입니다. 아이언은 손이 앞서야 하고, 드라이버는 거의 수직으로 맞습니다. 정면에서 조금만 비스듬히 찍어도 값이 크게 달라져 숫자만 참고로 보여 줍니다.",drill:""}); }
   }
   /* impact positions that depend on the club (face-on). Thresholds are first guesses from lesson material, not calibrated. */
   if(view!=="dtl"&&fo){ const ok=v=>v!=null&&Math.abs(v)<=40, club=R.club, hd=fo.headImp, hn=fo.handImp;
