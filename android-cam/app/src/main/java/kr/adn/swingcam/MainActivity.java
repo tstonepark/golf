@@ -92,6 +92,9 @@ public class MainActivity extends Activity {
     private static final String REL = "https://github.com/tstonepark/golf/releases/download/swingcam/";
     private static final int W = 1920, H = 1080, FPS = 60;
     private boolean hs;                       // 고속(240fps) 모드
+    private boolean wide;                     /* 광각 렌즈(정면 촬영 때 가까이서 전신이 들어오게) */
+    private boolean wideHsOk = true;          /* 광각 렌즈가 240fps 고속을 지원하는지(기기마다 다름) */
+    private android.widget.Button lensBtn;
     private RingRecorder rr; private Surface recSurface;
     private Button autoBtn; private boolean autoOn = true; private volatile int autoMode = 1; /* 0 끔 · 1 공을 칠 때만(동작+소리) · 2 동작만(빈 스윙 포함) */ private volatile long lastSaveAt = 0; private Thread mic; private volatile boolean micRun = false;
     private int fwd = 0;                      // 고속일 때 아이패드로는 4장 중 1장만(60fps)
@@ -141,6 +144,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("swingcam", MODE_PRIVATE);
         shutterIdx = prefs.getInt("shutter", 2);
         hs = prefs.getBoolean("hs", false);
+        wide = prefs.getBoolean("wide", false);
         autoMode = prefs.getInt("autoMode", prefs.getBoolean("auto", true) ? 1 : 0); autoOn = autoMode > 0;
         code = prefs.getString("code", null);
         if (code == null) newCode();
@@ -186,13 +190,15 @@ public class MainActivity extends Activity {
         row.addView(nb, new LinearLayout.LayoutParams(0, 170, 1));
         root.addView(row);
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
-        speedBtn = btn(""); speedBtn.setOnClickListener(v -> { hs = !hs; prefs.edit().putBoolean("hs", hs).apply(); updSpeedBtn(); restartSession(); });
+        speedBtn = btn(""); speedBtn.setOnClickListener(v -> { if (wide && !wideHsOk) { toast("광각 렌즈에서는 60fps만 됩니다"); return; } hs = !hs; prefs.edit().putBoolean("hs", hs).apply(); updSpeedBtn(); restartSession(); });
         saveBtn = btn("지금 저장 (12초)"); saveBtn.setOnClickListener(v -> saveClip("수동", 12_000_000L));
         row2.addView(speedBtn, new LinearLayout.LayoutParams(0, 170, 1));
         row2.addView(saveBtn, new LinearLayout.LayoutParams(0, 170, 1));
         root.addView(row2);
         autoBtn = btn(""); autoBtn.setOnClickListener(v -> { autoMode = (autoMode + 1) % 3; autoOn = autoMode > 0; prefs.edit().putInt("autoMode", autoMode).putBoolean("auto", autoOn).apply(); updAutoBtn(); });
         root.addView(autoBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
+        lensBtn = btn(""); lensBtn.setOnClickListener(v -> { wide = !wide; prefs.edit().putBoolean("wide", wide).apply(); hs = prefs.getBoolean("hs", false); updLensBtn(); updSpeedBtn(); reopenCamera(); });
+        root.addView(lensBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150));
         final Button benchBtn = btn("분석 속도 시험 (약 1분)");
         benchBtn.setOnClickListener(v -> { benchBtn.setEnabled(false); benchBtn.setText("속도 시험 중… 잠시만요");
             new Thread(() -> { String r; try { r = Bench.run(getApplicationContext(), line -> ui.post(() -> benchBtn.setText(line))); } catch (Throwable e) { r = "시험 실패: " + e; }
@@ -204,10 +210,11 @@ public class MainActivity extends Activity {
         root.addView(updBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140));
         android.widget.ScrollView sv = new android.widget.ScrollView(this); sv.setFillViewport(true); sv.addView(root); setContentView(sv);   // 화면이 모자라면 겹치지 않고 스크롤
         codeTv.setText(code);
-        updShutterBtn(); updSpeedBtn(); updAutoBtn();
+        updShutterBtn(); updSpeedBtn(); updAutoBtn(); updLensBtn();
     }
     private void updAutoBtn() { autoBtn.setText(autoMode == 1 ? "자동 저장: 공을 칠 때만" : autoMode == 2 ? "자동 저장: 빈 스윙도 포함" : "자동 저장: 끔"); }
 
+    private void updLensBtn() { lensBtn.setText(!wide ? "렌즈: 기본 (1배)" : wideHsOk ? "렌즈: 광각 (가까이서 전신)" : "렌즈: 광각 · 이 폰은 광각에서 60fps만 됨"); }
     private void updSpeedBtn() { speedBtn.setText(hs ? "원본: 240fps 고속" : "원본: 60fps"); }
     private void updShutterBtn() {
         long s = SHUTTERS[shutterIdx];
@@ -278,10 +285,49 @@ public class MainActivity extends Activity {
         return cm.getCameraIdList()[0];
     }
 
+    /** 뒤쪽 카메라 중 초점거리가 가장 짧은(가장 넓게 찍히는) 것. 기본 카메라와 같으면 null */
+    private String wideCameraId() throws Exception {
+        String base = backCameraId(), best = null; float bf = 1e9f, basef = 1e9f;
+        for (String id : cm.getCameraIdList()) {
+            CameraCharacteristics c = cm.getCameraCharacteristics(id);
+            Integer f = c.get(CameraCharacteristics.LENS_FACING); if (f == null || f != CameraCharacteristics.LENS_FACING_BACK) continue;
+            float[] fl = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS); if (fl == null || fl.length == 0) continue;
+            float m = fl[0]; for (float x : fl) m = Math.min(m, x);
+            if (id.equals(base)) basef = m;
+            if (m < bf) { bf = m; best = id; }
+        }
+        return best != null && !best.equals(base) && bf < basef * 0.85f ? best : null;
+    }
+    private boolean supports240(CameraCharacteristics c) {
+        try {
+            android.hardware.camera2.params.StreamConfigurationMap m = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP); if (m == null) return false;
+            for (android.util.Size z : m.getHighSpeedVideoSizes()) if (z.getWidth() == W && z.getHeight() == H)
+                for (Range<Integer> r : m.getHighSpeedVideoFpsRangesFor(z)) if (r.getUpper() >= 240) return true;
+        } catch (Exception ignore) {}
+        return false;
+    }
+    private void reopenCamera() {
+        if (camH == null) return;
+        camH.post(() -> {
+            try { if (camSession != null) { camSession.stopRepeating(); camSession.close(); } } catch (Exception ignore) {}
+            camSession = null;
+            if (rr != null) { rr.stop(); rr = null; }
+            try { if (cam != null) cam.close(); } catch (Exception ignore) {}
+            cam = null;
+            ui.postDelayed(this::openCamera, 300);
+        });
+    }
+
     private void openCamera() {
         cm = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
             String id = backCameraId();
+            if (wide) {
+                String w = wideCameraId();
+                if (w == null) { wide = false; prefs.edit().putBoolean("wide", false).apply(); toast("이 폰에서는 광각 카메라를 따로 열 수 없습니다"); }
+                else { id = w; wideHsOk = supports240(cm.getCameraCharacteristics(w)); if (!wideHsOk && hs) { hs = false; toast("광각 렌즈는 240fps가 안 되어 60fps로 찍습니다"); } }
+                ui.post(() -> { updLensBtn(); updSpeedBtn(); });
+            }
             CameraCharacteristics c = cm.getCameraCharacteristics(id);
             Integer so = c.get(CameraCharacteristics.SENSOR_ORIENTATION); if (so != null) sensorOrientation = so;
             Range<Integer> ir = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE); if (ir != null) isoRange = ir;
