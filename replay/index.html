@@ -11,9 +11,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 #stage{position:relative;flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
 video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
 #mainv{position:absolute;inset:0}
-#strip{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;-webkit-overflow-scrolling:touch}
-#strip .tile{flex:none;width:132px;text-align:center;font-size:17px;font-weight:700}
-#strip canvas{width:132px;height:132px;border-radius:10px;border:3px solid #555;display:block;background:#000}
+#strip,#strip2{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;-webkit-overflow-scrolling:touch}
+#strip .tile,#strip2 .tile{flex:none;width:132px;text-align:center;font-size:17px;font-weight:700}
+#strip canvas,#strip2 canvas{width:132px;height:132px;border-radius:10px;border:3px solid #555;display:block;background:#000}
 #refv{position:absolute;top:0;bottom:0;right:0;width:50%;border-left:2px solid var(--line);background:#000}
 #stage.cmp #mainv{right:50%}
 #reftag{position:absolute;right:8px;top:8px;font-size:18px;font-weight:800;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:8px;color:var(--back)}
@@ -74,7 +74,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v81</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v82</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -93,7 +93,7 @@ input[type=file]{display:none}
       <button id="live" hidden>← 실시간 화면</button>
     </div>
   </div>
-  <div id="right"><div id="stripWrap" hidden><h2>헤드 모양 <span class="dimt" style="font-weight:400">· 순서대로, 누르면 그 장면으로</span></h2><div id="strip"></div></div><h2>종합 진단</h2><div id="res"><div class="dimt">영상을 불러오면 여기에 결과가 나옵니다.</div></div></div>
+  <div id="right"><div id="stripWrap" hidden><h2>헤드 모양 <span class="dimt" style="font-weight:400">· 순서대로, 누르면 그 장면으로</span></h2><div id="strip"></div></div><div id="strip2Wrap" hidden><h2>임팩트 순간 <span class="dimt" style="font-weight:400">· 공 주변 확대, 한 장면씩</span></h2><div id="strip2" class="strip"></div></div><h2>종합 진단</h2><div id="res"><div class="dimt">영상을 불러오면 여기에 결과가 나옵니다.</div></div></div>
 </div>
 <input type="file" id="file" accept="video/*">
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
@@ -270,7 +270,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v81</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v82</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -292,7 +292,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v81</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v82</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
@@ -419,11 +419,20 @@ function ghostList(){ const L=(R.pl&&R.pl.L)||200, gap=Math.max(34,0.2*L), out=[
   return out; }
 // 보이지 않는 두 번째 영상으로 각 순간을 찾아가 클럽 부분만 오려 둔다(화면의 영상은 건드리지 않음). 몇 초 걸리며, 오리는 대로 화면에 나타난다.
 const PHN={back:"백스윙",down:"다운",after:"팔로"}, PHC={back:"#ffd23f",down:"#ff4d4d",after:"#59c8ff"};
-async function captureGhosts(){ const key=vid.currentSrc||vid.src; ghostKey=key; ghosts=ghostList(); draw(); $("strip").textContent=""; $("stripWrap").hidden=true; if(!ghosts.length||!key) return;
+async function captureGhosts(){ const key=vid.currentSrc||vid.src; ghostKey=key; ghosts=ghostList(); draw(); $("strip").textContent=""; $("stripWrap").hidden=true; $("strip2").textContent=""; $("strip2Wrap").hidden=true; if(!key) return;
   const gv=document.createElement("video"); gv.muted=true; gv.playsInline=true; gv.setAttribute("playsinline",""); gv.preload="auto";
   gv.style.cssText="position:fixed;left:-9999px;top:0;width:4px;height:4px;opacity:0;pointer-events:none"; document.body.appendChild(gv);
   try{ await new Promise((res,rej)=>{ gv.addEventListener("loadeddata",res,{once:true}); gv.addEventListener("error",()=>rej(new Error("video")),{once:true}); setTimeout(()=>rej(new Error("timeout")),10000); gv.src=key; gv.load(); });
     const k=gv.videoWidth/W, L=(R.pl&&R.pl.L)||200, hw=Math.max(5,0.03*L), mine=ghosts;
+    const seekTo=fr=>new Promise(res=>{ let fin=false; const done=()=>{ if(fin) return; fin=true; gv.removeEventListener("seeked",done); res(); }; gv.addEventListener("seeked",done); gv.currentTime=Math.max(0,Math.min(gv.duration-0.001,(fr+0.5)/R.fps)); setTimeout(done,2000); });
+    const tile=(box,cx,cy,sd,col,text,fr)=>{ sd=Math.min(W,H,sd); const hx0=Math.max(0,Math.min(W-sd,cx-sd/2)), hy0=Math.max(0,Math.min(H-sd,cy-sd/2));
+        const t=document.createElement("canvas"); t.width=t.height=Math.max(8,Math.round(sd*k)); const tx=t.getContext("2d"); tx.drawImage(gv,hx0*k,hy0*k,sd*k,sd*k,0,0,t.width,t.height);
+        tx.globalCompositeOperation="lighter"; tx.globalAlpha=0.7; tx.drawImage(t,0,0);   // 실내라 어두워서 밝기를 올려 보여 줌
+        t.style.borderColor=col; const d=document.createElement("div"); d.className="tile"; d.appendChild(t); const cap=document.createElement("div"); cap.textContent=text; cap.style.color=col; d.appendChild(cap);
+        d.onclick=()=>seekFrame(fr); $(box).appendChild(d); $(box+"Wrap").hidden=false; };
+    // 임팩트 순간: 헤드를 찾았든 못 찾았든, 공 자리(임팩트 때 헤드 위치) 주변을 임팩트 앞뒤로 한 장면씩 크게 보여 준다
+    { const B=(R.pl&&R.pl.ball)||R.tr[R.ph.imp]; if(B) for(const d of [-8,-6,-4,-3,-2,-1,0,1,2,3,4,5,6,8]){ if(ghostKey!==key||ghosts!==mine) break; const fr=R.ph.imp+d; if(fr<0||fr>=R.n) continue;
+        await seekTo(fr); tile("strip2",B[0]-0.05*L,B[1]-0.1*L,0.6*L,d<0?"#ff4d4d":d===0?"#ffffff":"#59c8ff",(d>0?"+":"")+d+"장면 ("+(d>=0?"+":"")+(d/R.fps*1000).toFixed(0)+"ms)",fr); } }
     for(const g of mine){ if(ghostKey!==key||ghosts!==mine) break;
       await new Promise(res=>{ let fin=false; const done=()=>{ if(fin) return; fin=true; gv.removeEventListener("seeked",done); res(); }; gv.addEventListener("seeked",done); gv.currentTime=Math.max(0,Math.min(gv.duration-0.001,(g.i+0.5)/R.fps)); setTimeout(done,2000); });
       const ax=g.gx+(g.hx-g.gx)*0.35, ay=g.gy+(g.hy-g.gy)*0.35, r=g.r;   // 샤프트는 손에서 35% 지점부터(팔·몸이 딸려 오지 않게)
@@ -436,12 +445,7 @@ async function captureGhosts(){ const key=vid.currentSrc||vid.src; ghostKey=key;
       x.globalCompositeOperation="destination-in"; x.drawImage(m,0,0);
       g.x0=x0; g.y0=y0; g.bw=bw; g.bh=bh; g.img=c; draw();
       // 헤드 확대 사진(원본 해상도 그대로 오려 약 3배로): 페이스가 열렸는지 닫혔는지 보는 용도
-      { const sd=Math.min(W,H,3*r), hx0=Math.max(0,Math.min(W-sd,g.hx-sd/2)), hy0=Math.max(0,Math.min(H-sd,g.hy-sd/2));
-        const t=document.createElement("canvas"); t.width=t.height=Math.max(8,Math.round(sd*k)); const tx=t.getContext("2d"); tx.drawImage(gv,hx0*k,hy0*k,sd*k,sd*k,0,0,t.width,t.height);
-        tx.globalCompositeOperation="lighter"; tx.globalAlpha=0.7; tx.drawImage(t,0,0);   // 실내라 어두워서 밝기를 올려 보여 줌
-        t.style.borderColor=PHC[g.k]; const d=document.createElement("div"); d.className="tile"; d.appendChild(t);
-        const cap=document.createElement("div"); const dt=(g.i-R.ph.imp)/R.fps; cap.textContent=PHN[g.k]+" "+(dt>=0?"+":"")+dt.toFixed(2)+"초"; cap.style.color=PHC[g.k]; d.appendChild(cap);
-        d.onclick=()=>seekFrame(g.i); $("strip").appendChild(d); $("stripWrap").hidden=false; } }
+      { const dt=(g.i-R.ph.imp)/R.fps; tile("strip",g.hx,g.hy,3*r,PHC[g.k],PHN[g.k]+" "+(dt>=0?"+":"")+dt.toFixed(2)+"초",g.i); } }
   }catch(e){ console.warn("ghost",e); }
   finally{ try{ gv.removeAttribute("src"); gv.load(); }catch(e){} gv.remove(); } }
 let showGhost=true; $("ghost").onclick=()=>{ showGhost=!showGhost; $("ghost").classList.toggle("on",showGhost); $("ghost").textContent=showGhost?"클럽 잔상":"궤적선"; draw(); };
