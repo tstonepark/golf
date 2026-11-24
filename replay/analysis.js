@@ -214,6 +214,10 @@ export function viewOf(pose,tr,i0,i1){
     if(tr[i]) bx.push(Math.abs(tr[i][0]-P.hip[0])/tl); }
   const med=a=>a.length? a.slice().sort((x,y)=>x-y)[a.length>>1] : null;
   const b=med(bx), r=med(sr);
+  /* Shoulder width decides first: it comes from the body, which is always found. Seen from behind the shoulders overlap
+     (0.04~0.20 of the torso in every down-the-line clip so far); face-on they are 0.6+. The club-head rule below failed on a
+     face-on clip where a false head detection on the floor put the "ball" far from the body and the swing was judged as DTL. */
+  if(r!=null&&sr.length>=3){ if(r>=0.5) return {view:"face",ball:b,ratio:r}; if(r<0.3) return {view:"dtl",ball:b,ratio:r}; }
   if(b!=null&&bx.length>=3){ if(b<0.45) return {view:"face",ball:b,ratio:r}; if(b>0.6) return {view:"dtl",ball:b,ratio:r}; }
   if(r==null) return null;
   return {view:r>0.6?"face":r<0.35?"dtl":"angle",ball:b,ratio:r};
