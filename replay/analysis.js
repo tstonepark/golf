@@ -129,7 +129,14 @@ export function refineStart(ph,pose,fps){
   if(ys.length<8) return ph; ys.sort((a,b)=>a-b);
   const yAddr=ys[Math.floor(ys.length*0.95)], yTop=pose[ph.top]? pose[ph.top].hands[1] : ys[0];
   if(yAddr-yTop<0.6*tl) return ph;                       // not a real backswing: leave as is
-  for(let i=ph.top;i>A0;i--){ const P=pose[i]; if(P&&P.hands[1]>=yAddr-0.06*tl){ return Object.assign({},ph,{start:i,addr:Math.max(A0,i-Math.round(0.25*fps))}); } }
+  for(let i=ph.top;i>A0;i--){ const P=pose[i]; if(P&&P.hands[1]>=yAddr-0.06*tl){
+      /* Seen face-on the hands first move sideways without rising, so the height rule alone put the start ~0.3 s late
+         (club already at hip height) and every "vs address" figure was measured from a moving body.
+         Walk back until the hands are also back at their address x (median of the quiet stretch before). */
+      let st=i; const xs=[]; for(let j=Math.max(A0,i-Math.round(1.3*fps));j<=i-Math.round(0.45*fps);j++) if(pose[j]) xs.push(pose[j].hands[0]);
+      if(xs.length>=6){ xs.sort((x,y)=>x-y); const xA=xs[xs.length>>1];
+        if(Math.abs(P.hands[0]-xA)>0.06*tl) for(let j=i;j>=Math.max(A0,i-Math.round(0.9*fps));j--){ const Q=pose[j]; if(Q&&Math.abs(Q.hands[0]-xA)<=0.06*tl){ st=j; break; } } }
+      return Object.assign({},ph,{start:st,addr:Math.max(A0,st-Math.round(0.25*fps))}); } }
   return ph;
 }
 // A club head is never still in the downswing. Detections that sit on one spot there (a logo, a ball, a screen icon)
