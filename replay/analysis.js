@@ -241,7 +241,7 @@ export function faceOn(pose,ph,tr){
   return {headTop:cm(A.nose,T.nose),headImp:cm(A.nose,I.nose),hipTop:cm(A.hip,T.hip),hipImp:cm(A.hip,I.hip),lean};
 }
 // ---------- posture / timing details for the diagnosis (2D, from the pose) ----------
-export function posture(pose,ph,fps,view){
+export function posture(pose,ph,fps,view,TF){
   const A=pose[ph.start]||nearest(pose,ph.start), T=pose[ph.top]||nearest(pose,ph.top), I=pose[ph.imp]||nearest(pose,ph.imp);
   if(!A||!T||!I||!A.hip) return null;
   const TL=Math.max(1,Math.hypot(A.sh[0]-A.hip[0],A.sh[1]-A.hip[1]));          // torso length (px) = scale
@@ -255,7 +255,8 @@ export function posture(pose,ph,fps,view){
   for(let i=ph.top;i<=ph.imp;i++){ const P=pose[i]; if(P&&P.hands[1]>=P.hip[1]){ p6=i; break; } }
   const tilt=P=>Math.atan2(Math.abs(P.sh[0]-P.hip[0]),P.hip[1]-P.sh[1])*180/Math.PI;     // torso angle from vertical
   const toBall=Math.sign(A.hands[0]-A.hip[0])||1;                                       // DTL: side of the ball
-  const o={TL,holdStart:hs,p2,p6,back:(hs-ph.start)/fps,hold:(ph.top-hs)/fps,down:(ph.imp-ph.top)/fps,
+  const dT=(a,b)=>TF? TF(b)-TF(a) : (b-a)/fps;   // real frame times when known: recordings have gaps, so frames are not evenly spaced
+  const o={TL,holdStart:hs,p2,p6,back:dT(ph.start,hs),hold:dT(hs,ph.top),down:dT(ph.top,ph.imp),
     headTop:[pct(T.nose[0]-A.nose[0]),pct(T.nose[1]-A.nose[1])], headImp:[pct(I.nose[0]-A.nose[0]),pct(I.nose[1]-A.nose[1])],
     tiltAddr:tilt(A),tiltTop:tilt(T),tiltImp:tilt(I)};
   if(view==="dtl"){ o.hipFwdImp=pct((I.hip[0]-A.hip[0])*toBall); o.hipFwdTop=pct((T.hip[0]-A.hip[0])*toBall); o.headFwdImp=pct((I.nose[0]-A.nose[0])*toBall); }
@@ -265,7 +266,7 @@ export function posture(pose,ph,fps,view){
 // ---------- comparison metrics (pose only: works for any club / background) ----------
 // All lengths are % of the golfer's own torso length, so two different bodies / zoom levels can be compared.
 // dir: +1/-1 so that "+" always means toward the ball (down-the-line) or toward the target (face-on).
-export function cmpMetrics(pose,ph,fps,view){
+export function cmpMetrics(pose,ph,fps,view,TF){
   const g=i=>pose[i]||nearest(pose,i), A=g(ph.start), T=g(ph.top), I=g(ph.imp);
   if(!A||!T||!I||!A.hip||!A.nose) return null;
   const tl=Math.max(1,hyp(A.sh[0]-A.hip[0],A.sh[1]-A.hip[1]));
@@ -273,6 +274,6 @@ export function cmpMetrics(pose,ph,fps,view){
   const tilt=P=>Math.atan2((P.sh[0]-P.hip[0])*dir,P.hip[1]-P.sh[1])*180/Math.PI;
   const at=P=>({tilt:tilt(P),handH:(P.hip[1]-P.hands[1])/tl*100,handX:(P.hands[0]-P.hip[0])*dir/tl*100,
     headX:(P.nose[0]-A.nose[0])*dir/tl*100,headY:(A.nose[1]-P.nose[1])/tl*100,hipX:(P.hip[0]-A.hip[0])*dir/tl*100});
-  const back=(ph.top-ph.start)/fps, down=(ph.imp-ph.top)/fps;
+  const back=TF? TF(ph.top)-TF(ph.start) : (ph.top-ph.start)/fps, down=TF? TF(ph.imp)-TF(ph.top) : (ph.imp-ph.top)/fps;
   return {tempo:{back,down,ratio:down>0?back/down:null},addr:{tilt:tilt(A)},top:at(T),imp:at(I)};
 }

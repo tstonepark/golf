@@ -365,6 +365,8 @@ public class Analyzer {
         sb.append("],\"pts\":[");
         for (int i = a; i <= b; i++) { float[] p = pts[i]; if (p == null || p.length == 0) continue; if (nHead++ > 0) sb.append(',');
             sb.append('[').append(i); for (int k = 0; k < p.length; k++) sb.append(',').append(num(p[k], k % 3 == 0 ? 2 : 1)); sb.append(']'); }
+        // 장면마다의 실제 시각(ms, 첫 장면 기준): 녹화에 빠진 틈이 있어 간격이 일정하지 않으므로 화면 쪽이 이것으로 장면↔시각을 맞춘다
+        sb.append("],\"ts\":["); for (int i = 0; i < n; i++) { if (i > 0) sb.append(','); sb.append(num((c.pts[i] - c.pts[0]) / 1000.0, 1)); }
         sb.append("],\"grip\":["); int nGrip = 0;
         for (int i = a; i <= b; i++) { float[] g = grips[i]; if (g == null) continue; if (nGrip++ > 0) sb.append(',');
             sb.append('[').append(i).append(',').append(num(g[0], 2)).append(',').append(num(g[1], 1)).append(',').append(num(g[2], 1)).append(']'); }
