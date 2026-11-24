@@ -211,6 +211,8 @@ public class Analyzer {
             boolean hasW = !r.worldLandmarks().isEmpty();
             double[] o = new double[NK + (hasW ? NW : 0)];
             for (int k = 0; k < KP.length; k++) { o[2 * k] = L.get(KP[k]).x() * W; o[2 * k + 1] = L.get(KP[k]).y() * H; }
+            /* 머리 위치 = 양쪽 귀(7,8)의 중점. 코는 고개만 돌려도 크게 움직여 머리 이동이 부풀었다 */
+            o[0] = (L.get(7).x() + L.get(8).x()) / 2f * W; o[1] = (L.get(7).y() + L.get(8).y()) / 2f * H;
             if (hasW) { List<Landmark> w = r.worldLandmarks().get(0);
                 for (int j = 0; j < WK.length; j++) { o[NK + 3 * j] = w.get(WK[j]).x(); o[NK + 3 * j + 1] = w.get(WK[j]).y(); o[NK + 3 * j + 2] = w.get(WK[j]).z(); } }
             return o;
