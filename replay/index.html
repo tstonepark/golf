@@ -74,7 +74,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v97</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v99</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -87,6 +87,7 @@ input[type=file]{display:none}
       <button id="ghost" class="on">클럽 잔상</button>
       <button id="clubb">클럽: 선택 안 함</button>
       <button id="lines" class="on">선 표시</button>
+      <button id="refp" class="on" hidden>프로 궤적(점선)</button>
       <button id="cmpb" hidden>비교 보기</button>
       <button id="pdfb">PDF 리포트 만들기</button>
       <button id="savea">분석 영상 만들기</button>
@@ -101,9 +102,9 @@ input[type=file]{display:none}
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
 <script src="../vendor/mp4box/mp4box.all.min.js"></script>
 <script type="module">
-import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=97";
-import * as A from "./analysis.js?v=97";
-import {diagnose,summary} from "./diagnose.js?v=97";
+import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=99";
+import * as A from "./analysis.js?v=99";
+import {diagnose,summary} from "./diagnose.js?v=99";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
 
@@ -170,16 +171,41 @@ async function detect(file){
   prog("뼈대 모델 준비 중…",0.04);
   const pd=await loadPose();
   prog("영상 읽는 중…",0.05);
-  const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps=dm.fps; vfps=fps;
+  const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps0=dm.fps; let fps=fps0, slow=1; vfps=fps;
   { const r=((dm.rot%360)+360)%360, dw=(r===90||r===270)?dm.ch:dm.cw, dh=(r===90||r===270)?dm.cw:dm.ch; setFrame(dw>dh); }
-  if(fps<100) prog("※ "+Math.round(fps)+"fps 영상입니다. 240fps 원본이 가장 정확합니다.",0.06);
+  if(fps0<100) prog("※ "+Math.round(fps0)+"fps 영상입니다. 240fps 원본이 가장 정확합니다.",0.06);
   // pass 1: every 8th frame (30fps), pose only (fast, GPU) -> where is the swing. Head model only if the pose can't find it.
-  const pts=new Array(n).fill(null), pose1=new Array(n).fill(null); let done=0; const n1=Math.ceil(n/8);
-  await decodeRange(dm,0,n-1,async(i,cv)=>{ try{ pose1[i]=poseOf(lmk.detectForVideo(cv,Math.round(i*1000/fps))); }catch(e){}
-    done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중… "+Math.round(done/n1*100)+"%",0.06+0.14*done/n1); await tick(); } },dm.rot,i=>i%8===0);
-  let ci=A.handsImpact(pose1.map(p=>p&&p.hands),fps), T2=Math.round(n*1000/fps)+5000;
+  const pts=new Array(n).fill(null), pose1=new Array(n).fill(null); let done=0; const S1=Math.max(1,Math.round(fps0/30)), n1=Math.ceil(n/S1);   // about 30 looks per second of video, whatever its frame rate
+  await decodeRange(dm,0,n-1,async(i,cv)=>{ try{ pose1[i]=poseOf(lmk.detectForVideo(cv,Math.round(i*1000/fps0))); }catch(e){}
+    done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중… "+Math.round(done/n1*100)+"%",0.06+0.14*done/n1); await tick(); } },dm.rot,i=>i%S1===0);
+  let segA=0, segB=n-1;
+  { /* An edited clip can jump (a loop restart, a cut to another take): the hands "teleport" in one step, which looked like a fast downswing.
+       Split at such jumps and keep only the stretch with the largest hand travel - the one that holds a whole swing. */
+    const ix=[]; for(let i=0;i<n;i++) if(pose1[i]) ix.push(i);
+    if(ix.length>12){ const tl=ix.map(i=>Math.hypot(pose1[i].sh[0]-pose1[i].hip[0],pose1[i].sh[1]-pose1[i].hip[1])).sort((x,y)=>x-y)[ix.length>>1]||100;
+      const segs=[[ix[0]]]; for(let k=1;k<ix.length;k++){ const A1=pose1[ix[k-1]], B1=pose1[ix[k]], jump=Math.hypot(B1.hands[0]-A1.hands[0],B1.hands[1]-A1.hands[1]), body=Math.hypot(B1.hip[0]-A1.hip[0],B1.hip[1]-A1.hip[1]);
+        if((jump>1.1*tl||body>0.5*tl)&&ix[k]-ix[k-1]<=2*S1) segs.push([]); segs[segs.length-1].push(ix[k]); }
+      if(segs.length>1){ const rng=g=>{ let lo=1e9,hi=-1e9; for(const i of g){ const y=pose1[i].hands[1]; if(y<lo) lo=y; if(y>hi) hi=y; } return hi-lo; };
+        let best=segs[0]; for(const g of segs) if(rng(g)>rng(best)) best=g; const keep=new Set(best); for(const i of ix) if(!keep.has(i)) pose1[i]=null; segA=best[0]; segB=best[best.length-1]; } } }
+  const hands1=pose1.map(p=>p&&p.hands);
+  let ci=A.handsImpact(hands1,fps), T2=Math.round(n*1000/fps0)+5000;
+  /* Slow-motion clips (a pro's swing from the web, a phone's slow-mo export): played at 1/k speed, so nothing in them is "fast" and
+     every time window is k times too short. Find the k that makes the downswing last a real 0.18~0.42 s and treat the clip as fps×k. */
+  if(fps0<100){ /* shape of the whole swing, independent of speed: hands high (top) -> low (impact) -> high (finish) */
+    const ix=[]; for(let i=0;i<n;i++) if(hands1[i]) ix.push(i);
+    if(ix.length>20){ const y=ix.map((i,k)=>{ const a=[hands1[ix[Math.max(0,k-1)]][1],hands1[i][1],hands1[ix[Math.min(ix.length-1,k+1)]][1]].sort((p,q)=>p-q); return a[1]; });
+      const sy=y.slice().sort((p,q)=>p-q), yA=sy[Math.floor(sy.length*0.85)], yMin=sy[0], rg=yA-yMin, runs=[];
+      for(let k=0;k<y.length;k++){ if(y[k]<yA-0.6*rg){ const L=runs[runs.length-1]; if(L&&ix[k]-ix[L[1]]<=0.4*fps0) L[1]=k; else runs.push([k,k]); } }
+      const big=runs.filter(r=>ix[r[1]]-ix[r[0]]>=0.1*fps0);
+      if(rg>40&&big.length>=1){ const r1=big[0], r2=big[1]; let m1=r1[0]; for(let k=r1[0];k<=r1[1];k++) if(y[k]<y[m1]) m1=k;
+        let te=m1; for(let k=m1;k<=r1[1];k++) if(y[k]<=y[m1]+0.08*rg) te=k;                 // end of the top hold
+        let ik=-1; if(r2){ ik=r1[1]; for(let k=r1[1];k<=r2[0];k++) if(y[k]>y[ik]) ik=k; } else { for(let k=r1[1];k<y.length;k++) if(y[k]>=yA-0.1*rg){ ik=k; break; } }
+        if(ik>te){ const ct=dm.samples.map(q=>q.cts/dm.timescale).sort((p,q)=>p-q), downVideo=ct[ix[ik]]-ct[ix[te]],   /* real frame times: screen recordings have an uneven frame rate */
+          k=Math.round(downVideo/0.27);
+          if(k>=2){ slow=Math.min(40,k); fps=fps0*slow; ci=ix[ik]; vfps=fps; } } } }
+    if(slow>1) prog("※ 슬로모션 영상으로 보입니다(약 "+slow+"배 느림). 실제 속도로 환산해 분석합니다.",0.2); }
   if(ci<0){ done=0;
-    await decodeRange(dm,0,n-1,async(i,cv)=>{ pts[i]=await headInfer(cv); done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중(헤드)… "+Math.round(done/n1*100)+"%",0.1+0.1*done/n1); await tick(); } },dm.rot,i=>i%8===0);
+    await decodeRange(dm,0,n-1,async(i,cv)=>{ pts[i]=await headInfer(cv); done++; if(done%5===0){ prog("1/2 스윙 위치 찾는 중(헤드)… "+Math.round(done/n1*100)+"%",0.1+0.1*done/n1); await tick(); } },dm.rot,i=>i%S1===0);
     ci=A.coarseImpact(A.fillGaps(A.clean(A.track(A.staticFilter(pts.map(p=>p||[])),160),8,200),8),fps); }
   if(ci<0) throw new Error("스윙(빠른 다운스윙)을 찾지 못했습니다. 골퍼 전신과 스윙 전체가 담긴 영상인지 확인해 주세요.");
   // square crop around the golfer for the head model (smaller input = faster, same pixel scale)
@@ -190,7 +216,7 @@ async function detect(file){
       crop={x:cl(cx-S/2,W),y:cl(cy-S/2,H),s:S}; } }
   const TOFF=2*T2;   // pose timestamps must keep increasing in pass 2
   // pass 2: dense around the downswing, sparse elsewhere
-  const a=Math.max(0,ci-Math.round(2.8*fps)), b=Math.min(n-1,ci+Math.round(1.3*fps));
+  const a=Math.max(segA,ci-Math.round(2.8*fps)), b=Math.min(segB,ci+Math.round(1.3*fps));
   // head model (the slow part): every frame near impact, every 2nd in the early downswing, every 6th elsewhere
   const d0=ci-Math.round(0.45*fps), dm0=ci-Math.round(0.15*fps), d1=ci+Math.round(0.15*fps), dense=i=>i>=d0&&i<=d1;
   const needH=i=>(i>=dm0&&i<=d1)||(i>=d0&&i<dm0&&(i-a)%2===0)||(i-a)%6===0, needP=i=>(dense(i)&&(i-a)%3===0)||(i-a)%6===0;
@@ -198,16 +224,16 @@ async function detect(file){
   const pts2=new Array(n).fill(null), pose=new Array(n).fill(null), grip=new Array(n).fill(null); done=0;
   await decodeRange(dm,a,b,async(i,cv)=>{
     if(needH(i)){ pts2[i]=await headInfer(cv,crop); if(pts2[i].grip) grip[i]=pts2[i].grip; }
-    if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,TOFF+Math.round(i*1000/fps))); }catch(e){} }
+    if(needP(i)){ try{ pose[i]=poseOf(lmk.detectForVideo(cv,TOFF+Math.round(i*1000/fps0))); }catch(e){} }
     done++; if(done%8===0){ prog("2/2 궤적·뼈대 분석 중… "+Math.round(done/tot*100)+"%",0.2+0.78*done/tot); await tick(); } },dm.rot,i=>needH(i)||needP(i));
   const cts=dm.samples.map(s=>s.cts/dm.timescale).sort((x,y)=>x-y);
-  return {n,fps,ci,pts2,pose,grip,crop,ep,pd,t0:cts[0],ts:cts.map(v=>+(v-cts[0]).toFixed(5))};
+  return {n,fps,slow,ci,pts2,pose,grip,crop,ep,pd,t0:cts[0],ts:cts.map(v=>+(v-cts[0]).toFixed(5))};
 }
 // 측정값 → 궤적·구간·진단 (폰에서 온 값이든 이 기기에서 뽑은 값이든 같은 규칙)
 function finish(D,file,T0){
   const {n,fps,ci,pts2,pose,crop,ep,pd}=D; vfps=fps;
-  const ts=(D.ts&&D.ts.length===n)?D.ts:null, TS=ts? (i=>ts[Math.max(0,Math.min(n-1,i))]) : null;   // 장면마다의 실제 시각(초). 없으면 평균 fps로 환산
-  const gaps=ts? ts.reduce((c,v,i)=>c+(i&&v-ts[i-1]>1.6/fps?1:0),0) : null;
+  const slow=D.slow||1, ts=(D.ts&&D.ts.length===n)?D.ts:null, TS=ts? (i=>ts[Math.max(0,Math.min(n-1,i))]/slow) : null;   // 장면마다의 실제 시각(초). 없으면 평균 fps로 환산
+  const gaps=ts? ts.reduce((c,v,i)=>c+(i&&v-ts[i-1]>1.6*slow/fps?1:0),0) : null;
   const a=Math.max(0,ci-Math.round(2.8*fps)), b=Math.min(n-1,ci+Math.round(1.3*fps));
   for(let i=a+1;i<=b;i++) if(!pose[i]) pose[i]=pose[i-1];
   // 손 위치: 그립을 직접 찾은 값이 있으면 뼈대의 손목 추정 대신 그것을 쓴다(최근 6프레임 이내, 뼈대 손과 몸통 길이의 0.6배 이상 떨어지면 믿지 않음)
@@ -239,7 +265,7 @@ function finish(D,file,T0){
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view,TS), M=A.cmpMetrics(pose,ph,fps,view,TS);
   if(po) Object.assign(po,A.clubCheckpoints(tr,ph,pose,fps));   // 테이크백·다운 중간 버튼이 갈 장면
-  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,ts,gaps,hd:pose.map(p=>p?[+p.hands[0].toFixed(1),+p.hands[1].toFixed(1)]:null),name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
+  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,ts,gaps,slow,hd:pose.map(p=>p?[+p.hands[0].toFixed(1),+p.hands[1].toFixed(1)]:null),name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -281,8 +307,8 @@ function detailHtml(){
       <div class="dimt">투어 평균(참고): 탑 가슴 약 90°·골반 약 45°, 임팩트 때는 골반 약 40°·가슴 약 25° 타깃 쪽으로 열림. 카메라 1대 추정값이라 오차가 큽니다(특히 뒤에서 찍을 때).</div></div>`;
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
-    <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v97</div></div>`;
+    <div class="row"><span>영상</span><b>${Math.round(fps/(R.slow||1))}fps${R.slow>1?" (슬로모션 약 "+R.slow+"배)":""} · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v99</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -309,7 +335,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v97</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v99</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
@@ -322,7 +348,7 @@ function results(save){
   for(const k of ["p2","p6"]){ const b=document.querySelector(`[data-k="${k}"]`); if(b) b.hidden=!(R.po&&R.po[k]!=null); }
 }
 // ---------- 기준(프로) 영상과 비교: 뼈대 기반 수치 + 같은 순간끼리 나란히 보기 ----------
-let ref=null, cmpOn=false;
+let ref=null, cmpOn=false, showRefPath=true;
 const VN={dtl:"후면",face:"정면",angle:"비스듬"};
 function isRef(){ return ref&&R&&ref.name===R.name&&ref.ph&&ref.ph.imp===R.ph.imp&&ref.n===R.n; }
 function cmpHtml(){
@@ -365,16 +391,17 @@ function syncRef(force){ const rv=$("rv"); if(!cmpOn||!ref||!R||!rv.duration) re
 function setCmp(on){ cmpOn=!!on&&!!ref&&!!ref.blob&&!isRef(); $("stage").classList.toggle("cmp",cmpOn); $("refv").hidden=!cmpOn; $("cmpb").classList.toggle("on",cmpOn);
   $("cmpb").hidden=!(ref&&ref.blob&&R&&!isRef()); if(cmpOn) syncRef(true); requestAnimationFrame(()=>draw()); }
 async function loadRef(){ ref=null; try{ const v=await idbGet("ref-"+R.view); if(v&&v.M&&v.ph) ref=v; }catch(e){}
+  { const b=$("refp"); if(b) b.hidden=!(ref&&ref.path&&R.pl&&R.pl.ball); }
   const rv=$("rv"); if(ref&&ref.blob){ if(rv.dataset.k!==ref.name+ref.t){ rv.src=URL.createObjectURL(ref.blob); rv.dataset.k=ref.name+ref.t; rv.addEventListener("loadedmetadata",()=>syncRef(true),{once:true}); } } }
 $("cmpb").onclick=()=>setCmp(!cmpOn);
 // 느린 재생 중에는 기준 영상도 같은 구간 비율의 속도로 함께 재생(끊김 없이), 멈추면 정확한 순간으로 맞춤
 $("vid").addEventListener("play",()=>{ const rv=$("rv"); if(!cmpOn||!ref) return; const p=R.ph,q=ref.ph;
-  const k=((q.imp-q.start)/ref.fps)/Math.max(0.05,(p.imp-p.start)/R.fps); syncRef(true);
+  const k=((q.imp-q.start)/ref.fps*(ref.slow||1))/Math.max(0.05,(p.imp-p.start)/R.fps*(R.slow||1)); syncRef(true);
   try{ rv.playbackRate=Math.max(0.0625,Math.min(1,$("vid").playbackRate*k)); rv.play().catch(()=>{}); }catch(e){} });
 $("vid").addEventListener("pause",()=>{ const rv=$("rv"); try{ rv.pause(); }catch(e){} syncRef(true); });
 $("res").addEventListener("click",async e=>{ const b=e.target.closest("[data-act]"); if(!b||!R) return;
   try{ if(b.dataset.act==="setref"){ if(!R.M||!curFile){ b.textContent="등록할 수 없습니다(자세 측정 없음)"; return; }
-      b.textContent="등록 중…"; await idbPut("ref-"+R.view,{blob:curFile,name:R.name||"기준 영상",view:R.view,fps:R.fps,n:R.n,ph:R.ph,M:R.M,ts:R.ts||null,t:Date.now()}); }
+      b.textContent="등록 중…"; await idbPut("ref-"+R.view,{blob:curFile,name:R.name||"기준 영상",view:R.view,fps:R.fps,n:R.n,ph:R.ph,M:R.M,ts:R.ts||null,slow:R.slow||1,path:(R.pl&&R.pl.ball&&R.cv&&R.pl.finalZone&&R.pl.backOk!==false /* 궤도 판정이 가능할 만큼 헤드를 제대로 따라간 기준 영상만 궤적을 남긴다. 못 따라간 영상의 궤적을 겹쳐 그리면 엉뚱한 선이 기준처럼 보인다 */)?{ball:R.pl.ball,L:R.pl.L,back:(R.cv.back||[]).filter(q=>q&&!q.est).map(q=>[q.x,q.y]),down:(R.cv.down||[]).filter(q=>q&&!q.est).map(q=>[q.x,q.y])}:null,t:Date.now()}); }
     else if(b.dataset.act==="delref") await idbPut("ref-"+R.view,null);
     await loadRef(); results(); setCmp(true);
   }catch(err){ b.textContent="저장 실패: "+(err&&err.message||err); } });
@@ -385,8 +412,8 @@ function vrect(){ // displayed video content box inside the stage (object-fit: c
   return {x:(s.width-w)/2,y:(s.height-h)/2,w,h,sw:s.width,sh:s.height}; }
 // 장면 번호 ↔ 영상 시각. 녹화에는 군데군데 4장씩 빠진 틈(약 21ms)이 있어 장면 간격이 일정하지 않다.
 // 평균 fps로 환산하면 임팩트 근처에서 5장면까지 어긋나므로(잔상·확대 사진·'임팩트' 장면이 실제와 달라짐) 장면마다의 실제 시각표(R.ts)를 쓴다.
-function FT(i){ const ts=R.ts; if(!ts) return i/R.fps; return ts[Math.max(0,Math.min(ts.length-1,i))]; }
-const DT=(a,b)=>FT(b)-FT(a), seekT=i=>R.ts? FT(i)+0.0012 : (i+0.5)/R.fps;
+function FT(i){ const ts=R.ts; if(!ts) return i*(R.slow||1)/R.fps; return ts[Math.max(0,Math.min(ts.length-1,i))]; }
+const DT=(a,b)=>(FT(b)-FT(a))/(R.slow||1), seekT=i=>R.ts? FT(i)+0.0012 : (i+0.5)*(R.slow||1)/R.fps;   // DT = 실제 시간(슬로모션이면 배율로 나눔), seekT = 영상 속 시각
 function frameAt(t){ const ts=R.ts; if(!ts) return Math.max(0,Math.min(R.n-1,Math.floor(t*R.fps+1e-6)));
   let lo=0, hi=ts.length-1; t+=0.0006; while(lo<hi){ const m=(lo+hi+1)>>1; if(ts[m]<=t) lo=m; else hi=m-1; } return lo; }
 function phaseName(i){ const p=R.ph, q=R.po||{}; return i<p.start?"어드레스": i<=p.top?(q.p2!=null&&i<=q.p2?"테이크백":"백스윙"): i<=p.imp?(i>=p.imp-1?"임팩트":q.p6!=null&&i>=q.p6?"다운스윙 후반":"다운스윙"): i<=p.imp+Math.round(0.02*R.fps)?"임팩트":"팔로스루"; }
@@ -419,6 +446,12 @@ function draw(){
     for(const [k,col] of [["back","#ffd23f"],["down","#ff4d4d"],["after","#59c8ff"]]){ ox.globalAlpha=(k===cur||(cur==="after"&&k==="down"))?1:0.3; seg(R.cv[k],col); }
   }
   ox.globalAlpha=1;
+  /* 기준(프로) 영상의 헤드 궤적: 공 위치를 맞추고 클럽 길이 비율로 크기를 맞춰 흰 점선으로 겹쳐 그린다(후면 영상끼리만) */
+  if(showRefPath&&ref&&ref.path&&ref.path.L>20&&R.pl&&R.pl.ball&&R.pl.L>20){ const k=R.pl.L/ref.path.L, B=R.pl.ball, B0=ref.path.ball;
+    const T=q=>P(B[0]+(q[0]-B0[0])*k,B[1]+(q[1]-B0[1])*k);
+    for(const [arr,col] of [[ref.path.back,"#ffffff"],[ref.path.down,"#7dffb0"]]){ if(!arr||arr.length<2) continue;
+      ox.globalAlpha=0.85; ox.strokeStyle=col; ox.lineWidth=2.5; ox.setLineDash([3,6]); ox.lineCap="round"; ox.beginPath(); arr.forEach((q,j)=>{ const d=T(q); j?ox.lineTo(d[0],d[1]):ox.moveTo(d[0],d[1]); }); ox.stroke(); }
+    ox.setLineDash([]); ox.globalAlpha=1; }
   if(p){ ox.strokeStyle="#fff"; ox.lineWidth=3; ox.beginPath(); ox.arc(...P(p[0],p[1]),12,0,7); ox.stroke(); }
   ox.restore();
 }
@@ -426,7 +459,7 @@ function loop(){ draw(); if(!vid.paused) requestAnimationFrame(loop); }
 if("requestVideoFrameCallback" in HTMLVideoElement.prototype){ const f=()=>{ draw(); vid.requestVideoFrameCallback(f); }; vid.requestVideoFrameCallback(f); }
 vid.addEventListener("seeked",()=>{ draw(); syncRef(); }); vid.addEventListener("timeupdate",()=>syncRef()); window.addEventListener("resize",draw);
 const seekFrame=i=>{ vid.pause(); vid.currentTime=Math.max(0,Math.min(vid.duration-0.001,seekT(i))); };
-$("play").onclick=()=>{ if(vid.paused){ if(frameAt(vid.currentTime)>=R.ph.fin) seekFrame(R.ph.start-Math.round(0.3*R.fps)); vid.playbackRate=0.125; vid.play(); $("play").textContent="⏸ 멈춤"; loop(); } else { vid.pause(); $("play").textContent="▶ 1/8 느리게"; } };
+$("play").onclick=()=>{ if(vid.paused){ if(frameAt(vid.currentTime)>=R.ph.fin) seekFrame(R.ph.start-Math.round(0.3*R.fps)); vid.playbackRate=Math.min(1,0.125*(R.slow||1)); vid.play(); $("play").textContent="⏸ 멈춤"; loop(); } else { vid.pause(); $("play").textContent="▶ 1/8 느리게"; } };
 vid.addEventListener("timeupdate",()=>{ if(R&&frameAt(vid.currentTime)>=R.ph.fin&&!vid.paused){ vid.pause(); $("play").textContent="▶ 1/8 느리게"; } });
 $("prev").onclick=()=>seekFrame(frameAt(vid.currentTime)-1);
 $("next").onclick=()=>seekFrame(frameAt(vid.currentTime)+1);
@@ -472,6 +505,7 @@ async function captureGhosts(){ const key=vid.currentSrc||vid.src; ghostKey=key;
   finally{ try{ gv.removeAttribute("src"); gv.load(); }catch(e){} gv.remove(); } }
 let showGhost=true; $("clubb").onclick=()=>{ club=club===""?"iron":club==="iron"?"driver":""; try{ localStorage.setItem("club",club); }catch(e){} updClub(); if(R) results(false); };
 $("ghost").onclick=()=>{ showGhost=!showGhost; $("ghost").classList.toggle("on",showGhost); $("ghost").textContent=showGhost?"클럽 잔상":"궤적선"; draw(); };
+$("refp").onclick=()=>{ showRefPath=!showRefPath; $("refp").classList.toggle("on",showRefPath); draw(); };
 $("lines").onclick=()=>{ showLines=!showLines; $("lines").classList.toggle("on",showLines); draw(); };
 // 실시간 화면 위에 겹쳐 열린 경우(frame=1): 닫기만 하면 실시간 화면과 폰 연결이 그대로 있다
 const QS=new URLSearchParams(location.search), inFrame=QS.get("frame")==="1"&&window.parent!==window;
@@ -524,7 +558,7 @@ async function makePdf(onProg){
   // 1쪽~: 요약과 진단
   newPage(); text("스윙 분석 리포트",50,{bold:true}); gap(6);
   text((R.name||"이름 없는 영상")+" · 만든 시각 "+new Date().toLocaleString("ko-KR"),24,{color:"#444"});
-  text("분석기 v97 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps)+"fps "+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
+  text("분석기 v99 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
   // 결과 화면에 보이는 내용을 그대로 옮긴다(접혀 있는 '나머지'·'양호'·'상세 수치'도 펼쳐서): 종합 진단, 프로 비교, 기록 비교, 상세 수치
   { const CLR=el=>el.classList.contains("bad")?"#c62828":el.classList.contains("warn")?"#b26a00":el.classList.contains("ok")?"#1b7a3a":null, T=el=>(el.textContent||"").replace(/\s+/g," ").trim();
     const emit=(el,ind)=>{ if(el.nodeType!==1||el.tagName==="BUTTON"||el.hidden) return; const tag=el.tagName, cl=el.classList;
@@ -604,7 +638,7 @@ $("savea").onclick=async()=>{ const b=$("savea"); if(recBusy||!R) return;
     const paint=()=>{ draw(); const r=vrect(), dpr=devicePixelRatio||1; rx.drawImage(vid,0,0,cw,ch); rx.drawImage(ov,r.x*dpr,r.y*dpr,r.w*dpr,r.h*dpr,0,0,cw,ch);
       const t=$("phase").textContent; rx.font="700 30px sans-serif"; rx.fillStyle="rgba(0,0,0,.55)"; rx.fillRect(10,10,rx.measureText(t).width+24,46); rx.fillStyle="#fff"; rx.fillText(t,22,44); };
     seekFrame(a); await new Promise(r=>{ vid.addEventListener("seeked",r,{once:true}); setTimeout(r,2500); }); paint(); mr.start(500);
-    vid.playbackRate=0.125; await vid.play();
+    vid.playbackRate=Math.min(1,0.125*(R.slow||1)); await vid.play();
     await new Promise(res=>{ const t0=performance.now(), tick=()=>{ paint(); const i=frameAt(vid.currentTime); b.textContent="만드는 중… "+Math.max(0,Math.min(99,Math.round((i-a)/Math.max(1,z-a)*100)))+"%";
         if(vid.paused||vid.ended||i>=z||performance.now()-t0>90000){ res(); return; } requestAnimationFrame(tick); }; tick(); });
     vid.pause(); paint(); await new Promise(r=>setTimeout(r,400)); await new Promise(r=>{ mr.onstop=r; mr.stop(); });
