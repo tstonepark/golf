@@ -74,7 +74,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v80</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v81</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -87,7 +87,8 @@ input[type=file]{display:none}
       <button id="ghost" class="on">클럽 잔상</button>
       <button id="lines" class="on">선 표시</button>
       <button id="cmpb" hidden>비교 보기</button>
-      <button id="savev">영상 저장</button>
+      <button id="savea">분석 영상 만들기</button>
+      <button id="savev">원본 저장</button>
       <button id="again">다른 영상</button>
       <button id="live" hidden>← 실시간 화면</button>
     </div>
@@ -269,7 +270,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v80</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v81</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -291,7 +292,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v80</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v81</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
@@ -458,15 +459,41 @@ function idbGet(key){ return new Promise((res,rej)=>{ const q=indexedDB.open("sw
   q.onsuccess=()=>{ const g=q.result.transaction("c").objectStore("c").get(key); g.onsuccess=()=>res(g.result); g.onerror=()=>rej(g.error); }; q.onerror=()=>rej(q.error); }); }
 let curFile=null;
 // 받은 원본 영상을 아이패드에 저장: 공유 창(→ '비디오 저장' = 사진 앱)을 먼저, 안 되면 파일 내려받기
+const stamp=()=>{ const d=new Date(), z=v=>String(v).padStart(2,"0"); return d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+"-"+z(d.getHours())+z(d.getMinutes())+z(d.getSeconds()); };
+// 저장: 아이패드·아이폰은 공유 창(→ '비디오 저장'), 그 밖(안드로이드·PC)은 내려받기 폴더로 바로 저장. 한쪽이 안 되면 다른 쪽을 시도.
+async function saveBlob(blob,name){ const f=new File([blob],name,{type:blob.type||"video/mp4"});
+  const iOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  const canShare=!!(navigator.canShare&&navigator.canShare({files:[f]}));
+  const dl=()=>{ const a=document.createElement("a"), u=URL.createObjectURL(f); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),120000); return "내려받기 폴더에 저장 ✓"; };
+  if(iOS&&canShare){ await navigator.share({files:[f]}); return "저장 창 열림 ✓"; }
+  try{ return dl(); }catch(e){ if(canShare){ await navigator.share({files:[f]}); return "저장 창 열림 ✓"; } throw e; } }
 $("savev").onclick=async()=>{ if(!curFile) return; const b=$("savev");
-  const d=new Date(), z=v=>String(v).padStart(2,"0"), nm=(R&&R.name&&/\.mp4$/i.test(R.name))?R.name:"swing-"+d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+"-"+z(d.getHours())+z(d.getMinutes())+z(d.getSeconds())+".mp4";
-  try{ const f=new File([curFile],nm,{type:"video/mp4"});
-    if(navigator.canShare&&navigator.canShare({files:[f]})){ await navigator.share({files:[f]}); b.textContent="저장 창 열림 ✓"; }
-    else{ const a=document.createElement("a"); a.href=URL.createObjectURL(f); a.download=nm; document.body.appendChild(a); a.click(); a.remove(); b.textContent="내려받음 ✓"; }
-  }catch(e){ if(e&&e.name==="AbortError") return; b.textContent="저장 실패"; console.warn(e); }
-  setTimeout(()=>{ b.textContent="영상 저장"; },2500); };
+  const nm=(R&&R.name&&/\.mp4$/i.test(R.name))?R.name:"swing-"+stamp()+".mp4";
+  try{ b.textContent=await saveBlob(curFile,nm); }catch(e){ if(e&&e.name==="AbortError") return; b.textContent="저장 실패"; console.warn(e); }
+  setTimeout(()=>{ b.textContent="원본 저장"; },2500); };
+// 분석 영상: 화면에 보이는 그대로(영상 + 잔상·선·구간 이름)를 1/8 느린 재생으로 녹화해 새 영상으로 만든다. 만드는 데 재생 시간만큼(20~30초) 걸린다.
+let recOut=null, recBusy=false;
+$("savea").onclick=async()=>{ const b=$("savea"); if(recBusy||!R) return;
+  if(recOut){ try{ b.textContent=await saveBlob(recOut.blob,recOut.name); }catch(e){ if(e&&e.name==="AbortError") return; b.textContent="저장 실패"; console.warn(e); } setTimeout(()=>{ b.textContent=recOut?"분석 영상 저장하기":"분석 영상 만들기"; },2500); return; }
+  if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream){ b.textContent="이 브라우저는 지원 안 함"; return; }
+  recBusy=true;
+  try{ const cw=720, ch=Math.round(720*H/W/2)*2, rc=document.createElement("canvas"); rc.width=cw; rc.height=ch; const rx=rc.getContext("2d");
+    const mt=["video/mp4;codecs=avc1.42E01E","video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"].find(t=>MediaRecorder.isTypeSupported(t))||"";
+    const mr=new MediaRecorder(rc.captureStream(30),mt?{mimeType:mt,videoBitsPerSecond:6e6}:{}), chunks=[]; mr.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+    const a=Math.max(0,R.ph.start-Math.round(0.3*R.fps)), z=R.ph.fin;
+    const paint=()=>{ draw(); const r=vrect(), dpr=devicePixelRatio||1; rx.drawImage(vid,0,0,cw,ch); rx.drawImage(ov,r.x*dpr,r.y*dpr,r.w*dpr,r.h*dpr,0,0,cw,ch);
+      const t=$("phase").textContent; rx.font="700 30px sans-serif"; rx.fillStyle="rgba(0,0,0,.55)"; rx.fillRect(10,10,rx.measureText(t).width+24,46); rx.fillStyle="#fff"; rx.fillText(t,22,44); };
+    seekFrame(a); await new Promise(r=>{ vid.addEventListener("seeked",r,{once:true}); setTimeout(r,2500); }); paint(); mr.start(500);
+    vid.playbackRate=0.125; await vid.play();
+    await new Promise(res=>{ const t0=performance.now(), tick=()=>{ paint(); const i=frameAt(vid.currentTime); b.textContent="만드는 중… "+Math.max(0,Math.min(99,Math.round((i-a)/Math.max(1,z-a)*100)))+"%";
+        if(vid.paused||vid.ended||i>=z||performance.now()-t0>90000){ res(); return; } requestAnimationFrame(tick); }; tick(); });
+    vid.pause(); paint(); await new Promise(r=>setTimeout(r,400)); await new Promise(r=>{ mr.onstop=r; mr.stop(); });
+    const type=(mt||mr.mimeType||"video/webm").split(";")[0]; if(!chunks.length) throw new Error("empty");
+    recOut={blob:new Blob(chunks,{type}),name:"swing-analysis-"+stamp()+(type.includes("mp4")?".mp4":".webm")}; b.textContent="분석 영상 저장하기";
+  }catch(e){ console.warn(e); b.textContent="만들기 실패"; setTimeout(()=>{ b.textContent="분석 영상 만들기"; },2500); }
+  finally{ recBusy=false; $("play").textContent="▶ 1/8 느리게"; } };
 async function run(f,det){
-  try{ await analyze(f,det); curFile=f;
+  try{ await analyze(f,det); curFile=f; recOut=null; $("savea").textContent="분석 영상 만들기";
     vid.src=URL.createObjectURL(f); await new Promise(r=>vid.addEventListener("loadedmetadata",r,{once:true}));
     $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false;
     await loadRef(); results(true); setCmp(true); seekFrame(R.ph.imp); captureGhosts();
