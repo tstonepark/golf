@@ -74,7 +74,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v82</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v83</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -87,6 +87,7 @@ input[type=file]{display:none}
       <button id="ghost" class="on">클럽 잔상</button>
       <button id="lines" class="on">선 표시</button>
       <button id="cmpb" hidden>비교 보기</button>
+      <button id="pdfb">PDF 리포트 만들기</button>
       <button id="savea">분석 영상 만들기</button>
       <button id="savev">원본 저장</button>
       <button id="again">다른 영상</button>
@@ -270,7 +271,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps)}fps · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v82</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v83</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -292,7 +293,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v82</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v83</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
@@ -475,6 +476,79 @@ $("savev").onclick=async()=>{ if(!curFile) return; const b=$("savev");
   const nm=(R&&R.name&&/\.mp4$/i.test(R.name))?R.name:"swing-"+stamp()+".mp4";
   try{ b.textContent=await saveBlob(curFile,nm); }catch(e){ if(e&&e.name==="AbortError") return; b.textContent="저장 실패"; console.warn(e); }
   setTimeout(()=>{ b.textContent="원본 저장"; },2500); };
+// ---------- PDF 리포트: 진단·측정값·구간별 장면·임팩트 연속 사진을 A4 여러 쪽으로. 글자는 캔버스로 그려 한글이 깨지지 않게 하고, 쪽마다 JPEG로 넣는다 ----------
+function buildPdf(imgs){ // imgs: [{bytes:Uint8Array,w,h}] → 쪽마다 그림 한 장인 PDF
+  const enc=new TextEncoder(), parts=[], offs=[]; let len=0; const put=d=>{ const b=typeof d==="string"?enc.encode(d):d; parts.push(b); len+=b.length; };
+  const obj=(n,body)=>{ offs[n]=len; put(n+" 0 obj\n"); body(); put("\nendobj\n"); };
+  put("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"); const N=imgs.length;
+  obj(1,()=>put("<< /Type /Catalog /Pages 2 0 R >>"));
+  obj(2,()=>put("<< /Type /Pages /Count "+N+" /Kids ["+imgs.map((_,i)=>(3+i*3)+" 0 R").join(" ")+"] >>"));
+  imgs.forEach((im,i)=>{ const pg=3+i*3, ct=pg+1, xo=pg+2, cs="q 595 0 0 842 0 0 cm /Im0 Do Q";
+    obj(pg,()=>put("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im0 "+xo+" 0 R >> >> /Contents "+ct+" 0 R >>"));
+    obj(ct,()=>put("<< /Length "+cs.length+" >>\nstream\n"+cs+"\nendstream"));
+    obj(xo,()=>{ put("<< /Type /XObject /Subtype /Image /Width "+im.w+" /Height "+im.h+" /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+im.bytes.length+" >>\nstream\n"); put(im.bytes); put("\nendstream"); }); });
+  const total=3+N*3, xref=len; put("xref\n0 "+total+"\n0000000000 65535 f \n"); for(let n=1;n<total;n++) put(String(offs[n]).padStart(10,"0")+" 00000 n \n");
+  put("trailer\n<< /Size "+total+" /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF\n"); return new Blob(parts,{type:"application/pdf"}); }
+async function makePdf(onProg){
+  const PW=1240,PH=1754,M=70, FONT="-apple-system,'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic','Noto Sans CJK KR',sans-serif", pages=[]; let c,x,y;
+  const newPage=()=>{ c=document.createElement("canvas"); c.width=PW; c.height=PH; x=c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,PW,PH); x.textBaseline="top"; pages.push(c); y=M; };
+  const need=h=>{ if(y+h>PH-M) newPage(); };
+  const text=(t,size,o={})=>{ const lh=Math.round(size*1.42), ind=o.indent||0, maxW=PW-2*M-ind, f=(o.bold?"700 ":"400 ")+size+"px "+(o.mono?"ui-monospace,Menlo,Consolas,monospace":FONT);
+    x.font=f; const lines=[]; let line=""; for(const ch of String(t)){ if(ch==="\n"){ lines.push(line); line=""; continue; } if(x.measureText(line+ch).width>maxW){ lines.push(line); line=ch; } else line+=ch; } lines.push(line);
+    for(const l of lines){ need(lh); x.font=f; x.fillStyle=o.color||"#111"; x.textBaseline="top"; x.fillText(l,M+ind,y); y+=lh; } };
+  const gap=h=>{ y+=h; }, rule=()=>{ need(14); x.fillStyle="#bbb"; x.fillRect(M,y+4,PW-2*M,2); y+=14; };
+  const n1=v=>v==null||!isFinite(v)?"측정 안 됨":(+v).toFixed(1), n2=v=>v==null||!isFinite(v)?"측정 안 됨":(+v).toFixed(2), tOf=i=>i==null?"-":((i-R.ph.imp)/R.fps>=0?"+":"")+((i-R.ph.imp)/R.fps).toFixed(2)+"초";
+  const D=R.D||{items:[]}, po=R.po||{}, pl=R.pl||{}, SEV={bad:["고칠 점","#c62828"],warn:["주의","#b26a00"],ok:["양호","#1b7a3a"],na:["판정 보류","#666"]};
+  // 1쪽~: 요약과 진단
+  newPage(); text("스윙 분석 리포트",50,{bold:true}); gap(6);
+  text((R.name||"이름 없는 영상")+" · 만든 시각 "+new Date().toLocaleString("ko-KR"),24,{color:"#444"});
+  text("분석기 v83 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps)+"fps "+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
+  text("종합: 고칠 점 "+D.items.filter(q=>q.sev==="bad").length+" · 주의 "+D.items.filter(q=>q.sev==="warn").length+" · 양호 "+D.items.filter(q=>q.sev==="ok").length+" · 판정 보류 "+D.items.filter(q=>q.sev==="na").length,32,{bold:true}); gap(8);
+  for(const q of D.items){ const S=SEV[q.sev]||SEV.na; need(120); text("["+S[0]+"] "+q.title,29,{bold:true,color:S[1]});
+    text("측정 "+(q.value||"-")+(q.ref?"  ·  기준 "+q.ref:"")+"  ·  "+(q.area||"")+"  ·  신뢰도 "+(q.conf||"-"),24,{indent:24});
+    if(q.why) text(q.why,22,{indent:24,color:"#333"}); if(q.drill) text("연습: "+q.drill,22,{indent:24,color:"#333"}); gap(12); }
+  // 측정값
+  newPage(); text("측정값",40,{bold:true}); rule();
+  text("구간(임팩트 기준 시각 / 장면 번호)",28,{bold:true});
+  text("어드레스 "+tOf(R.ph.addr)+" / "+R.ph.addr+"   테이크백 시작 "+tOf(R.ph.start)+" / "+R.ph.start+"   샤프트 수평(백) "+tOf(po.p2)+" / "+po.p2+"\n탑 "+tOf(R.ph.top)+" / "+R.ph.top+"   샤프트 수평(다운) "+tOf(po.p6)+" / "+po.p6+"   임팩트 0 / "+R.ph.imp+"   피니시 "+tOf(R.ph.fin)+" / "+R.ph.fin,24,{indent:24}); gap(10);
+  text("템포",28,{bold:true}); text("백스윙 "+n2((R.ph.top-R.ph.start)/R.fps)+"초 (탑 멈춤 "+n2(po.hold)+"초 포함) · 다운스윙 "+n2((R.ph.imp-R.ph.top)/R.fps)+"초 · 비율 "+n1((R.ph.top-R.ph.start)/Math.max(1,R.ph.imp-R.ph.top))+" : 1",24,{indent:24}); gap(10);
+  text("자세 (몸통 길이 대비 %, 각도는 °)",28,{bold:true});
+  text("척추 숙임: 어드레스 "+n1(po.tiltAddr)+"° · 탑 "+n1(po.tiltTop)+"° · 임팩트 "+n1(po.tiltImp)+"°\n머리 이동(좌우, 상하): 탑 "+(po.headTop||[]).map(n1).join(", ")+" · 임팩트 "+(po.headImp||[]).map(n1).join(", ")+"\n엉덩이 공 쪽 이동: 탑 "+n1(po.hipFwdTop)+" · 임팩트 "+n1(po.hipFwdImp)+"   머리 공 쪽 이동(임팩트) "+n1(po.headFwdImp),24,{indent:24}); gap(10);
+  if(R.bd){ text("몸 회전 (카메라 한 대 추정 · 신뢰도 낮음)",28,{bold:true}); const b=k=>R.bd[k]?("가슴 "+n1(R.bd[k].chest)+"° · 골반 "+n1(R.bd[k].pelvis)+"° · 차이 "+n1(R.bd[k].x)+"°"):"측정 안 됨"; text("탑: "+b("top")+"\n임팩트: "+b("imp"),24,{indent:24}); gap(10); }
+  text("클럽 궤도",28,{bold:true});
+  text("진입 판정: "+(pl.finalZone?({over:"엎어 침(아웃-인)",slot:"정상(두 선 사이)",under:"인-아웃"}[pl.finalZone]):"판정 보류("+({narrow:"두 선 간격 좁음",few:"중간 구간 헤드 부족",close:"선에 너무 가까움"}[pl.hold]||"-")+")")+" · 샤프트선–어깨선 사이 "+n1(pl.widthDeg)+"° · 중간 구간 헤드 "+(pl.nDown||0)+"장면\n다운스윙 중간 헤드 위치: 샤프트선 대비 "+(pl.midShaft==null?"측정 안 됨":n1(pl.midShaft)+"% (+위/−아래, 클럽 길이 대비)")+" · 테이크백 판정 "+(pl.backOk===false?"보류":"가능"),24,{indent:24}); gap(10);
+  text("인식 품질",28,{bold:true}); text("헤드를 찾은 장면 "+R.seen+" / "+R.span+" ("+Math.round(100*R.seen/Math.max(1,R.span))+"%) · 그립 인식으로 손 위치를 쓴 장면 "+(R.nGrip==null?"없음(이전 모델)":R.nGrip)+" · 잔상 "+ghosts.length+"개",24,{indent:24}); gap(10);
+  if(R.M){ const m=R.M, a=q=>"손 높이 "+n1(q.handH)+" · 손 위치 "+n1(q.handX)+" · 척추 "+n1(q.tilt)+"° · 머리 좌우 "+n1(q.headX)+" 상하 "+n1(q.headY)+" · 골반 "+n1(q.hipX);
+    text("비교용 수치 (몸통 길이=100, 손 높이 0=골반·100=어깨)",28,{bold:true}); text("탑: "+a(m.top)+"\n임팩트: "+a(m.imp),24,{indent:24}); gap(10); }
+  // 구간별 장면(화면에 보이는 그대로: 영상 + 잔상·선)
+  const settle=async fr=>{ seekFrame(fr); await new Promise(r=>{ vid.addEventListener("seeked",r,{once:true}); setTimeout(r,2500); }); await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); draw(); };
+  const keys=[["어드레스",R.ph.addr],["테이크백(샤프트 수평)",po.p2],["탑",R.ph.top],["다운 중간(샤프트 수평)",po.p6],["임팩트",R.ph.imp],["팔로스루 +0.3초",Math.min(R.ph.fin,R.ph.imp+Math.round(0.3*R.fps))]].filter(q=>q[1]!=null);
+  newPage(); text("구간별 장면",40,{bold:true}); rule();
+  { const cols=W>H?2:3, cw=Math.floor((PW-2*M-(cols-1)*20)/cols), chh=Math.round(cw*H/W); let col=0, rowY=y;
+    for(let j=0;j<keys.length;j++){ if(onProg) onProg("장면 "+(j+1)+"/"+keys.length); if(col===0){ if(rowY+chh+50>PH-M){ newPage(); rowY=y; } }
+      await settle(keys[j][1]); const px=M+col*(cw+20), r=vrect(), dpr=devicePixelRatio||1;
+      x.font="700 24px "+FONT; x.fillStyle="#111"; x.textBaseline="top"; x.fillText(keys[j][0]+" ("+tOf(keys[j][1])+")",px,rowY);
+      x.drawImage(vid,px,rowY+34,cw,chh); x.drawImage(ov,r.x*dpr,r.y*dpr,r.w*dpr,r.h*dpr,px,rowY+34,cw,chh);
+      col++; if(col===cols){ col=0; rowY+=chh+54; } }
+    y=rowY+(col?chh+54:0); }
+  // 임팩트 연속 사진(공 주변, 원본 해상도, 밝기 올림)
+  { const B=pl.ball||R.tr[R.ph.imp], L=pl.L||200; if(B){ newPage(); text("임팩트 순간 (공 주변 확대 · 한 장면 = "+(1000/R.fps).toFixed(1)+"ms)",40,{bold:true}); rule();
+      const ds=[-8,-6,-4,-3,-2,-1,0,1,2,3,4,5,6,8,10,12], cols=4, cw=Math.floor((PW-2*M-(cols-1)*16)/cols), k=vid.videoWidth/W, sd=Math.min(W,H,0.6*L); let col=0,rowY=y;
+      const hx0=Math.max(0,Math.min(W-sd,B[0]-0.05*L-sd/2)), hy0=Math.max(0,Math.min(H-sd,B[1]-0.1*L-sd/2));
+      for(let j=0;j<ds.length;j++){ const fr=R.ph.imp+ds[j]; if(fr<0||fr>=R.n) continue; if(onProg) onProg("임팩트 "+(j+1)+"/"+ds.length); if(col===0&&rowY+cw+44>PH-M){ newPage(); rowY=y; }
+        await settle(fr); const px=M+col*(cw+16); x.drawImage(vid,hx0*k,hy0*k,sd*k,sd*k,px,rowY,cw,cw);
+        x.save(); x.globalCompositeOperation="lighter"; x.globalAlpha=0.7; x.drawImage(c,px,rowY,cw,cw,px,rowY,cw,cw); x.restore();
+        x.font="700 22px "+FONT; x.fillStyle=ds[j]===0?"#000":ds[j]<0?"#c62828":"#1565c0"; x.textBaseline="top"; x.fillText((ds[j]>0?"+":"")+ds[j]+"장면 ("+(ds[j]>=0?"+":"")+(ds[j]/R.fps*1000).toFixed(0)+"ms)",px,rowY+cw+6);
+        col++; if(col===cols){ col=0; rowY+=cw+44; } } } }
+  seekFrame(R.ph.imp);
+  const imgs=[]; for(const pg of pages){ const b=await new Promise(r=>pg.toBlob(r,"image/jpeg",0.86)); imgs.push({bytes:new Uint8Array(await b.arrayBuffer()),w:pg.width,h:pg.height}); }
+  return buildPdf(imgs); }
+let pdfOut=null, pdfBusy=false;
+$("pdfb").onclick=async()=>{ const b=$("pdfb"); if(pdfBusy||recBusy||!R) return;
+  if(pdfOut){ try{ b.textContent=await saveBlob(pdfOut.blob,pdfOut.name); }catch(e){ if(e&&e.name==="AbortError") return; b.textContent="저장 실패"; console.warn(e); } setTimeout(()=>{ b.textContent=pdfOut?"PDF 저장하기":"PDF 리포트 만들기"; },2500); return; }
+  pdfBusy=true; try{ vid.pause(); b.textContent="PDF 만드는 중…"; const blob=await makePdf(t=>{ b.textContent="PDF 만드는 중… "+t; }); pdfOut={blob,name:"swing-report-"+stamp()+".pdf"}; b.textContent="PDF 저장하기"; }
+  catch(e){ console.warn(e); b.textContent="PDF 만들기 실패: "+String(e&&e.message||e).slice(0,40); setTimeout(()=>{ b.textContent="PDF 리포트 만들기"; },4000); }
+  finally{ pdfBusy=false; } };
 // 분석 영상: 화면에 보이는 그대로(영상 + 잔상·선·구간 이름)를 1/8 느린 재생으로 녹화해 새 영상으로 만든다. 만드는 데 재생 시간만큼(20~30초) 걸린다.
 let recOut=null, recBusy=false;
 $("savea").onclick=async()=>{ const b=$("savea"); if(recBusy||!R) return;
@@ -497,7 +571,7 @@ $("savea").onclick=async()=>{ const b=$("savea"); if(recBusy||!R) return;
   }catch(e){ console.warn(e); b.textContent="만들기 실패"; setTimeout(()=>{ b.textContent="분석 영상 만들기"; },2500); }
   finally{ recBusy=false; $("play").textContent="▶ 1/8 느리게"; } };
 async function run(f,det){
-  try{ await analyze(f,det); curFile=f; recOut=null; $("savea").textContent="분석 영상 만들기";
+  try{ await analyze(f,det); curFile=f; recOut=null; $("savea").textContent="분석 영상 만들기"; pdfOut=null; $("pdfb").textContent="PDF 리포트 만들기";
     vid.src=URL.createObjectURL(f); await new Promise(r=>vid.addEventListener("loadedmetadata",r,{once:true}));
     $("start").hidden=true; $("ctl").hidden=false; $("phase").hidden=false; $("legend").hidden=false;
     await loadRef(); results(true); setCmp(true); seekFrame(R.ph.imp); captureGhosts();
