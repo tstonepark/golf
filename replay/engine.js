@@ -68,10 +68,15 @@ export async function decodeRange(dm,a,b,cb,rot,want){
       if(i>=a&&i<=b&&(!want||want(i))){ draw(cx,f,rot); await cb(i,cv); } f.close(); } };
   for(let k=k0;k<=lastDec+8&&k<dm.samples.length;k++){
     const s=dm.samples[k]; dec.decode(new EncodedVideoChunk({type:s.is_sync?"key":"delta",timestamp:s.cts,duration:s.duration,data:s.data}));
-    while(dec.decodeQueueSize>8) await new Promise(r=>setTimeout(r,1));
+    { /* a phone's hardware decoder can stall (e.g. while the camera app holds the codec): fail with a message instead of hanging */
+      const t0=performance.now(); while(dec.decodeQueueSize>8){ await new Promise(r=>setTimeout(r,1));
+        if(performance.now()-t0>10000) throw new Error("영상 해독이 10초 넘게 멈췄습니다. 카메라 앱을 닫거나 화면을 새로고침한 뒤 다시 해 주세요."); } }
     await flushOut(); if(err) throw err;
   }
-  await dec.flush(); await flushOut(); dec.close();
+  /* flush() never resolves on some Android browsers once the last frames are out; that left the bar stuck at "98%".
+     Wait at most 4 s, take whatever frames arrived, and go on. */
+  await Promise.race([dec.flush().catch(()=>{}), new Promise(r=>setTimeout(r,4000))]);
+  await flushOut(); try{ dec.close(); }catch(e){}
 }
 function draw(cx,f,rot){
   cx.save(); const r=((rot%360)+360)%360;
