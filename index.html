@@ -211,9 +211,11 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v76</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v77</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
+    <button id="openSaved" style="flex:none;padding:14px 28px;font-size:20px;font-weight:800;margin-top:12px">저장된 영상 분석</button>
+    <p class="hint" style="margin:6px 0 0;font-size:16px;opacity:.75">아이패드(사진·파일)에 있는 스윙 영상을 골라 분석합니다</p>
     <div id="remote">
       <p style="color:var(--ink);font-size:16px;margin:0">또는 <b>폰 카메라</b>로 찍고 여기서 보기</p>
       <p style="font-size:14px;margin:0">폰의 <b>삼성 인터넷</b>(크롬 말고)에서 <b style="color:var(--axis)">tstonepark.github.io/golf/cam.html</b> 을 열고, 폰 화면의 번호를 입력하세요.</p>
@@ -1855,6 +1857,7 @@ $("rconnect").onclick=()=>{
 };
 // 분석 화면에서 돌아온 경우(?auto=1) 저장된 번호로 바로 다시 연결
 if(new URLSearchParams(location.search).get("auto")&&$("rcode").value.replace(/\D/g,"").length===6) setTimeout(()=>$("rconnect").click(),400);
+$("openSaved").onclick=()=>{ location.href="replay/?from=live"; };
 $("setref").onclick=saveRef;
 $("hand").onclick=()=>{ rightHanded=!rightHanded; $("hand").textContent=rightHanded?"우타":"좌타"; delete ema.arm; delete ema.hand; };
 $("flip").onclick=async()=>{
