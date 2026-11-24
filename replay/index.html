@@ -74,7 +74,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v100</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v101</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -102,9 +102,9 @@ input[type=file]{display:none}
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
 <script src="../vendor/mp4box/mp4box.all.min.js"></script>
 <script type="module">
-import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=100";
-import * as A from "./analysis.js?v=100";
-import {diagnose,summary} from "./diagnose.js?v=100";
+import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=101";
+import * as A from "./analysis.js?v=101";
+import {diagnose,summary} from "./diagnose.js?v=101";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
 
@@ -265,7 +265,10 @@ function finish(D,file,T0){
   const seen=tr.slice(ph.start,ph.imp+1).filter(Boolean).length, span=ph.imp-ph.start+1;
   const po=A.posture(pose,ph,fps,view,TS), M=A.cmpMetrics(pose,ph,fps,view,TS);
   if(po) Object.assign(po,A.clubCheckpoints(tr,ph,pose,fps));   // 테이크백·다운 중간 버튼이 갈 장면
-  R={crop,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,ts,gaps,slow,hd:pose.map(p=>p?[+p.hands[0].toFixed(1),+p.hands[1].toFixed(1)]:null),name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
+  /* 후면인데 플레인을 못 세웠다 = 공(임팩트 때 헤드) 위치가 말이 안 된다 = 이 영상에서는 헤드 인식을 믿을 수 없다.
+     자막·옷·간판에 찍힌 동그라미와 선을 진짜처럼 보여 주지 않도록 클럽 표시를 모두 끈다(몸동작 측정은 그대로). */
+  const noClub=view==="dtl"&&!pl; if(noClub){ tr=new Array(n).fill(null); cv.back=[]; cv.down=[]; cv.after=[]; }
+  R={crop,noClub,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,ts,gaps,slow,hd:pose.map(p=>p?[+p.hands[0].toFixed(1),+p.hands[1].toFixed(1)]:null),name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -295,7 +298,7 @@ function detailHtml(){
       <div class="dimt">참고: 머리는 탑·임팩트 모두 5cm 이내가 좋고, 골반은 임팩트 때 타깃 쪽으로 이동해 있는 게 일반적입니다. 아이언은 임팩트 때 손이 헤드보다 앞(핸드 퍼스트). 어깨너비를 약 40cm로 보고 환산한 대략값입니다.</div>`
       :`<div class="dimt">자세를 찾지 못해 측정하지 못했습니다.</div>`}</div>
       <div class="card"><h3>스윙 플레인</h3><div class="dimt">플레인(인-아웃) 판정은 뒤에서(타깃 방향 뒤) 찍은 영상에서만 합니다.</div></div>`;
-  } else h+=`<div class="card"><h3>스윙 플레인</h3><div class="dimt">어드레스 자세(손·어깨)를 찾지 못해 판정하지 않았습니다.</div></div>`;
+  } else h+=`<div class="card"><h3>스윙 플레인</h3><div class="dimt warn">이 영상에서는 클럽 헤드를 제대로 찾지 못했습니다(공 위치가 땅·몸 앞이 아님). 틀린 선을 보여 주지 않으려고 클럽 궤적·잔상·플레인 판정을 모두 껐습니다. 몸동작(자세·템포) 측정은 그대로입니다.</div></div>`;
   if(bd&&bd.top){
     const v=(o,k)=>o&&o.ok? Math.abs(o[k]).toFixed(0)+"°" : "<span class='warn'>측정 이상</span>";
     const sg=bd.top&&bd.top.ok? Math.sign(bd.top.chest)||-1 : -1;   // backswing direction
@@ -308,7 +311,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps/(R.slow||1))}fps${R.slow>1?" (슬로모션 약 "+R.slow+"배)":""} · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v100</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v101</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -335,7 +338,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v100</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v101</div>`; }
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
   if(na.length) h+=na.map(card).join("");
@@ -558,7 +561,7 @@ async function makePdf(onProg){
   // 1쪽~: 요약과 진단
   newPage(); text("스윙 분석 리포트",50,{bold:true}); gap(6);
   text((R.name||"이름 없는 영상")+" · 만든 시각 "+new Date().toLocaleString("ko-KR"),24,{color:"#444"});
-  text("분석기 v100 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
+  text("분석기 v101 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
   // 결과 화면에 보이는 내용을 그대로 옮긴다(접혀 있는 '나머지'·'양호'·'상세 수치'도 펼쳐서): 종합 진단, 프로 비교, 기록 비교, 상세 수치
   { const CLR=el=>el.classList.contains("bad")?"#c62828":el.classList.contains("warn")?"#b26a00":el.classList.contains("ok")?"#1b7a3a":null, T=el=>(el.textContent||"").replace(/\s+/g," ").trim();
     const emit=(el,ind)=>{ if(el.nodeType!==1||el.tagName==="BUTTON"||el.hidden) return; const tag=el.tagName, cl=el.classList;
