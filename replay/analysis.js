@@ -147,15 +147,17 @@ export function plane(tr,ph,pose,fps){
   const widthDeg=Math.abs(Math.atan2(ball[1]-sh[1],ball[0]-sh[0])-Math.atan2(ball[1]-hands[1],ball[0]-hands[0]))*180/Math.PI;
   const M=0.04*L, zoneM=c=> c.shoulder>M? "over" : c.shaft<-M? "under" : (c.shoulder<-M&&c.shaft>M)? "slot" : null;
   const sure=mid.map(zoneM).filter(Boolean);
-  const hold= widthDeg<10? "camera" : mid.length<4? "few" : sure.length<Math.max(3,0.6*mid.length)? "close" : null;
+  // a plain number that does not depend on the zone borders: how far above(+)/below(-) the address shaft line the head travels mid-downswing, % of club length
+  const ms=mid.map(c=>c.shaft).sort((a,b)=>a-b), midShaft=ms.length>=3? ms[ms.length>>1]/L*100 : null;
+  const hold= widthDeg<6? "narrow" : mid.length<4? "few" : sure.length<Math.max(3,0.6*mid.length)? "close" : null;
   const frac=(arr,z)=>arr.length? arr.filter(c=>c.zone===z).length/arr.length : 0;
   // takeaway is judged only if the head was really followed: enough samples that actually travel (a spot that never moves is not a club head)
   const ext=arr=>{ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const c of arr){ const p=tr[c.i]; x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } return arr.length? hyp(x1-x0,y1-y0) : 0; };
 
-  const backOk=back.length>=6&&ext(back)>=0.4*L&&widthDeg>=10;
+  const backOk=back.length>=6&&ext(back)>=0.4*L&&widthDeg>=6;
   return {ball,hands,sh,L,back,down,backOk,
     takeawayOver:frac(back,"over"), downSlot:frac(down,"slot"), downOver:frac(down,"over"), downUnder:frac(down,"under"),
-    nDown:mid.length, widthDeg, hold, finalZone: hold? null : mode(sure)};
+    nDown:mid.length, widthDeg, hold, midShaft, finalZone: hold? null : mode(sure)};
 }
 const mode=a=>{ const m={}; a.forEach(x=>m[x]=(m[x]||0)+1); return Object.entries(m).sort((x,y)=>y[1]-x[1])[0][0]; };
 function nearest(arr,i){ for(let d=1;d<30;d++){ if(arr[i-d]) return arr[i-d]; if(arr[i+d]) return arr[i+d]; } return null; }

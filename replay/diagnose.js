@@ -22,7 +22,7 @@ export function diagnose(R){
   // ---- plane (down-the-line only) ----
   if(view==="dtl"){
     if(pl){
-      if(pl.backOk===false) add({key:"takeaway",area:"궤도",sev:"na",title:"테이크백 궤도 판정 보류",value:pl.hold==="camera"?"카메라 위치":"헤드 추적 부족",ref:"",conf:"낮음",why:pl.hold==="camera"?"카메라가 정후방에서 벗어나 있어 이 각도에서는 궤도를 가릴 수 없습니다.":"테이크백 구간에서 헤드를 충분히 따라가지 못했습니다. 판정하지 않습니다.",drill:""});
+      if(pl.backOk===false) add({key:"takeaway",area:"궤도",sev:"na",title:"테이크백 궤도 판정 보류",value:pl.hold==="narrow"?"두 선 간격 좁음":"헤드 추적 부족",ref:"",conf:"낮음",why:pl.hold==="narrow"?"샤프트선과 어깨선 사이가 좁아 이 영상에서는 궤도를 가를 수 없습니다.":"테이크백 구간에서 헤드를 충분히 따라가지 못했습니다. 판정하지 않습니다.",drill:""});
       else add({key:"takeaway",area:"궤도",sev:pl.takeawayOver>0.5?"warn":"ok",title:pl.takeawayOver>0.5?"테이크백을 바깥으로 들어 올립니다":"테이크백 궤도 양호",
         value:r0(pl.takeawayOver*100)+"% 구간이 어깨선 밖",ref:"두 선 사이",conf:"보통",
         why:"허리 높이까지 헤드가 공-어깨선보다 바깥(위)으로 올라갑니다. 손과 팔로 들어 올릴 때 생깁니다.",
@@ -33,10 +33,11 @@ export function diagnose(R){
           value:z==="over"?"어깨선 위":z==="under"?"샤프트선 아래":"두 선 사이",ref:"두 선 사이",conf:"보통",
           why:z==="over"?"다운스윙 헤드가 공-어깨선보다 위에서 내려옵니다. 슬라이스·당겨치기의 흔한 원인입니다.":z==="under"?"헤드가 어드레스 샤프트선보다 아래로 떨어져 안쪽에서 들어옵니다. 심하면 푸시·훅, 뒤땅이 나옵니다. 화면(2D) 기준이라 정도는 카메라 위치에 따라 달라집니다.":"다운스윙이 두 기준선 사이로 내려옵니다.",
           drill:z==="over"?"탑에서 오른 팔꿈치를 옆구리로 떨어뜨린 뒤 회전(펌프 드릴).":z==="under"?"하체 회전을 멈추지 않고 가슴이 타깃을 향할 때까지 돌리기. 임팩트 백을 몸 왼쪽에 두고 회전으로 치기.":""});
-      } else { const why={camera:"카메라가 타깃 라인 정후방에서 벗어나 있어 샤프트선과 어깨선이 거의 겹칩니다(두 선 사이 "+Math.round(pl.widthDeg||0)+"°). 이 각도에서는 궤도를 가릴 수 없습니다. 폰을 공–타깃 연장선 뒤, 손 높이에 세워 주세요.",
-          few:"다운스윙 중간(허리~가슴 높이)에서 헤드를 따라가지 못했습니다. 공 바로 앞에서는 세 선이 모여 판정이 무의미하므로 판정하지 않습니다.",
+      } else { const off=pl.midShaft, offTxt=off==null?"":" 참고 수치: 다운스윙 중간에 헤드가 어드레스 샤프트선보다 "+Math.abs(off).toFixed(0)+"% "+(off>=0?"위":"아래")+"로 지나갔습니다(클럽 길이 대비). 스윙끼리 이 숫자를 비교해 보세요.";
+        const why={narrow:"이 자세·각도에서는 샤프트선과 어깨선 사이가 "+Math.round(pl.widthDeg||0)+"°로 좁아, 헤드가 두 선 사이인지 밖인지를 오차 없이 가를 수 없습니다. 그래서 엎어 침/정상/인-아웃 판정은 내지 않습니다.",
+          few:"다운스윙 중간(허리~가슴 높이)에서 헤드를 충분히 따라가지 못했습니다. 공 바로 앞에서는 세 선이 모여 판정이 무의미하므로 판정하지 않습니다.",
           close:"헤드가 선에 너무 가까이 지나가 어느 쪽인지 가를 수 없습니다(오차 범위)."}[pl.hold]||"헤드 추적 부족";
-        add({key:"entry",area:"궤도",sev:"na",title:"임팩트 진입 궤도 판정 보류",value:pl.hold==="camera"?"카메라 위치":"헤드 "+(pl.nDown||0)+"장면",ref:pl.hold==="camera"?"두 선 사이 10° 이상 필요":"중간 구간 4장면 이상 필요",conf:"낮음",why,drill:""}); }
+        add({key:"entry",area:"궤도",sev:"na",title:"임팩트 진입 궤도 판정 보류",value:off!=null?("샤프트선 "+(off>=0?"위 ":"아래 ")+Math.abs(off).toFixed(0)+"%"):(pl.hold==="narrow"?"두 선 간격 좁음":"헤드 "+(pl.nDown||0)+"장면"),ref:pl.hold==="narrow"?"두 선 사이 6° 이상 필요":"중간 구간 4장면 이상 필요",conf:"낮음",why:why+offTxt,drill:""}); }
     }
     if(po&&po.hipFwdImp!=null){ const v=po.hipFwdImp;
       add({key:"ee",area:"자세",sev:v>12?"bad":v>6?"warn":"ok",title:v>6?"임팩트 때 엉덩이가 공 쪽으로 나옵니다(얼리 익스텐션)":"엉덩이 위치 유지 양호",

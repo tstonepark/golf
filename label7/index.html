@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>다운스윙 헤드 표시 (7차)</title>
+<style>
+:root{--bg:#0c1512;--panel:#16231e;--ink:#eaf2ec;--acc:#ffd23f;--grip:#4fd1ff;--warn:#ff8a65;--line:#2a3b34;--ok:#58d68d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,"Apple SD Gothic Neo",sans-serif;-webkit-user-select:none;user-select:none;touch-action:none}
+#app{display:flex;flex-direction:column;height:100%;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+#top{padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+#top p{margin:0;font-size:19px;line-height:1.4}
+#status{display:flex;gap:14px;align-items:center;margin-top:6px;font-size:24px;font-weight:800}
+#step{padding:2px 12px;border-radius:8px;background:#000}
+#bar{height:8px;background:#22332c;border-radius:4px;margin-top:6px;overflow:hidden}#bar i{display:block;height:100%;background:var(--ok);width:0}
+#stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center}
+#wrap{position:relative;height:100%;max-width:100%;transform-origin:0 0}
+#img{height:100%;max-width:100%;object-fit:contain;display:block;filter:brightness(1.9) contrast(1.15)}
+.mk{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;pointer-events:none;box-shadow:0 0 0 2px #000}
+#mh{border:3px solid var(--acc)}#mg{border:3px solid var(--grip)}.mk.dim{opacity:.45}
+#loupe{position:absolute;width:220px;height:220px;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 3px #000;pointer-events:none;display:none;overflow:hidden;background:#000}
+#loupe canvas{width:100%;height:100%}
+#btns{display:flex;flex-wrap:wrap;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
+button{font-size:20px;padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:#22332c;color:var(--ink);flex:1 1 auto;min-width:120px}
+button.warn{color:var(--warn)}button.main{background:var(--acc);color:#111;font-weight:700}
+#done{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:24px;text-align:center}
+#done[hidden]{display:none}#done h2{color:var(--ok);font-size:28px;margin:0}#done p{font-size:19px;max-width:28em;line-height:1.5}
+</style></head><body>
+<div id="app">
+  <div id="top">
+    <p><b style="color:var(--acc)">클럽 헤드</b>만 찍으면 됩니다. 누른 채로 <b>돋보기</b>를 보며 끌어서 맞추고 손을 떼세요. 헤드가 번져 보이면 <b>번진 자국의 가운데</b>를 찍어 주세요. 전혀 안 보이면 <b>"안 보임"</b>.</p>
+    <div id="status"><span id="info"></span><span id="step"></span></div>
+    <div id="bar"><i></i></div>
+  </div>
+  <div id="stage"><div id="wrap"><img id="img" alt="스윙 프레임" draggable="false" style="-webkit-user-drag:none;-webkit-touch-callout:none"><div id="mh" class="mk" hidden></div><div id="mg" class="mk" hidden></div></div><div id="loupe"><canvas id="lc" width="220" height="220"></canvas></div></div>
+  <div id="btns">
+    <button id="back">◀ 이전</button>
+    <button id="none" class="warn">안 보임</button>
+    <button id="snap">자동 붙임 끔</button>
+    <button id="save" class="main">결과 저장</button>
+  </div>
+</div>
+<div id="done" hidden><h2>다 했습니다!</h2><p>"결과 저장"을 눌러 파일을 저장한 뒤 채팅에 보내 주세요. 파일 앱 → 다운로드에 있습니다.</p><button class="main" id="save2">결과 저장</button><button id="close">계속 보기</button></div>
+<script>
+const KEY="clublabel7";const $=id=>document.getElementById(id);
+let items=[],boxes={},lab={},i=0,st=0,snapOn=false,drag=null;
+try{lab=JSON.parse(localStorage.getItem(KEY)||"{}");}catch(e){lab={};}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(lab));}catch(e){}};
+const F=()=>items[i].file,P=()=>st?"grip":"head";
+const off=document.createElement("canvas"),octx=off.getContext("2d",{willReadFrequently:true});
+function lrect(){const im=$("img"),W=im.offsetWidth,H=im.offsetHeight,nw=im.naturalWidth||540,nh=im.naturalHeight||960,s=Math.min(W/nw,H/nh),w=nw*s,h=nh*s;return{width:w,height:h,ox:im.offsetLeft+(W-w)/2,oy:im.offsetTop+(H-h)/2};}
+function crect(){const im=$("img"),b=im.getBoundingClientRect(),nw=im.naturalWidth||540,nh=im.naturalHeight||960,s=Math.min(b.width/nw,b.height/nh),w=nw*s,h=nh*s;return{left:b.left+(b.width-w)/2,top:b.top+(b.height-h)/2,width:w,height:h};}
+function applyZoom(){const w=$("wrap"),b=boxes[items[i].clip];if(!b){w.style.transform="";return;}
+  const c=lrect(),st_=$("stage").getBoundingClientRect(),z=Math.max(1,Math.min(2.6,st_.height/((b[3]-b[1])*c.height),st_.width/((b[2]-b[0])*c.width)));
+  const cx=c.ox+(b[0]+b[2])/2*c.width,cy=c.oy+(b[1]+b[3])/2*c.height;
+  w.style.transform="translate("+(w.offsetWidth/2-cx*z)+"px,"+(w.offsetHeight/2-cy*z)+"px) scale("+z+")";}
+function draw(){const L=lab[F()]||{};for(const[k,el]of[["head",$("mh")],["grip",$("mg")]]){const p=L[k];if(!p){el.hidden=true;continue;}const c=lrect();el.hidden=false;el.style.left=(c.ox+p.x*c.width)+"px";el.style.top=(c.oy+p.y*c.height)+"px";el.classList.toggle("dim",(k==="head")!==(st===0));}
+  $("step").textContent="헤드";$("step").style.color=st?"var(--grip)":"var(--acc)";}
+function show(){i=Math.max(0,Math.min(items.length-1,i));
+  if($("img").getAttribute("src")!=="f/"+F())$("img").src="f/"+F();else{applyZoom();draw();}
+  const n=Object.values(lab).filter(v=>"head" in v).length;$("bar").firstElementChild.style.width=(n/items.length*100)+"%";
+  $("info").textContent=(i+1)+" / "+items.length+" · "+(items[i].tag||"");}
+$("img").onload=()=>{const im=$("img");off.width=im.naturalWidth;off.height=im.naturalHeight;octx.drawImage(im,0,0);applyZoom();draw();};
+window.addEventListener("resize",()=>{applyZoom();draw();});
+function toNorm(e){const r=crect();return{x:(e.clientX-r.left)/r.width,y:(e.clientY-r.top)/r.height};}
+function snapHead(p){ // brightest compact spot within 14px (image px)
+  const W=off.width,H=off.height,X=Math.round(p.x*W),Y=Math.round(p.y*H),R=14;
+  const x0=Math.max(0,X-R),y0=Math.max(0,Y-R),x1=Math.min(W-1,X+R),y1=Math.min(H-1,Y+R);
+  const d=octx.getImageData(x0,y0,x1-x0+1,y1-y0+1).data,n=d.length/4,lum=new Float32Array(n);let mx=0;
+  for(let k=0;k<n;k++){lum[k]=0.3*d[4*k]+0.59*d[4*k+1]+0.11*d[4*k+2];if(lum[k]>mx)mx=lum[k];}
+  const s=[...lum].sort((a,b)=>a-b),med=s[n>>1];if(mx<120||mx-med<50)return p;
+  let sx=0,sy=0,sw=0;const cw=x1-x0+1;for(let k=0;k<n;k++){if(lum[k]>=mx-25){const w=lum[k]-(mx-25)+1;sx+=(x0+k%cw)*w;sy+=(y0+Math.floor(k/cw))*w;sw+=w;}}
+  return{x:+(sx/sw/W).toFixed(4),y:+(sy/sw/H).toFixed(4)};}
+function loupe(e,p){const lp=$("loupe"),stg=$("stage").getBoundingClientRect();lp.style.display="block";
+  const left=(e.clientX-stg.left)<stg.width/2?stg.width-240:20;lp.style.left=left+"px";lp.style.top="20px";
+  const ctx=$("lc").getContext("2d"),W=off.width,H=off.height,Z=4,S=220/Z;ctx.imageSmoothingEnabled=false;ctx.filter="brightness(1.9) contrast(1.15)";
+  ctx.fillStyle="#000";ctx.fillRect(0,0,220,220);ctx.drawImage(off,p.x*W-S/2,p.y*H-S/2,S,S,0,0,220,220);ctx.filter="none";
+  ctx.strokeStyle=st?"#4fd1ff":"#ffd23f";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(110,90);ctx.lineTo(110,130);ctx.moveTo(90,110);ctx.lineTo(130,110);ctx.stroke();}
+const stage=$("stage");
+stage.addEventListener("pointerdown",e=>{if(e.target.closest("button"))return;const p=toNorm(e);if(p.x<0||p.x>1||p.y<0||p.y>1)return;drag=p;stage.setPointerCapture(e.pointerId);loupe(e,p);});
+stage.addEventListener("pointermove",e=>{if(!drag)return;drag=toNorm(e);loupe(e,drag);});
+stage.addEventListener("pointerup",e=>{if(!drag)return;let p=drag;drag=null;$("loupe").style.display="none";
+  if(p.x<0||p.x>1||p.y<0||p.y>1)return;let src="tap";
+  if(st===0&&snapOn){const q=snapHead(p);if(q!==p){p=q;src="snap";}}
+  const L=lab[F()]||{};L[P()]={x:+p.x.toFixed(4),y:+p.y.toFixed(4),src};lab[F()]=L;save();draw();setTimeout(advance,350);});
+function advance(){st=0;if(i<items.length-1){i++;show();}else{show();$("done").hidden=false;}}
+$("none").onclick=()=>{const L=lab[F()]||{};L[P()]=null;lab[F()]=L;save();advance();};
+$("back").onclick=()=>{st=0;if(i>0)i--;show();};
+$("snap").onclick=()=>{snapOn=!snapOn;$("snap").textContent=snapOn?"자동 붙임 켬":"자동 붙임 끔";};
+function download(){const out={set:"label7",w:540,h:960,frames:items.map(it=>{const L=lab[it.file]||{};return{clip:it.clip,n:it.n,file:it.file,head:"head" in L?L.head:"todo"};})};
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(out)],{type:"application/json"}));a.download="clubhead-labels7.json";document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},3000);}
+$("save").onclick=download;$("save2").onclick=download;$("close").onclick=()=>{$("done").hidden=true;};
+Promise.all([fetch("items.json").then(r=>r.json()),fetch("boxes.json").then(r=>r.json())]).then(([a,b])=>{items=a;boxes=b;
+  const k=items.findIndex(it=>{const L=lab[it.file]||{};return!("head" in L);});i=k<0?0:k;st=0;show();});
+</script></body></html>
