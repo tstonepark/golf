@@ -75,6 +75,7 @@ public class Analyzer {
             if (lm == null) throw new Exception("뼈대 모델 준비 실패: " + last);
         }
         if (head == null) {
+            /* 헤드·그립 모델 8차: 정면 촬영 장면 추가 학습 */
             byte[] model; try (InputStream in = ctx.getAssets().open("clubhead416.onnx")) { model = in.readAllBytes(); }
             env = OrtEnvironment.getEnvironment();
             Throwable last = null;

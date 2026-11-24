@@ -7,7 +7,7 @@ export let headErr="";
 function loadScript(src){ return new Promise((res,rej)=>{ const e=document.createElement("script"); e.src=src; e.onload=res; e.onerror=()=>rej(new Error("load "+src)); document.head.appendChild(e); }); }
 async function tryEps(base,eps,errs,dir="ort"){
   const ort=window.ort; ort.env.wasm.wasmPaths=new URL(base+"vendor/"+dir+"/",location.href).href; ort.env.wasm.numThreads=1; ort.env.wasm.proxy=false;
-  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead416.onnx?v=7",location.href).href,{executionProviders:[ep]}); return ep; }
+  for(const ep of eps){ try{ ortSess=await ort.InferenceSession.create(new URL(base+"vendor/models/clubhead416.onnx?v=8",location.href).href,{executionProviders:[ep]}); return ep; }
     catch(e){ errs.push(ep+": "+(e&&e.message||e)); console.warn("ep fail",ep,e); } }
   return null;
 }
