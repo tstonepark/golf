@@ -211,7 +211,7 @@ button:disabled{opacity:.4}
     <p>출발값은 임의로 정한 것입니다. 써보면서 맞춰 주세요. 값은 이 폰에 저장됩니다.</p>
   </div>
   <div id="msg">
-    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v87</small></h1>
+    <h1>스윙 축 코치 <small style="font-size:12px;color:var(--dim)">v88</small></h1>
     <p id="howto"></p>
     <button class="main" id="start" style="flex:none;padding:14px 28px">이 기기 카메라로 시작</button>
     <button id="openSaved" style="flex:none;padding:14px 28px;font-size:20px;font-weight:800;margin-top:12px">저장된 영상 분석</button>
@@ -663,7 +663,7 @@ const cam2={code:null,peer:null,conn:null,up:false,last:0,retry:false,tilt:null,
 setInterval(()=>{ if(cam2.code&&cam2.up&&Date.now()-cam2.last>6000) cam2.lost("폰 신호가 6초 없음"); },1000);
 
 // 카메라 방향 자동 판단: 어드레스 중 어깨너비/몸통 길이 비율 (정면 0.5 이상, 옆모습 0.25 미만)
-let avCnt=0;
+let avCnt=0, sideCnt=0;
 function autoView(lm,iw,ih){
   if(!lm||cfg.autoView===false||!(coach.phase==="wait"||coach.phase==="ready")||counting){ avCnt=0; return; }
   const P=i=>({x:lm[i].x*iw,y:lm[i].y*ih}), m=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
@@ -718,7 +718,11 @@ function measure(lm,wl,w,h){
   }
   const torso=Math.hypot(sh.x-hip.x,sh.y-hip.y);
   // 정면 모드인데 옆모습(어깨너비가 몸통의 1/4 미만) → 어깨너비 기준 % 가 폭주하므로 측정하지 않음
-  if(view==="face"&&torso>1&&Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y)<torso*0.25){ noBody="옆에서 찍고 있습니다 · 후방 모드로 바꾸거나 폰을 정면에 두세요"; return null; }
+  /* 어드레스(대기·준비) 때만, 그리고 1초쯤 계속될 때만 옆모습으로 본다. 정면에서 찍어도 백스윙 탑·임팩트 뒤에는 어깨가 90도 돌아
+     화면상 어깨너비가 거의 0이 되므로, 스윙 중에 이 검사를 하면 정면인데도 "옆에서 찍고 있습니다"가 뜨고 측정이 끊겼다. */
+  { const still=coach.phase==="wait"||coach.phase==="ready", narrow=view==="face"&&torso>1&&Math.hypot(P(L.lSh).x-P(L.rSh).x,P(L.lSh).y-P(L.rSh).y)<torso*0.25;
+    sideCnt=(still&&narrow)? sideCnt+1 : still? 0 : sideCnt;
+    if(still&&sideCnt>=30){ noBody="옆에서 찍고 있습니다 · 후방 모드로 바꾸거나 폰을 정면에 두세요"; return null; } }
   if(torso<1) return null;
   const kneeSeen=[L.lKn,L.rKn].some(i=>lm[i]&&lm[i].visibility>0.5);
   if(torso<h*0.08){ noBody="사람이 너무 작게 잡힙니다 · 몸이 화면 세로의 절반 이상 되게 가까이"; return null; }
