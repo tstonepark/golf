@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>다운스윙 헤드 표시 (7차)</title>
+<title>헤드·손 위치 표시 (7차)</title>
 <style>
 :root{--bg:#0c1512;--panel:#16231e;--ink:#eaf2ec;--acc:#ffd23f;--grip:#4fd1ff;--warn:#ff8a65;--line:#2a3b34;--ok:#58d68d}
 *{box-sizing:border-box}
@@ -27,7 +27,7 @@ button.warn{color:var(--warn)}button.main{background:var(--acc);color:#111;font-
 </style></head><body>
 <div id="app">
   <div id="top">
-    <p><b style="color:var(--acc)">클럽 헤드</b>만 찍으면 됩니다. 누른 채로 <b>돋보기</b>를 보며 끌어서 맞추고 손을 떼세요. 헤드가 번져 보이면 <b>번진 자국의 가운데</b>를 찍어 주세요. 전혀 안 보이면 <b>"안 보임"</b>.</p>
+    <p>사진마다 두 번 찍습니다: <b style="color:var(--acc)">① 클럽 헤드</b> → <b style="color:var(--grip)">② 손(그립을 쥔 두 손의 가운데)</b>. 누른 채로 <b>돋보기</b>를 보며 맞추고 손을 떼세요. 헤드가 번져 보이면 번진 자국의 가운데. 안 보이면 <b>"안 보임"</b>.</p>
     <div id="status"><span id="info"></span><span id="step"></span></div>
     <div id="bar"><i></i></div>
   </div>
@@ -54,10 +54,10 @@ function applyZoom(){const w=$("wrap"),b=boxes[items[i].clip];if(!b){w.style.tra
   const cx=c.ox+(b[0]+b[2])/2*c.width,cy=c.oy+(b[1]+b[3])/2*c.height;
   w.style.transform="translate("+(w.offsetWidth/2-cx*z)+"px,"+(w.offsetHeight/2-cy*z)+"px) scale("+z+")";}
 function draw(){const L=lab[F()]||{};for(const[k,el]of[["head",$("mh")],["grip",$("mg")]]){const p=L[k];if(!p){el.hidden=true;continue;}const c=lrect();el.hidden=false;el.style.left=(c.ox+p.x*c.width)+"px";el.style.top=(c.oy+p.y*c.height)+"px";el.classList.toggle("dim",(k==="head")!==(st===0));}
-  $("step").textContent="헤드";$("step").style.color=st?"var(--grip)":"var(--acc)";}
+  $("step").textContent=st?"② 손(그립 쥔 곳)":"① 헤드";$("step").style.color=st?"var(--grip)":"var(--acc)";}
 function show(){i=Math.max(0,Math.min(items.length-1,i));
   if($("img").getAttribute("src")!=="f/"+F())$("img").src="f/"+F();else{applyZoom();draw();}
-  const n=Object.values(lab).filter(v=>"head" in v).length;$("bar").firstElementChild.style.width=(n/items.length*100)+"%";
+  const n=Object.values(lab).filter(v=>"head" in v&&"grip" in v).length;$("bar").firstElementChild.style.width=(n/items.length*100)+"%";
   $("info").textContent=(i+1)+" / "+items.length+" · "+(items[i].tag||"");}
 $("img").onload=()=>{const im=$("img");off.width=im.naturalWidth;off.height=im.naturalHeight;octx.drawImage(im,0,0);applyZoom();draw();};
 window.addEventListener("resize",()=>{applyZoom();draw();});
@@ -82,13 +82,13 @@ stage.addEventListener("pointerup",e=>{if(!drag)return;let p=drag;drag=null;$("l
   if(p.x<0||p.x>1||p.y<0||p.y>1)return;let src="tap";
   if(st===0&&snapOn){const q=snapHead(p);if(q!==p){p=q;src="snap";}}
   const L=lab[F()]||{};L[P()]={x:+p.x.toFixed(4),y:+p.y.toFixed(4),src};lab[F()]=L;save();draw();setTimeout(advance,350);});
-function advance(){st=0;if(i<items.length-1){i++;show();}else{show();$("done").hidden=false;}}
+function advance(){if(st===0){st=1;show();}else{st=0;if(i<items.length-1){i++;show();}else{show();$("done").hidden=false;}}}
 $("none").onclick=()=>{const L=lab[F()]||{};L[P()]=null;lab[F()]=L;save();advance();};
-$("back").onclick=()=>{st=0;if(i>0)i--;show();};
+$("back").onclick=()=>{if(st===1)st=0;else if(i>0){i--;st=1;}show();};
 $("snap").onclick=()=>{snapOn=!snapOn;$("snap").textContent=snapOn?"자동 붙임 켬":"자동 붙임 끔";};
-function download(){const out={set:"label7",w:540,h:960,frames:items.map(it=>{const L=lab[it.file]||{};return{clip:it.clip,n:it.n,file:it.file,head:"head" in L?L.head:"todo"};})};
+function download(){const out={set:"label7",w:540,h:960,frames:items.map(it=>{const L=lab[it.file]||{};return{clip:it.clip,n:it.n,file:it.file,head:"head" in L?L.head:"todo",grip:"grip" in L?L.grip:"todo"};})};
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(out)],{type:"application/json"}));a.download="clubhead-labels7.json";document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},3000);}
 $("save").onclick=download;$("save2").onclick=download;$("close").onclick=()=>{$("done").hidden=true;};
 Promise.all([fetch("items.json").then(r=>r.json()),fetch("boxes.json").then(r=>r.json())]).then(([a,b])=>{items=a;boxes=b;
-  const k=items.findIndex(it=>{const L=lab[it.file]||{};return!("head" in L);});i=k<0?0:k;st=0;show();});
+  const k=items.findIndex(it=>{const L=lab[it.file]||{};return!("head" in L&&"grip" in L);});i=k<0?0:k;st=(lab[items[i].file]&&"head" in lab[items[i].file])?1:0;show();});
 </script></body></html>
