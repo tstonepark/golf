@@ -53,17 +53,17 @@ export function diagnose(R){
   if(po){ const hx=Math.abs(po.headTop[0]), up=-po.headImp[1];
     add({key:"headTop",area:"자세",sev:hx>18?"bad":hx>10?"warn":"ok",title:hx>10?"백스윙에서 머리가 많이 움직입니다":"백스윙 머리 고정 양호",
       value:r0(hx)+"%",ref:"10% 이내 (몸통 길이 대비, 약 5cm)",conf:"높음",why:"어드레스 대비 탑에서 머리의 좌우(화면 기준) 이동량입니다.",drill:"그림자나 거울로 머리 위치를 보며 하프 스윙."});
-    add({key:"headUp",area:"자세",sev:up>14?"bad":up>7?"warn":"ok",title:up>7?"임팩트 때 머리가 들립니다":"임팩트 머리 높이 유지 양호",
-      value:(up>=0?"위로 ":"아래로 ")+r0(Math.abs(up))+"%",ref:"위로 7% 이내",conf:"높음",why:"어드레스 대비 임팩트에서 머리 높이 변화입니다. 들리면 탑핑·방향 손실이 생깁니다.",drill:"임팩트 후 1초간 공이 있던 자리를 보는 연습."}); }
+    add({key:"headUp",area:"자세",sev:up>14?"bad":(up>7||up<-10)?"warn":"ok",title:up>7?"임팩트 때 머리가 들립니다":up<-10?"임팩트 때 머리가 많이 내려갑니다":"임팩트 머리 높이 유지 양호",
+      value:(up>=0?"위로 ":"아래로 ")+r0(Math.abs(up))+"%",ref:"위로 7% · 아래로 10% 이내",conf:"높음",why:"어드레스 대비 임팩트에서 머리 높이 변화입니다. 들리면 탑핑·방향 손실이, 많이 내려가면 뒤땅이 생깁니다.",drill:up<-10?"어드레스 때 무릎·허리 각도를 유지한 채 하프 스윙(주저앉지 않기).":"임팩트 후 1초간 공이 있던 자리를 보는 연습."}); }
   // ---- body rotation (single-camera 3D estimate) ----
   if(bd&&bd.top&&bd.top.ok){ const c=Math.abs(bd.top.chest), p=Math.abs(bd.top.pelvis), x=Math.abs(bd.top.x);
-    add({key:"chest",area:"회전",sev:c<70?"warn":"ok",title:c<70?"백스윙 어깨 회전이 부족합니다":"백스윙 어깨 회전 충분",value:r0(c)+"°",ref:"80~100°",conf:"낮음",why:"탑에서 가슴이 어드레스 대비 돌아간 각도입니다(카메라 1대 추정).",drill:"클럽을 어깨에 걸치고 왼 어깨가 턱 밑까지 오도록 회전."});
-    add({key:"pelvis",area:"회전",sev:p>60?"warn":p<25?"warn":"ok",title:p>60?"백스윙 골반 회전이 과합니다":p<25?"백스윙 골반 회전이 적습니다":"백스윙 골반 회전 적정",value:r0(p)+"°",ref:"35~50°",conf:"낮음",why:"탑에서 골반이 돌아간 각도입니다.",drill:""});
-    add({key:"xf",area:"회전",sev:x<25?"warn":"ok",title:"X-팩터(상·하체 꼬임) "+r0(x)+"°",value:r0(x)+"°",ref:"35~50°",conf:"낮음",why:"가슴 회전 − 골반 회전. 꼬임이 클수록 힘을 모으기 좋습니다.",drill:""});
+    add({key:"chest",area:"회전",sev:"na",title:"참고: 백스윙 어깨 회전 "+r0(c)+"°",value:r0(c)+"°",ref:"80~100°",conf:"낮음",why:"탑에서 가슴이 어드레스 대비 돌아간 각도입니다. 카메라 1대 추정값이라 같은 스윙끼리도 수십 도씩 달라집니다. 판정에 넣지 않고 숫자만 참고로 보여 줍니다.",drill:"클럽을 어깨에 걸치고 왼 어깨가 턱 밑까지 오도록 회전."});
+    add({key:"pelvis",area:"회전",sev:"na",title:"참고: 백스윙 골반 회전 "+r0(p)+"°",value:r0(p)+"°",ref:"35~50°",conf:"낮음",why:"탑에서 골반이 돌아간 각도입니다. 카메라 1대 추정값이라 같은 스윙끼리도 수십 도씩 달라집니다. 판정에 넣지 않고 숫자만 참고로 보여 줍니다.",drill:""});
+    add({key:"xf",area:"회전",sev:"na",title:"참고: X-팩터(상·하체 꼬임) "+r0(x)+"°",value:r0(x)+"°",ref:"35~50°",conf:"낮음",why:"가슴 회전 − 골반 회전. 꼬임이 클수록 힘을 모으기 좋습니다.",drill:""});
     if(bd.imp&&bd.imp.ok){ const sg=Math.sign(bd.top.chest)||-1, open=-bd.imp.pelvis*sg;      // + = open toward target
-      add({key:"impPelvis",area:"회전",sev:open<5?"bad":open<25?"warn":"ok",title:open<25?"임팩트 때 골반이 덜 열려 있습니다":"임팩트 골반 열림 양호",
+      add({key:"impPelvis",area:"회전",sev:"na",title:"참고: 임팩트 골반 "+(open>=0?r0(open)+"° 열림":r0(-open)+"° 닫힘"),
         value:open>=0?r0(open)+"° 열림":r0(-open)+"° 닫힘",ref:"30~45° 열림",conf:"낮음",
-        why:"임팩트 순간 골반이 타깃 쪽으로 열린 각도입니다. 덜 열리면 하체가 리드하지 못하고 팔로 치는 스윙이 됩니다. 뒤에서 카메라 1대로 추정한 값이라 오차가 큽니다.",
+        why:"임팩트 순간 골반이 타깃 쪽으로 열린 각도입니다. 덜 열리면 하체가 리드하지 못하고 팔로 치는 스윙이 됩니다. 카메라 1대 추정값이라 같은 스윙끼리도 수십 도씩 달라집니다. 판정에 넣지 않고 숫자만 참고로 보여 줍니다.",
         drill:"다운스윙을 왼 무릎·왼 엉덩이가 먼저 여는 느낌으로 시작(스텝 드릴, 임팩트 자세 멈춤 연습)."}); }
   } else if(bd) add({key:"chest",area:"회전",sev:"na",title:"몸 회전 측정 이상",value:"-",ref:"",conf:"낮음",why:"3D 추정값이 사람 몸으로 불가능한 범위라 표시하지 않습니다.",drill:""});
   // ---- face-on ----
