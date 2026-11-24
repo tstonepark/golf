@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
     private static final int W = 1920, H = 1080, FPS = 60;
     private boolean hs;                       // 고속(240fps) 모드
     private RingRecorder rr; private Surface recSurface;
-    private Button autoBtn; private boolean autoOn = true; private volatile int autoMode = 1;   // 0 끔 · 1 공을 칠 때만(동작+소리) · 2 동작만(빈 스윙 포함) private volatile long lastSaveAt = 0; private Thread mic; private volatile boolean micRun = false;
+    private Button autoBtn; private boolean autoOn = true; private volatile int autoMode = 1; /* 0 끔 · 1 공을 칠 때만(동작+소리) · 2 동작만(빈 스윙 포함) */ private volatile long lastSaveAt = 0; private Thread mic; private volatile boolean micRun = false;
     private int fwd = 0;                      // 고속일 때 아이패드로는 4장 중 1장만(60fps)
     private Button speedBtn, saveBtn;
     private static final long[] SHUTTERS = {0, 500, 1000, 2000};   // 0 = 자동, 나머지 1/n 초
