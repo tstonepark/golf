@@ -302,3 +302,24 @@ export function cmpMetrics(pose,ph,fps,view,TF){
   const back=TF? TF(ph.top)-TF(ph.start) : (ph.top-ph.start)/fps, down=TF? TF(ph.imp)-TF(ph.top) : (ph.imp-ph.top)/fps;
   return {tempo:{back,down,ratio:down>0?back/down:null},addr:{tilt:tilt(A)},top:at(T),imp:at(I)};
 }
+
+// Backswing in four steps (address, takeaway, halfway, top): where the head, the centre of the shoulders, the pelvis and the hands
+// are relative to address, in % of the torso length, and which of them left its address place first.
+// x: face-on + = away from the target; down-the-line + = toward the ball. y: + = up. One camera: image-plane shifts, not 3D distances.
+export function backswingSteps(pose,ph,po,view,TF,fps){
+  const near=i=>{ for(let d=0;d<=6;d++){ if(pose[i-d]) return pose[i-d]; if(pose[i+d]) return pose[i+d]; } return null; };
+  const A=near(ph.start), T=near(ph.top); if(!A||!T||!A.nose) return null;
+  const tl=hyp(A.sh[0]-A.hip[0],A.sh[1]-A.hip[1]); if(!(tl>10)) return null;
+  const dir=view==="dtl"? (Math.sign(A.hands[0]-A.hip[0])||1) : (Math.sign(T.hands[0]-A.hands[0])||1);
+  const PARTS=[["head","nose"],["sh","sh"],["hip","hip"],["hands","hands"]];
+  const off=P=>{ const o={}; for(const [k,src] of PARTS) o[k]=[(P[src][0]-A[src][0])*dir/tl*100,(A[src][1]-P[src][1])/tl*100]; return o; };
+  const steps=[["어드레스",ph.start],["테이크백",po&&po.p2],["백스윙 중간",po&&po.p3],["탑",ph.top]].filter(q=>q[1]!=null).map(([name,i])=>{ const P=near(i); return P?Object.assign({name,i},off(P)):null; }).filter(Boolean);
+  // first departure: the first pose sample after the start whose sideways shift exceeds TH and stays beyond it on the next two samples
+  const TH=5, ix=[]; for(let i=ph.start;i<=ph.top;i++) if(pose[i]&&pose[i].nose) ix.push(i);
+  const tOf=i=>TF? TF(i)-TF(ph.start) : (i-ph.start)/fps, phaseOf=i=>po&&po.p2!=null&&i<=po.p2?"테이크백": po&&po.p3!=null&&i<=po.p3?"백스윙 중간":"탑 직전";
+  const onset={};
+  for(const [k,src] of PARTS.slice(0,3)){ onset[k]=null; let end=0; for(const q of steps) if(Math.abs(q[k][0])>Math.abs(end)) end=q[k][0]; const sg=Math.sign(end)||1;   // direction of the largest shift of the four steps
+    for(let j=0;j<ix.length;j++){ const v=q=>(pose[ix[q]][src][0]-A[src][0])*dir/tl*100*sg;
+      if(v(j)>TH&&(j+1>=ix.length||v(j+1)>TH)&&(j+2>=ix.length||v(j+2)>TH)){ onset[k]={i:ix[j],t:tOf(ix[j]),phase:phaseOf(ix[j]),sign:sg}; break; } } }
+  return {view,TH,steps,onset};
+}
