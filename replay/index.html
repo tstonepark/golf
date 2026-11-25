@@ -12,7 +12,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
 #mainv{position:absolute;inset:0}
 #strip,#strip2{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;-webkit-overflow-scrolling:touch}
-.fixrow{margin:14px 0 20px}.fixt{font-size:21px;font-weight:700;color:#ff6b6b;margin-bottom:8px}.fixpair{display:flex;gap:10px}.fixp{flex:1;min-width:0;font-size:17px;font-weight:700;line-height:1.35}.fixp canvas{width:100%;height:auto;border:3px solid;border-radius:10px;display:block;margin-bottom:6px}
+.fix4 .fixp{font-size:15px}.fixrow{margin:14px 0 20px}.fixt{font-size:21px;font-weight:700;color:#ff6b6b;margin-bottom:8px}.fixpair{display:flex;gap:10px}.fixp{flex:1;min-width:0;font-size:17px;font-weight:700;line-height:1.35}.fixp canvas{width:100%;height:auto;border:3px solid;border-radius:10px;display:block;margin-bottom:6px}
 #strip .tile,#strip2 .tile{flex:none;width:132px;text-align:center;font-size:17px;font-weight:700}
 #strip canvas,#strip2 canvas{width:132px;height:132px;border-radius:10px;border:3px solid #555;display:block;background:#000}
 #refv{position:absolute;top:0;bottom:0;right:0;width:50%;border-left:2px solid var(--line);background:#000}
@@ -75,7 +75,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v105</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v106</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -103,9 +103,9 @@ input[type=file]{display:none}
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
 <script src="../vendor/mp4box/mp4box.all.min.js"></script>
 <script type="module">
-import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=105";
-import * as A from "./analysis.js?v=105";
-import {diagnose,summary} from "./diagnose.js?v=105";
+import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=106";
+import * as A from "./analysis.js?v=106";
+import {diagnose,summary} from "./diagnose.js?v=106";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
 
@@ -272,7 +272,7 @@ function finish(D,file,T0){
   const po=A.posture(pose,ph,fps,view,TS), M=A.cmpMetrics(pose,ph,fps,view,TS);
   if(po) Object.assign(po,A.clubCheckpoints(tr,ph,pose,fps));   // 테이크백·백스윙 중간·다운 중간 버튼이 갈 장면
   const kp={}; { const near=i=>{ for(let d=0;d<=6;d++){ if(pose[i-d]) return pose[i-d]; if(pose[i+d]) return pose[i+d]; } return null; }, c=q=>q&&{nose:q.nose,sh:q.sh,hip:q.hip,hands:q.hands};
-    kp.A=c(near(ph.start)); kp.T=c(near(ph.top)); kp.I=c(near(ph.imp)); }   // 고칠 점 그림에 쓰는 어드레스·탑·임팩트 자세
+    kp.A=c(near(ph.start)); kp.T=c(near(ph.top)); kp.I=c(near(ph.imp)); if(po&&po.p2!=null) kp.P2=c(near(po.p2)); if(po&&po.p3!=null) kp.P3=c(near(po.p3)); }   // 고칠 점 그림에 쓰는 어드레스·탑·임팩트 자세
   /* 후면인데 플레인을 못 세웠다 = 공(임팩트 때 헤드) 위치가 말이 안 된다 = 이 영상에서는 헤드 인식을 믿을 수 없다.
      자막·옷·간판에 찍힌 동그라미와 선을 진짜처럼 보여 주지 않도록 클럽 표시를 모두 끈다(몸동작 측정은 그대로). */
   const noClub=view==="dtl"&&!pl; if(noClub){ tr=new Array(n).fill(null); cv.back=[]; cv.down=[]; cv.after=[]; }
@@ -319,7 +319,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps/(R.slow||1))}fps${R.slow>1?" (슬로모션 약 "+R.slow+"배)":""} · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v105</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v106</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -336,7 +336,7 @@ function histHtml(){
 const CLUBN={"":"선택 안 함",iron:"아이언",driver:"드라이버"};
 let club=""; try{ club=localStorage.getItem("club")||""; if(!(club in CLUBN)) club=""; }catch(e){}
 function updClub(){ const b=$("clubb"); if(b){ b.textContent="클럽: "+CLUBN[club]; b.classList.toggle("on",!!club); } }
-const FIXK=["headTop","headUp","ee","rise","entry"];
+const FIXK=["headTop","headUp","ee","rise","entry","hipDepth"];
 let fixTok=0;
 /* 빨간(고칠 점) 항목마다 '지금'과 '목표' 그림 한 쌍. 영상의 해당 장면을 가져와 몸 주변만 오려 그 위에 표시한다. */
 async function makeFixPics(){ const my=++fixTok, box=$("fixpics"); if(!box||!R||!R.kp) return; const key=vid.currentSrc||vid.src; if(!key) return;
@@ -361,6 +361,8 @@ async function makeFixPics(){ const my=++fixTok, box=$("fixpics"); if(!box||!R||
         now=g=>{ line(g,[c.x,KA.nose[1]],[c.x+c.s,KA.nose[1]],WHT,true,3); circ(g,KI.nose,hr,RED); arrow(g,[KI.nose[0],KA.nose[1]],KI.nose,RED); }; goal=g=>{ line(g,[c.x,KA.nose[1]],[c.x+c.s,KA.nose[1]],GRN,false,3); circ(g,[KI.nose[0],KA.nose[1]],hr,GRN); }; }
       else if(it.key==="ee"&&KA&&KI){ fr=R.ph.imp; capN="지금: 엉덩이가 어드레스 선(흰 점선)에서 공 쪽으로 나옴 · "+it.value; capG="목표: 엉덩이를 초록 선에 붙인 채 회전";
         now=g=>{ line(g,[KA.hip[0],KA.sh[1]],[KA.hip[0],KA.hip[1]+1.4*tl],WHT,true,3); dot(g,KI.hip,RED); arrow(g,[KA.hip[0],KI.hip[1]],KI.hip,RED); }; goal=g=>{ line(g,[KA.hip[0],KA.sh[1]],[KA.hip[0],KA.hip[1]+1.4*tl],GRN,false,3); dot(g,[KA.hip[0],KI.hip[1]],GRN); }; }
+      else if(it.key==="hipDepth"&&KA&&KT){ fr=R.ph.top; capN="지금: 탑에서 골반이 어드레스 선(흰 점선)보다 공 쪽으로 나옴 · "+it.value; capG="목표: 오른쪽 골반이 초록 선 뒤로 빠지며 회전";
+        now=g=>{ line(g,[KA.hip[0],KA.sh[1]],[KA.hip[0],KA.hip[1]+1.4*tl],WHT,true,3); dot(g,KT.hip,RED); arrow(g,[KA.hip[0],KT.hip[1]],KT.hip,RED); }; goal=g=>{ line(g,[KA.hip[0],KA.sh[1]],[KA.hip[0],KA.hip[1]+1.4*tl],GRN,false,3); dot(g,[KA.hip[0],KT.hip[1]],GRN); }; }
       else if(it.key==="rise"&&KA&&KI){ fr=R.ph.imp; const d=[KA.sh[0]-KA.hip[0],KA.sh[1]-KA.hip[1]], L=Math.hypot(d[0],d[1])||1, tgt=[KI.hip[0]+d[0]/L*1.25*tl,KI.hip[1]+d[1]/L*1.25*tl], cur=[KI.hip[0]+(KI.sh[0]-KI.hip[0])*1.25,KI.hip[1]+(KI.sh[1]-KI.hip[1])*1.25];
         capN="지금: 임팩트 때 상체(빨강)가 어드레스 각도(흰 점선)보다 섬 · "+it.value; capG="목표: 어드레스 때 숙인 각도(초록)를 임팩트까지 유지";
         now=g=>{ line(g,KI.hip,tgt,WHT,true,3); line(g,KI.hip,cur,RED,false,5); dot(g,KI.hip,RED); }; goal=g=>{ line(g,KI.hip,tgt,GRN,false,5); dot(g,KI.hip,GRN); }; }
@@ -371,7 +373,15 @@ async function makeFixPics(){ const my=++fixTok, box=$("fixpics"); if(!box||!R||
       if(fr==null) continue; await seekTo(fr); if(my!==fixTok) break;
       const [c1,g1]=frame(); now(g1); const [c2,g2]=frame(); goal(g2);
       const w=document.createElement("div"); w.className="fixrow"; w.dataset.title=it.title; const mk=(cv,cap,col)=>{ const d=document.createElement("div"); d.className="fixp"; cv.style.borderColor=col; d.appendChild(cv); const t=document.createElement("div"); t.textContent=cap; t.style.color=col; d.appendChild(t); d.onclick=()=>seekFrame(fr); return d; };
-      const hd=document.createElement("div"); hd.className="fixt"; hd.textContent=it.title; w.appendChild(hd); const pr=document.createElement("div"); pr.className="fixpair"; pr.appendChild(mk(c1,capN,RED)); pr.appendChild(mk(c2,capG,GRN)); w.appendChild(pr); box.appendChild(w); }
+      const hd=document.createElement("div"); hd.className="fixt"; hd.textContent=it.title; w.appendChild(hd); const pr=document.createElement("div"); pr.className="fixpair"; pr.appendChild(mk(c1,capN,RED)); pr.appendChild(mk(c2,capG,GRN)); w.appendChild(pr); box.appendChild(w);
+      /* 상체가 통째로 밀리는 경우: 어드레스→테이크백→백스윙 중간→탑 4단계에서 머리·어깨 중심·골반이 어드레스 세로선(초록)에서 얼마나 벗어나는지 */
+      if(it.key==="headTop"&&it.cause==="body"&&KA){ const steps=[["어드레스",R.ph.start,KA],["테이크백",R.po&&R.po.p2,R.kp.P2],["백스윙 중간",R.po&&R.po.p3,R.kp.P3],["탑",R.ph.top,KT]].filter(q=>q[1]!=null&&q[2]);
+        const row=document.createElement("div"); row.className="fixrow fix4"; row.dataset.title="백스윙 4단계 — 초록 세로선: 어드레스 때 머리·어깨 중심·골반 자리 / 빨간 점: 지금 위치"; const hd4=document.createElement("div"); hd4.className="fixt"; hd4.textContent=row.dataset.title; row.appendChild(hd4);
+        const pr4=document.createElement("div"); pr4.className="fixpair"; row.appendChild(pr4);
+        for(const [nm,f4,K] of steps){ if(my!==fixTok) break; await seekTo(f4); const [cv,g]=frame();
+          for(const [k2,dy0,dy1] of [["nose",-hr,hr],["sh",-0.25*tl,0.25*tl],["hip",-0.25*tl,0.25*tl]]){ line(g,[KA[k2][0],KA[k2][1]+dy0],[KA[k2][0],KA[k2][1]+dy1],GRN,false,4); const off=Math.abs(K[k2][0]-KA[k2][0])>0.05*tl; dot(g,[K[k2][0],KA[k2][1]],off?RED:GRN); if(off) line(g,[KA[k2][0],KA[k2][1]],[K[k2][0],KA[k2][1]],RED,false,3); }
+          pr4.appendChild(mk(cv,nm,nm==="어드레스"?GRN:"#ddd")); pr4.lastChild.onclick=()=>seekFrame(f4); }
+        box.appendChild(row); } }
   }catch(e){ console.warn("fixpics",e); }
   finally{ try{ gv.removeAttribute("src"); gv.load(); }catch(e){} gv.remove(); } }
 function results(save){
@@ -384,7 +394,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v105</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v106</div>`; }
   if(D.issues.some(x=>x.sev==="bad"&&FIXK.includes(x.key))) h+=`<h2>고칠 점 그림</h2><div class="dimt">빨간 항목만 · 왼쪽은 지금 모습, 오른쪽은 같은 장면에 목표 위치(초록)를 그린 것입니다. 사진을 고친 것이 아니라 어디에 있어야 하는지를 표시한 그림입니다.</div><div id="fixpics"></div>`;
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
@@ -608,7 +618,7 @@ async function makePdf(onProg){
   // 1쪽~: 요약과 진단
   newPage(); text("스윙 분석 리포트",50,{bold:true}); gap(6);
   text((R.name||"이름 없는 영상")+" · 만든 시각 "+new Date().toLocaleString("ko-KR"),24,{color:"#444"});
-  text("분석기 v105 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
+  text("분석기 v106 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
   // 결과 화면에 보이는 내용을 그대로 옮긴다(접혀 있는 '나머지'·'양호'·'상세 수치'도 펼쳐서): 종합 진단, 프로 비교, 기록 비교, 상세 수치
   { const CLR=el=>el.classList.contains("bad")?"#c62828":el.classList.contains("warn")?"#b26a00":el.classList.contains("ok")?"#1b7a3a":null, T=el=>(el.textContent||"").replace(/\s+/g," ").trim();
     const emit=(el,ind)=>{ if(el.nodeType!==1||el.tagName==="BUTTON"||el.hidden) return; const tag=el.tagName, cl=el.classList;
@@ -653,7 +663,7 @@ async function makePdf(onProg){
   { const rows=[...document.querySelectorAll("#fixpics .fixrow")]; if(rows.length){ newPage(); text("고칠 점 그림 (왼쪽 지금 · 오른쪽 목표)",40,{bold:true}); rule();
       const cw=Math.floor((PW-2*M-20)/2);
       for(const rw of rows){ if(y+cw+150>PH-M) newPage(); text(rw.dataset.title||"",28,{bold:true,color:"#c0392b"}); const cs=[...rw.querySelectorAll("canvas")], caps=[...rw.querySelectorAll(".fixp > div")].map(d=>d.textContent);
-        cs.forEach((cv,j)=>{ x.drawImage(cv,M+j*(cw+20),y,cw,cw); }); y+=cw+8; const y0=y; let yMax=y;
+        const nc=Math.max(2,cs.length), cw2=Math.floor((PW-2*M-(nc-1)*20)/nc); cs.forEach((cv,j)=>{ x.drawImage(cv,M+j*(cw2+20),y,cw2,cw2); }); y+=cw2+8; if(nc>2){ x.font='700 20px '+FONT; x.fillStyle='#333'; x.textBaseline='top'; caps.forEach((t,j)=>x.fillText(t,M+j*(cw2+20),y)); y+=40; continue; } const y0=y; let yMax=y;
         caps.forEach((t,j)=>{ y=y0; x.font="400 20px "+FONT; x.fillStyle=j?"#1e8449":"#c0392b"; x.textBaseline="top"; let ln=""; for(const ch of t){ if(x.measureText(ln+ch).width>cw-6){ x.fillText(ln,M+j*(cw+20),y); y+=27; ln=ch; } else ln+=ch; } if(ln){ x.fillText(ln,M+j*(cw+20),y); y+=27; } yMax=Math.max(yMax,y); }); y=yMax+24; } } }
   // 헤드 모양: 화면의 '헤드 모양' 줄에 있는 확대 사진을 그대로
   { const tiles=[...$("strip").querySelectorAll(".tile")]; newPage(); text("헤드 모양 (테이크백 → 팔로스루, 약 3배 확대)",40,{bold:true}); rule();

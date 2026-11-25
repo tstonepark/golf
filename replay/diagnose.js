@@ -79,6 +79,21 @@ export function diagnose(R){
       if(R.club==="iron") add({key:"lean",area:"임팩트",sev:fo.lean<0?"warn":"ok",title:fo.lean<0?"임팩트 때 헤드가 손보다 앞섭니다(스쿠핑)":"핸드 퍼스트 임팩트",value:lv,ref:"아이언: 손이 5~10° 앞",conf:"보통",why:"임팩트 순간 샤프트 기울기입니다.",drill:"임팩트 백 치기, 펀치 샷."});
       else add({key:"lean",area:"임팩트",sev:"na",title:"참고: 임팩트 샤프트 기울기 "+lv,value:lv,ref:R.club==="driver"?"드라이버: 거의 수직(0° 근처)":"클럽을 고르면 판정",conf:"보통",why:"임팩트 순간 샤프트 기울기입니다. 아이언은 손이 앞서야 하고, 드라이버는 거의 수직으로 맞습니다. 정면에서 조금만 비스듬히 찍어도 값이 크게 달라져 숫자만 참고로 보여 줍니다.",drill:""}); }
   }
+  /* WHY the head moves. Face-on, when the centre of the shoulders travels almost as far as the head, the head is not the fault:
+     the whole upper body slides away from the target instead of turning. Then "keep the head still" is the wrong cue - it stiffens
+     the turn. Say so on the head item, with the three shifts and the order to fix them in. */
+  if(view!=="dtl"&&fo&&fo.shTop!=null&&fo.headTop!=null){ const h=it.find(x=>x.key==="headTop"), hd=fo.headTop, sh=fo.shTop, hp=fo.hipTop;
+    if(h&&h.sev!=="ok"&&hd>8&&sh>=0.6*hd){ h.title="백스윙에서 상체가 통째로 오른쪽으로 밀립니다(머리만의 문제가 아님)";
+      h.value="머리 "+r0(hd)+"cm · 어깨 중심 "+r0(sh)+"cm · 골반 "+r0(hp)+"cm (타깃 반대쪽)"; h.ref="머리 5cm 이내 · 어깨 중심·골반은 거의 제자리";
+      h.why="머리가 움직인 만큼 어깨 중심도 같이 갔습니다. 머리만 돈 것이 아니라 몸통이 회전 대신 옆으로 이동한 것입니다. 머리를 억지로 고정하려 하면 몸이 굳어 백스윙이 더 답답해지니, 회전은 그대로 두고 옆으로 가는 양만 줄이는 것이 목표입니다. (어깨너비 40cm 가정)";
+      h.drill="순서: ① 오른쪽 골반을 뒤로 빼며 돌리기(오른쪽 엉덩이가 벽 쪽으로) → ② 그 위에서 몸통 회전 → ③ 하프 백스윙에서 멈춰 머리·골반 위치 확인 후 천천히 탑까지(10회 × 3세트). 머리 고정 연습은 나중에."; h.cause="body"; } }
+  /* Down the line: in the backswing the trail hip should go back (away from the ball) to make room. Positive = the pelvis came
+     toward the ball instead. One tour reference measured -2 with the same code. */
+  if(view==="dtl"&&R.M&&R.M.top&&R.M.top.hipX!=null){ const v=R.M.top.hipX;
+    add({key:"hipDepth",area:"자세",sev:v>8?"bad":v>3?"warn":"ok",title:v>3?"백스윙 때 골반이 공 쪽으로 나옵니다(오른쪽 골반이 뒤로 빠지지 않음)":"백스윙 골반 깊이 양호",
+      value:(v>=0?"공 쪽 ":"뒤로 ")+r0(Math.abs(v))+"%",ref:"제자리 또는 뒤로 (기준 프로 영상: 뒤로 2%)",conf:"보통",
+      why:"탑에서 골반 중심이 어드레스보다 공 쪽으로 왔는지(몸통 길이 대비)입니다. 오른쪽 골반이 뒤로 돌아 빠져야 팔이 내려올 공간이 생깁니다. 공 쪽으로 나오면 다운스윙에서 엉덩이가 더 나오고 상체가 일어서기 쉽습니다. 카메라 1대 추정이라 오차가 있습니다.",
+      drill:"엉덩이를 벽(또는 의자 등받이)에 살짝 댄 채 백스윙: 오른쪽 엉덩이가 벽을 더 누르도록 돌리기. 하프 백스윙에서 멈춰 확인."}); }
   /* impact positions that depend on the club (face-on). Thresholds are first guesses from lesson material, not calibrated. */
   if(view!=="dtl"&&fo){ const ok=v=>v!=null&&Math.abs(v)<=40, club=R.club, hd=fo.headImp, hn=fo.handImp;
     if(!club) add({key:"club",area:"임팩트",sev:"na",title:"클럽을 고르면 임팩트 머리·손 위치를 판정합니다",value:"클럽 선택 안 함",ref:"",conf:"보통",why:"아이언과 드라이버는 임팩트 때 머리·손 위치의 정답이 달라서, 영상 아래 「클럽」 버튼으로 골라야 판정할 수 있습니다.",drill:""});
