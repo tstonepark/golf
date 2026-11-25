@@ -336,10 +336,13 @@ public class Analyzer {
         // 2차: 다운스윙 주변은 촘촘히, 나머지는 듬성듬성
         // (임팩트 위치를 미리 받은 경우 ±0.15초쯤 틀릴 수 있어 촘촘한 구간을 넓게, 대신 느린 구간의 뼈대는 초당 20장)
         final int a = Math.max(0, ci0 - (int) Math.round(2.8 * fps)), b = Math.min(n - 1, ci0 + (int) Math.round(1.3 * fps));
-        final double zPre = hint ? 0.6 : 0.45, zEv = hint ? 0.3 : 0.15; final int SP = hint ? 12 : 6;
+        /* 건너뛰는 간격은 240fps 기준이다. 광각 렌즈는 60fps로 찍히므로 그대로 쓰면 뼈대가 초당 5장뿐이라
+           구간(테이크백·탑)이 엉뚱하게 잡혔다. 영상 fps에 맞춰 줄인다(60fps면 12→3, 6→2, 3→1, 2→1). */
+        final double zPre = hint ? 0.6 : 0.45, zEv = hint ? 0.3 : 0.15; final double fq = fps / 240.0;
+        final int SP = Math.max(1, (int) Math.round((hint ? 12 : 6) * fq)), S6 = Math.max(1, (int) Math.round(6 * fq)), S3 = Math.max(1, (int) Math.round(3 * fq)), S2 = Math.max(1, (int) Math.round(2 * fq));
         final int d0 = ci0 - (int) Math.round(zPre * fps), dm0 = ci0 - (int) Math.round(zEv * fps), d1 = ci0 + (int) Math.round(zEv * fps);
-        final Want needH = i -> (i >= dm0 && i <= d1) || (i >= d0 && i < dm0 && i % 2 == 0) || i % 6 == 0;
-        final Want needP = i -> pose[i] == null && ((i >= d0 && i <= d1 && i % 3 == 0) || i % SP == 0);
+        final Want needH = i -> (i >= dm0 && i <= d1) || (i >= d0 && i < dm0 && i % S2 == 0) || i % S6 == 0;
+        final Want needP = i -> pose[i] == null && ((i >= d0 && i <= d1 && i % S3 == 0) || i % SP == 0);
         int tot0 = 0; for (int i = a; i <= b; i++) if (needH.at(i) || needP.at(i)) tot0++;
         final int tot = Math.max(1, tot0); cnt[0] = 0;
         final long base2 = tsLast + 5000;
