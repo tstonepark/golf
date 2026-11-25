@@ -108,14 +108,17 @@ export function curves(tr,ph,fps){
 // Where the head was not followed there, fall back to how far the hands have travelled between address and top height.
 export function clubCheckpoints(tr,ph,pose,fps){
   const near=i=>{ for(let d=0;d<=3;d++){ if(tr[i-d]) return tr[i-d]; if(tr[i+d]) return tr[i+d]; } return null; };
-  const A=pose[ph.start], T=pose[ph.top]; let p2=null,p6=null;
+  const A=pose[ph.start], T=pose[ph.top]; let p2=null,p6=null,p3=null;
   for(let i=ph.start+1;i<=ph.top;i++){ const h=near(i), P=pose[i]; if(h&&P&&h[1]<=P.hands[1]){ p2=i; break; } }
   for(let i=ph.imp-1;i>=ph.top;i--){ const h=near(i), P=pose[i]; if(h&&P&&h[1]<=P.hands[1]){ p6=Math.min(ph.imp,i+1); break; } }
   if(A&&T){ const y0=A.hands[1], y1=T.hands[1], span=y0-y1;
     if(span>20){
       if(p2==null||p2-ph.start>0.7*(ph.top-ph.start)) for(let i=ph.start;i<=ph.top;i++){ const P=pose[i]; if(P&&P.hands[1]<=y0-0.2*span){ p2=i; break; } }
       if(p6==null||ph.imp-p6>0.6*(ph.imp-ph.top)) for(let i=ph.top;i<=ph.imp;i++){ const P=pose[i]; if(P&&P.hands[1]>=y1+0.75*span){ p6=i; break; } } } }
-  return {p2,p6};
+  /* p3 = halfway up the backswing: the hands have covered 45% of their rise (about chest height, lead arm near level) */
+  if(A&&T){ const y0=A.hands[1], span=y0-T.hands[1]; if(span>20) for(let i=Math.max(ph.start,p2||0)+1;i<ph.top;i++){ const P=pose[i]; if(P&&P.hands[1]<=y0-0.45*span){ p3=i; break; } } }
+  if(p3!=null&&p2!=null&&p3<=p2) p3=null;
+  return {p2,p3,p6};
 }
 // Takeaway start from the hands, not the club head: the last moment before the top at which the hands were still at
 // address height (within 6% of the torso length of their lowest level). Head-based starts moved by 0.2-0.4s between
