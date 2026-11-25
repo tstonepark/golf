@@ -75,7 +75,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v108</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v109</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -103,23 +103,35 @@ input[type=file]{display:none}
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
 <script src="../vendor/mp4box/mp4box.all.min.js"></script>
 <script type="module">
-import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=108";
-import * as A from "./analysis.js?v=108";
-import {diagnose,summary} from "./diagnose.js?v=108";
+import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=109";
+import * as A from "./analysis.js?v=109";
+import {diagnose,summary} from "./diagnose.js?v=109";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
 
 // ---------- pose (MediaPipe tasks, same files as the live page) ----------
 let lmk=null;
 async function loadPose(){
-  const MPV=await import("../vendor/tasks/vision_bundle.mjs");
-  const vision=await MPV.FilesetResolver.forVisionTasks(new URL("../vendor/tasks/wasm",location.href).href);
-  const fp=new URLSearchParams(location.search).get("pd");
+  /* 각 단계가 어디서 멈췄는지 보이게 한다: 예전에는 "뼈대 모델 준비 중…"에서 내려받기가 느린 건지, 그래픽 칩 초기화가 멈춘 건지 알 수 없었다. */
+  const lim=(pr,ms,what)=>Promise.race([pr,new Promise((_,rej)=>setTimeout(()=>rej(new Error(what+" 시간 초과("+Math.round(ms/1000)+"초)")),ms))]);
+  prog("뼈대 모델 준비 중… (1/3 프로그램)",0.04);
+  const MPV=await lim(import("../vendor/tasks/vision_bundle.mjs"),40000,"뼈대 프로그램 내려받기");
+  const vision=await lim(MPV.FilesetResolver.forVisionTasks(new URL("../vendor/tasks/wasm",location.href).href),40000,"뼈대 프로그램 준비");
+  // 모델 파일(약 30MB)을 직접 받아 진행률을 보여 준다
+  let buf=null;
+  try{ const r=await lim(fetch(new URL("../vendor/models/pose_landmarker_heavy.task",location.href).href),30000,"뼈대 모델 연결"); if(!r.ok) throw new Error("HTTP "+r.status);
+    const tot=+r.headers.get("content-length")||30e6, rd=r.body.getReader(), parts=[]; let got=0, last=performance.now();
+    for(;;){ const {done,value}=await lim(rd.read(),30000,"뼈대 모델 내려받기"); if(done) break; parts.push(value); got+=value.length;
+      if(performance.now()-last>300){ last=performance.now(); prog("뼈대 모델 준비 중… (2/3 내려받기 "+(got/1e6).toFixed(0)+" / "+(tot/1e6).toFixed(0)+"MB)",0.04); } }
+    buf=new Uint8Array(got); let o=0; for(const q of parts){ buf.set(q,o); o+=q.length; }
+  }catch(e){ throw new Error("뼈대 모델을 내려받지 못했습니다 — "+(e.message||e)+". 인터넷 연결을 확인하고 새로고침해 주세요."); }
+  const fp=new URLSearchParams(location.search).get("pd"); let lastErr="";
   for(const delegate of (fp?[fp]:["GPU","CPU"])){
-    try{ lmk=await MPV.PoseLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:new URL("../vendor/models/pose_landmarker_heavy.task",location.href).href,delegate},runningMode:"VIDEO",numPoses:1}); return delegate; }
-    catch(e){ console.warn("pose",delegate,e); }
+    prog("뼈대 모델 준비 중… (3/3 "+(delegate==="GPU"?"그래픽 칩":"일반 방식")+"으로 시작)",0.045);
+    try{ lmk=await lim(MPV.PoseLandmarker.createFromOptions(vision,{baseOptions:{modelAssetBuffer:buf,delegate},runningMode:"VIDEO",numPoses:1}),delegate==="GPU"?25000:60000,"뼈대 모델 시작"); return delegate; }
+    catch(e){ console.warn("pose",delegate,e); lastErr=e.message||String(e); }
   }
-  throw new Error("뼈대 모델을 불러오지 못했습니다");
+  throw new Error("뼈대 모델을 시작하지 못했습니다 — "+lastErr+". 다른 탭·앱을 닫고 새로고침해 주세요.");
 }
 function poseOf(r){
   if(!r||!r.landmarks||!r.landmarks.length) return null;
@@ -169,7 +181,6 @@ function showThumb(b64){ let im=$("pth"); if(!im){ im=document.createElement("im
 async function detect(file){
   prog("모델 준비 중…",0.02);
   const ep=await loadHead("../");   // one at a time: iPad Safari runs out of memory loading both at once
-  prog("뼈대 모델 준비 중…",0.04);
   const pd=await loadPose();
   prog("영상 읽는 중…",0.05);
   const dm=await demux(await file.arrayBuffer()); const n=dm.samples.length, fps0=dm.fps; let fps=fps0, slow=1; vfps=fps;
@@ -320,7 +331,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps/(R.slow||1))}fps${R.slow>1?" (슬로모션 약 "+R.slow+"배)":""} · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v108</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v109</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -419,7 +430,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v108</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v109</div>`; }
   if(D.issues.some(x=>(x.sev==="bad"&&FIXK.includes(x.key))||(R.view==="dtl"&&x.key==="hipDepth"))) h+=`<h2>고칠 점 그림</h2><div class="dimt">빨간 항목만 · 왼쪽은 지금 모습, 오른쪽은 같은 장면에 목표 위치(초록)를 그린 것입니다. 사진을 고친 것이 아니라 어디에 있어야 하는지를 표시한 그림입니다.</div><div id="fixpics"></div>`;
   if(D.issues.length){ h+=`<h2>먼저 고칠 것</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
@@ -644,7 +655,7 @@ async function makePdf(onProg){
   // 1쪽~: 요약과 진단
   newPage(); text("스윙 분석 리포트",50,{bold:true}); gap(6);
   text((R.name||"이름 없는 영상")+" · 만든 시각 "+new Date().toLocaleString("ko-KR"),24,{color:"#444"});
-  text("분석기 v108 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
+  text("분석기 v109 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
   // 결과 화면에 보이는 내용을 그대로 옮긴다(접혀 있는 '나머지'·'양호'·'상세 수치'도 펼쳐서): 종합 진단, 프로 비교, 기록 비교, 상세 수치
   { const CLR=el=>el.classList.contains("bad")?"#c62828":el.classList.contains("warn")?"#b26a00":el.classList.contains("ok")?"#1b7a3a":null, T=el=>(el.textContent||"").replace(/\s+/g," ").trim();
     const emit=(el,ind)=>{ if(el.nodeType!==1||el.tagName==="BUTTON"||el.hidden) return; const tag=el.tagName, cl=el.classList;
