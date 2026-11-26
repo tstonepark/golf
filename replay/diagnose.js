@@ -105,13 +105,44 @@ export function diagnose(R){
         if(club==="iron") add({key:"handFwd",area:"임팩트",sev:hn<3?"warn":"ok",title:hn<3?"임팩트 때 손이 앞서지 못합니다":"임팩트 때 손이 앞서 있습니다(핸드 퍼스트)",value:v,ref:"아이언: 어드레스보다 타깃 쪽 3cm 이상",conf:"보통",why:"아이언은 임팩트 때 손이 어드레스보다 타깃 쪽에 있어야 눌러 맞습니다. (기준은 잠정값)",drill:"임팩트 백 치기, 펀치 샷."});
         else add({key:"handFwd",area:"임팩트",sev:"na",title:"참고: 임팩트 손 위치 "+v,value:v,ref:"드라이버: 어드레스 자리 근처",conf:"보통",why:"드라이버는 손이 많이 앞서지 않고 어드레스 자리 근처에서 맞습니다. 숫자만 참고로 보여 줍니다.",drill:""}); } } }
   const rank={bad:0,warn:1,na:2,ok:3};
-  const issues=it.filter(x=>x.sev==="bad"||x.sev==="warn").sort((a,b)=>rank[a.sev]-rank[b.sev]||({"높음":0,"보통":1,"낮음":2})[a.conf]-({"높음":0,"보통":1,"낮음":2})[b.conf]);
-  return {items:it,issues,good:it.filter(x=>x.sev==="ok")};
+  /* ---- root cause first ----
+     These are RULES written in advance, not something discovered in the video: "when A and B are both off, A is the likely cause of B".
+     Each chain carries a confidence and is worded as a candidate. At most two chains are offered to work on at a time. */
+  const get=k=>it.find(x=>x.key===k), off=x=>!!x&&(x.sev==="bad"||x.sev==="warn"), chains=[];
+  const on=k=>R.st4&&R.st4.onset&&R.st4.onset[k]? "시작 "+R.st4.onset[k].t.toFixed(2)+"초 뒤("+R.st4.onset[k].phase+" 구간)부터" : null;
+  if(view==="dtl"){ const hd=get("hipDepth"), ee=get("ee"), rise=get("rise"), hu=get("headUp"), tk=get("takeaway"), en=get("entry");
+    if(off(hd)&&(off(ee)||off(rise))) chains.push({root:hd,results:[ee,rise].filter(off),conf:"보통",when:on("hip"),hist:"hipTop",unit:"%",
+      link:"백스윙에서 오른쪽 골반이 뒤로 빠지지 않아 팔이 내려올 공간이 없고, 그 공간을 만들려고 임팩트 때 엉덩이가 공 쪽으로 나오며 상체가 일어서는 것으로 봅니다.",
+      one:"오른쪽 엉덩이를 뒤로 보내면서 가슴을 돌린다",
+      prep:"엉덩이를 벽이나 의자 등받이에 살짝 대고 어드레스(클럽 없이 팔짱).",act:"오른쪽 엉덩이가 벽을 더 누르도록 돌리며 올라가, 하프 백스윙에서 2초 멈춰 확인한 뒤 탑까지.",
+      reps:"공 없이 10회 × 3세트 → 그다음 50% 속도로 공 10개.",caution:"머리를 붙잡지 말 것. 무릎을 펴며 일어서지 말 것."});
+    else if(off(ee)) chains.push({root:ee,results:[rise,hu].filter(off),conf:"보통",when:null,hist:"ee",unit:"%",
+      link:"임팩트 때 엉덩이가 공 쪽으로 나오면 상체가 일어서고 머리 높이가 변합니다. 백스윙 골반 깊이에서는 뚜렷한 원인이 보이지 않았습니다.",
+      one:"엉덩이를 뒤에 둔 채 왼쪽 엉덩이를 뒤로 돌린다",
+      prep:"엉덩이를 벽에 살짝 대고 어드레스.",act:"다운스윙에서 왼쪽 엉덩이가 벽을 스치도록 돌리며 임팩트 자세에서 2초 정지.",
+      reps:"공 없이 10회 × 3세트 → 하프 스윙으로 공 10개.",caution:"공을 맞히려고 몸을 공 쪽으로 밀지 말 것."});
+    if(off(tk)&&off(en)) chains.push({root:tk,results:[en],conf:"낮음",when:null,hist:null,
+      link:"테이크백에서 헤드를 바깥으로 들면, 내려올 때 그 반대로 안쪽 아래로 떨어뜨려 길을 맞추게 됩니다. 화면(2D)에서 본 판정이라 카메라 위치에 따라 달라질 수 있습니다.",
+      one:"테이크백은 손과 헤드가 함께, 샤프트 수평에서 헤드가 손을 가린다",
+      prep:"폰을 타깃 라인 정후방(손 높이)에 두고 어드레스.",act:"샤프트가 수평이 될 때까지만 올리고 멈춰, 「테이크백」 장면에서 헤드가 손과 겹치는지 확인.",
+      reps:"10회 × 3세트.",caution:"손목으로 먼저 들어 올리지 말 것."}); }
+  else { const ht=get("headTop"), sw=get("sway"), sf=get("shift"), hu=get("headUp");
+    if(ht&&ht.cause==="body") chains.push({root:ht,results:[sw,sf,hu].filter(off),conf:"보통",when:on("sh")||on("head"),hist:"shTop",unit:"cm",
+      link:"백스윙에서 몸통이 회전 대신 타깃 반대쪽으로 통째로 이동하고, 머리는 그 결과로 따라갑니다. 골반 이동과 임팩트 때의 체중·머리 위치도 여기서 이어지는 것으로 봅니다.",
+      one:"오른쪽 엉덩이를 옆이 아니라 뒤로 돌린다",
+      prep:"오른발 바깥쪽에 공 바구니나 스틱을 세우고 어드레스.",act:"오른 무릎·엉덩이가 그것에 닿지 않게 돌리며 올라가, 하프 백스윙에서 2초 멈춰 머리·골반 위치를 확인한 뒤 탑까지.",
+      reps:"공 없이 10회 × 3세트 → 50% 속도로 공 10개.",caution:"머리를 억지로 고정하지 말 것(몸이 굳습니다). 옆으로 가는 양만 줄입니다."}); }
+  for(const c of chains.slice(0,2)){ c.root.tier=1; for(const r of c.results){ if(r.tier!==1){ r.tier=2; r.resultOf=c.root.title; } } }
+  const cf={"높음":0,"보통":1,"낮음":2};
+  const issues=it.filter(x=>x.sev==="bad"||x.sev==="warn").sort((a,b)=>(a.tier||3)-(b.tier||3)||rank[a.sev]-rank[b.sev]||cf[a.conf]-cf[b.conf]);
+  const plan=chains.slice(0,2).map(c=>({key:c.root.key,title:c.root.title,value:c.root.value,ref:c.root.ref,sev:c.root.sev,conf:c.conf,when:c.when,link:c.link,results:c.results.map(r=>r.title+" ("+r.value+")"),
+    one:c.one,prep:c.prep,act:c.act,reps:c.reps,caution:c.caution,hist:c.hist,unit:c.unit||""}));
+  return {items:it,issues,plan,good:it.filter(x=>x.sev==="ok")};
 }
 // compact record for the swing history
 export function summary(R,D){
   const po=R.po||{}, bd=R.bd, ok=bd&&bd.top&&bd.top.ok;
   return {t:Date.now(),name:R.name||"",view:R.view,fps:Math.round(R.fps),back:po.back,hold:po.hold,down:po.down,
     entry:R.pl&&R.pl.finalZone||null,takeawayOver:R.pl?R.pl.takeawayOver:null,chest:ok?Math.abs(bd.top.chest):null,pelvis:ok?Math.abs(bd.top.pelvis):null,
-    ee:po.hipFwdImp??null,headUp:po.headImp?-po.headImp[1]:null,issues:D.issues.map(x=>x.key)};
+    ee:po.hipFwdImp??null,headUp:po.headImp?-po.headImp[1]:null,hipTop:R.M&&R.M.top&&R.M.top.hipX!=null?R.M.top.hipX:null,shTop:R.fo&&R.fo.shTop!=null?R.fo.shTop:null,headTopCm:R.fo&&R.fo.headTop!=null?R.fo.headTop:null,issues:D.issues.map(x=>x.key)};
 }
