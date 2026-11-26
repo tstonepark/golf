@@ -144,5 +144,5 @@ export function summary(R,D){
   const po=R.po||{}, bd=R.bd, ok=bd&&bd.top&&bd.top.ok;
   return {t:Date.now(),name:R.name||"",view:R.view,fps:Math.round(R.fps),back:po.back,hold:po.hold,down:po.down,
     entry:R.pl&&R.pl.finalZone||null,takeawayOver:R.pl?R.pl.takeawayOver:null,chest:ok?Math.abs(bd.top.chest):null,pelvis:ok?Math.abs(bd.top.pelvis):null,
-    ee:po.hipFwdImp??null,headUp:po.headImp?-po.headImp[1]:null,hipTop:R.M&&R.M.top&&R.M.top.hipX!=null?R.M.top.hipX:null,shTop:R.fo&&R.fo.shTop!=null?R.fo.shTop:null,headTopCm:R.fo&&R.fo.headTop!=null?R.fo.headTop:null,issues:D.issues.map(x=>x.key)};
+    ee:po.hipFwdImp??null,headUp:po.headImp?-po.headImp[1]:null,hipTop:R.M&&R.M.top&&R.M.top.hipX!=null?R.M.top.hipX:null,shTop:R.fo&&R.fo.shTop!=null?R.fo.shTop:null,hipTopCm:R.fo&&R.fo.hipTop!=null?R.fo.hipTop:null,cam:R.cam||null,burst:!!R.burst,headTopCm:R.fo&&R.fo.headTop!=null?R.fo.headTop:null,issues:D.issues.map(x=>x.key)};
 }

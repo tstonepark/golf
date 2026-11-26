@@ -75,7 +75,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v111</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v112</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -103,9 +103,9 @@ input[type=file]{display:none}
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
 <script src="../vendor/mp4box/mp4box.all.min.js"></script>
 <script type="module">
-import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=111";
-import * as A from "./analysis.js?v=111";
-import {diagnose,summary} from "./diagnose.js?v=111";
+import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=112";
+import * as A from "./analysis.js?v=112";
+import {diagnose,summary} from "./diagnose.js?v=112";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
 
@@ -290,7 +290,9 @@ function finish(D,file,T0){
      자막·옷·간판에 찍힌 동그라미와 선을 진짜처럼 보여 주지 않도록 클럽 표시를 모두 끈다(몸동작 측정은 그대로). */
   const noClub=view==="dtl"&&!pl; if(noClub){ tr=new Array(n).fill(null); cv.back=[]; cv.down=[]; cv.after=[]; }
   const st4=A.backswingSteps(pose,ph,po,view,TS,fps);
-  R={crop,noClub,kp,st4,burst,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,ts,gaps,slow,hd:pose.map(p=>p?[+p.hands[0].toFixed(1),+p.hands[1].toFixed(1)]:null),name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
+  /* 촬영 조건(교정 전후 비교가 공정한지 확인용): 화면에서 몸이 차지하는 크기·위치와 어깨너비 비율(카메라 방향) */
+  const cam=kp.A?{tl:Math.hypot(kp.A.sh[0]-kp.A.hip[0],kp.A.sh[1]-kp.A.hip[1])/H,x:kp.A.hip[0]/W,y:kp.A.hip[1]/H,r:vw&&vw.ratio!=null?vw.ratio:null}:null;
+  R={crop,noClub,kp,st4,burst,cam,secs:D.phone?D.secs:(performance.now()-T0)/1000,phone:!!D.phone,ms:D.ms||null,phoneErr,M,nGrip,ts,gaps,slow,hd:pose.map(p=>p?[+p.hands[0].toFixed(1),+p.hands[1].toFixed(1)]:null),name:file.name||'',view,vw,fo,po,fps,n,ph,tr,cv,pl,bd,ep,pd,seen,span,t0:D.t0};
   prog("완료",1);
 }
 // ---------- results panel ----------
@@ -333,7 +335,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps/(R.slow||1))}fps${R.slow>1?" (슬로모션 약 "+R.slow+"배)":""} · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v111</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v112</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -361,6 +363,32 @@ function st4Html(){ const S=R.st4; if(!S||S.steps.length<2) return "";
     h+=`<div class="dimt">벗어난 순서(기준 ${S.TH}% 초과): ${on.map(q=>NM[q[0]]+" "+q[1].t.toFixed(2)+"초").join(" → ")}. 뼈대 인식 오차가 2~3%라 0.1초 안쪽의 순서 차이는 믿기 어렵습니다.</div>`; }
   else h+=`<div class="row"><span>가장 먼저 벗어난 부위</span><b class="ok">없음(모두 ${S.TH}% 이내)</b></div>`;
   return h+`</div>`; }
+/* 교정 검증: '교정 전' 기준 스윙(방향별 1개)과 이번 스윙을 같은 항목으로 비교하고, 촬영 조건이 같은지도 확인한다.
+   기준은 「이번에 고칠 것」이 처음 나온 스윙으로 자동 지정되고, 버튼으로 다시 지정할 수 있다. */
+const BK="swingbase";
+function getBase(v){ try{ return (JSON.parse(localStorage.getItem(BK)||"{}"))[v]||null; }catch(e){ return null; } }
+function setBase(v,rec){ try{ const o=JSON.parse(localStorage.getItem(BK)||"{}"); if(rec) o[v]=rec; else delete o[v]; localStorage.setItem(BK,JSON.stringify(o)); }catch(e){} }
+function verifyHtml(D){ const B=getBase(R.view); const now=summary(R,D);
+  const btn=`<button data-act="setbase" style="width:100%;margin-top:8px">이 스윙을 ‘교정 전’ 기준으로 지정</button>`;
+  if(!B) return (D.plan&&D.plan.length)?"":`<h2>교정 검증</h2><div class="card"><div class="dimt">교정 전 기준 스윙이 없습니다. 기준으로 삼을 스윙에서 아래 버튼을 누르면, 이후 같은 방향 스윙이 그것과 비교됩니다.</div>${btn}</div>`;
+  const same=B.name&&B.name===now.name, dt=new Date(B.t), ds=(dt.getMonth()+1)+"/"+dt.getDate();
+  /* [이름, 필드, 단위, 목표(없으면 '줄어들 것'), 오차 범위] — 목표는 이미 쓰고 있는 판정 기준만 사용 */
+  const MET=R.view==="dtl"? [["백스윙 골반(공 쪽 +)","hipTop","%",3,3],["임팩트 엉덩이 전진","ee","%",null,3]] : [["백스윙 머리 이동","headTopCm","cm",5,3],["어깨 중심 이동","shTop","cm",null,3],["골반 이동","hipTopCm","cm",6,3]];
+  let h=`<h2>교정 검증</h2><div class="card"><div class="dimt">교정 전 기준: ${ds} ${B.name||""}${same?" (지금 보고 있는 이 스윙)":""}</div>`;
+  if(same) h+=`<div class="dimt">연습한 뒤 같은 자리·같은 방향에서 다시 찍어 분석하면 여기에 ‘교정 전 → 이번’이 나옵니다.</div>`;
+  else{ for(const [nm,k,u,goal,tol] of MET){ const a=B[k], b=now[k]; if(a==null||b==null) continue; const d=b-a, met=goal!=null&&b<=goal;
+      const verdict=met?["목표 달성","ok"]: d<=-tol?["좋아짐","ok"]: d>=tol?["나빠짐","bad"]:["변화 없음(오차 범위 ±"+tol+u+")","warn"];
+      h+=`<div class="row"><span>${nm}</span><b class="${verdict[1]}">${Math.round(a)}${u} → ${Math.round(b)}${u} · ${verdict[0]}</b></div><div class="dimt">목표: ${goal!=null?goal+u+" 이내":"교정 전보다 줄어들 것"}</div>`; }
+    // 촬영 조건
+    const c0=B.cam, c1=now.cam, w=[];
+    if(c0&&c1){ if(Math.abs(c1.tl/c0.tl-1)>0.15) w.push("몸 크기(촬영 거리)가 "+Math.round((c1.tl/c0.tl-1)*100)+"% 다름");
+      if(Math.abs(c1.x-c0.x)>0.12||Math.abs(c1.y-c0.y)>0.12) w.push("화면에서 서 있는 위치가 다름");
+      if(c0.r!=null&&c1.r!=null&&Math.abs(c1.r-c0.r)>0.15) w.push("카메라 방향(어깨너비 비율 "+c0.r.toFixed(2)+" → "+c1.r.toFixed(2)+")이 다름"); }
+    else w.push("기준 스윙에 촬영 조건 기록이 없어 확인 불가");
+    if(B.fps&&now.fps&&Math.abs(B.fps-now.fps)>B.fps*0.3) w.push("촬영 속도("+B.fps+" → "+now.fps+"fps)가 다름");
+    if(B.burst!==now.burst) w.push("한쪽이 묶음 녹화 영상");
+    h+=`<div class="row"><span>촬영 조건</span><b class="${w.length?"warn":"ok"}">${w.length?"다름 — 비교가 부정확할 수 있음":"교정 전과 같음(거리·위치·방향)"}</b></div>${w.length?`<div class="dimt warn">${w.join(" · ")}. 같은 자리에 폰을 두고 다시 찍어야 숫자를 그대로 비교할 수 있습니다.</div>`:""}`; }
+  return h+btn+`</div>`; }
 /* 이번에 고칠 것: 근본 원인 후보(최대 2개) — 언제부터, 무엇으로 이어지는지, 연습 방법과 성공 기준, 지난 기록 */
 function planHtml(D){ const P=D.plan||[]; if(!P.length) return "";
   const a=hist().filter(x=>x.view===R.view).slice(-5);
@@ -438,7 +466,7 @@ async function makeFixPics(){ const my=++fixTok, box=$("fixpics"); if(!box||!R||
   finally{ try{ gv.removeAttribute("src"); gv.load(); }catch(e){} gv.remove(); } }
 function results(save){
   R.club=club||null; updClub();
-  const D=diagnose(R); R.D=D; if(save) saveHist(summary(R,D));
+  const D=diagnose(R); R.D=D; if(save){ const rec=summary(R,D); saveHist(rec); if(D.plan&&D.plan.length&&!getBase(R.view)) setBase(R.view,rec); }
   const card=x=>`<div class="dx ${x.sev}"><div class="dt">${x.tier===1?"[근본 원인 후보] ":x.tier===2?"[결과] ":""}${x.title}</div>${x.tier===2?`<div class="dimt">← ${x.resultOf} 에서 이어지는 것으로 봅니다</div>`:""}
     <div class="row"><span>측정</span><b class="${x.sev==="na"?"warn":x.sev}">${x.value}</b></div>${x.ref?`<div class="row"><span>기준</span><b>${x.ref}</b></div>`:""}
     <div class="dimt">${x.why}</div>${x.drill&&x.sev!=="ok"?`<div class="drill"><b>연습</b> ${x.drill}</div>`:""}
@@ -446,9 +474,9 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v111</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v112</div>`; }
   if(R.burst) h+=`<div class="card"><div class="dimt warn">이 영상은 장면이 몇 장씩 뭉쳐 찍혔습니다(광각 고속 녹화의 문제). 실제 움직임은 초당 15장 정도만 담겨 있어 시간·임팩트·클럽 관련 값이 거칩니다. 앱을 130 이상으로 올리면 광각은 고른 60fps로 찍힙니다.</div></div>`;
-  h+=planHtml(D);
+  h+=planHtml(D)+verifyHtml(D);
   if(D.issues.some(x=>(x.sev==="bad"&&FIXK.includes(x.key))||(R.view==="dtl"&&x.key==="hipDepth"))) h+=`<h2>고칠 점 그림</h2><div class="dimt">빨간 항목만 · 왼쪽은 지금 모습, 오른쪽은 같은 장면에 목표 위치(초록)를 그린 것입니다. 사진을 고친 것이 아니라 어디에 있어야 하는지를 표시한 그림입니다.</div><div id="fixpics"></div>`;
   if(D.issues.length){ h+=`<h2>${D.plan&&D.plan.length?"전체 항목 (원인 → 결과 → 세부 순)":"먼저 고칠 것"}</h2>`+D.issues.slice(0,3).map(card).join("");
     if(D.issues.length>3) h+=`<details><summary>나머지 ${D.issues.length-3}가지</summary>${D.issues.slice(3).map(card).join("")}</details>`; }
@@ -517,6 +545,7 @@ $("vid").addEventListener("pause",()=>{ const rv=$("rv"); try{ rv.pause(); }catc
 $("res").addEventListener("click",async e=>{ const b=e.target.closest("[data-act]"); if(!b||!R) return;
   try{ if(b.dataset.act==="setref"){ if(!R.M||!curFile){ b.textContent="등록할 수 없습니다(자세 측정 없음)"; return; }
       b.textContent="등록 중…"; await idbPut("ref-"+R.view,{blob:curFile,name:R.name||"기준 영상",view:R.view,fps:R.fps,n:R.n,ph:R.ph,M:R.M,ts:R.ts||null,slow:R.slow||1,path:(R.pl&&R.pl.ball&&R.cv&&R.pl.finalZone&&R.pl.backOk!==false /* 궤도 판정이 가능할 만큼 헤드를 제대로 따라간 기준 영상만 궤적을 남긴다. 못 따라간 영상의 궤적을 겹쳐 그리면 엉뚱한 선이 기준처럼 보인다 */)?{ball:R.pl.ball,L:R.pl.L,back:(R.cv.back||[]).filter(q=>q&&!q.est).map(q=>[q.x,q.y]),down:(R.cv.down||[]).filter(q=>q&&!q.est).map(q=>[q.x,q.y])}:null,t:Date.now()}); }
+    else if(b.dataset.act==="setbase"){ setBase(R.view,summary(R,R.D)); results(); return; }
     else if(b.dataset.act==="delref") await idbPut("ref-"+R.view,null);
     await loadRef(); results(); setCmp(true);
   }catch(err){ b.textContent="저장 실패: "+(err&&err.message||err); } });
@@ -673,7 +702,7 @@ async function makePdf(onProg){
   // 1쪽~: 요약과 진단
   newPage(); text("스윙 분석 리포트",50,{bold:true}); gap(6);
   text((R.name||"이름 없는 영상")+" · 만든 시각 "+new Date().toLocaleString("ko-KR"),24,{color:"#444"});
-  text("분석기 v111 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
+  text("분석기 v112 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
   // 결과 화면에 보이는 내용을 그대로 옮긴다(접혀 있는 '나머지'·'양호'·'상세 수치'도 펼쳐서): 종합 진단, 프로 비교, 기록 비교, 상세 수치
   { const CLR=el=>el.classList.contains("bad")?"#c62828":el.classList.contains("warn")?"#b26a00":el.classList.contains("ok")?"#1b7a3a":null, T=el=>(el.textContent||"").replace(/\s+/g," ").trim();
     const emit=(el,ind)=>{ if(el.nodeType!==1||el.tagName==="BUTTON"||el.hidden) return; if(el.id==="fixpics"){ text("(그림은 뒤쪽 「고칠 점 그림」 쪽에 있습니다)",22,{indent:ind+16,color:"#333"}); return; } const tag=el.tagName, cl=el.classList;
@@ -718,7 +747,13 @@ async function makePdf(onProg){
   { const rows=[...document.querySelectorAll("#fixpics .fixrow")]; if(rows.length){ newPage(); text("고칠 점 그림 (왼쪽 지금 · 오른쪽 목표)",40,{bold:true}); rule();
       const cw=Math.floor((PW-2*M-20)/2);
       for(const rw of rows){ if(y+cw+150>PH-M) newPage(); text(rw.dataset.title||"",28,{bold:true,color:"#c0392b"}); const cs=[...rw.querySelectorAll("canvas")], caps=[...rw.querySelectorAll(".fixp > div")].map(d=>d.textContent);
-        const nc=Math.max(2,cs.length), cw2=Math.floor((PW-2*M-(nc-1)*20)/nc); cs.forEach((cv,j)=>{ x.drawImage(cv,M+j*(cw2+20),y,cw2,cw2); }); y+=cw2+8; if(nc>2){ x.font='700 20px '+FONT; x.fillStyle='#333'; x.textBaseline='top'; let yM=y; caps.forEach((t,j)=>{ let yy=y, ln=''; for(const ch of t){ if(x.measureText(ln+ch).width>cw2-6){ x.fillText(ln,M+j*(cw2+20),yy); yy+=26; ln=ch; } else ln+=ch; } if(ln){ x.fillText(ln,M+j*(cw2+20),yy); yy+=26; } yM=Math.max(yM,yy); }); y=yM+20; continue; } const y0=y; let yMax=y;
+        if(cs.length>2){ /* 4단계 그림: 한 줄에 2장씩 크게 */
+          for(let r0=0;r0<cs.length;r0+=2){ if(y+cw+120>PH-M) newPage(); let yM=y+cw+8;
+            for(let j=0;j<2&&r0+j<cs.length;j++){ x.drawImage(cs[r0+j],M+j*(cw+20),y,cw,cw); x.font='700 20px '+FONT; x.fillStyle='#333'; x.textBaseline='top'; let yy=y+cw+8, ln='';
+              for(const ch of (caps[r0+j]||'')){ if(x.measureText(ln+ch).width>cw-6){ x.fillText(ln,M+j*(cw+20),yy); yy+=26; ln=ch; } else ln+=ch; } if(ln){ x.fillText(ln,M+j*(cw+20),yy); yy+=26; } yM=Math.max(yM,yy); }
+            y=yM+16; }
+          continue; }
+        cs.forEach((cv,j)=>{ x.drawImage(cv,M+j*(cw+20),y,cw,cw); }); y+=cw+8; const y0=y; let yMax=y;
         caps.forEach((t,j)=>{ y=y0; x.font="400 20px "+FONT; x.fillStyle=j?"#1e8449":"#c0392b"; x.textBaseline="top"; let ln=""; for(const ch of t){ if(x.measureText(ln+ch).width>cw-6){ x.fillText(ln,M+j*(cw+20),y); y+=27; ln=ch; } else ln+=ch; } if(ln){ x.fillText(ln,M+j*(cw+20),y); y+=27; } yMax=Math.max(yMax,y); }); y=yMax+24; } } }
   // 헤드 모양: 화면의 '헤드 모양' 줄에 있는 확대 사진을 그대로
   { const tiles=[...$("strip").querySelectorAll(".tile")]; newPage(); text("헤드 모양 (테이크백 → 팔로스루, 약 3배 확대)",40,{bold:true}); rule();
