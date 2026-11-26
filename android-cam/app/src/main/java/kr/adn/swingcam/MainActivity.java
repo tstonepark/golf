@@ -325,7 +325,10 @@ public class MainActivity extends Activity {
             if (wide) {
                 String w = wideCameraId();
                 if (w == null) { wide = false; prefs.edit().putBoolean("wide", false).apply(); toast("이 폰에서는 광각 카메라를 따로 열 수 없습니다"); }
-                else { id = w; wideHsOk = supports240(cm.getCameraCharacteristics(w)); if (!wideHsOk && hs) { hs = false; toast("광각 렌즈는 240fps가 안 되어 60fps로 찍습니다"); } }
+                else { id = w;
+                    /* 광각은 고속(240fps) 세션을 쓰지 않는다. 이 폰의 광각 카메라는 240fps를 지원한다고 답하지만 실제로는
+                       4장이 4ms 간격으로 붙어서 나오고 54ms를 쉬는 묶음(초당 15묶음)으로 찍혀, 움직임이 초당 15장 수준으로만 담겼다. 일반 60fps로 찍는다. */
+                    wideHsOk = false; if (hs) { hs = false; toast("광각 렌즈는 60fps로 찍습니다"); } }
                 ui.post(() -> { updLensBtn(); updSpeedBtn(); });
             }
             CameraCharacteristics c = cm.getCameraCharacteristics(id);
