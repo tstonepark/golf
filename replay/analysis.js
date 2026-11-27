@@ -16,14 +16,17 @@ export function staticFilter(pts){
   return pts.map(p=>p? p.filter(([c,x,y])=>c>=0.25 && cen.every(([a,b])=>hyp(x-a,y-b)>14)) : []);
 }
 // 2) greedy track from the most confident detection, both directions
-export function track(pts,maxjump=80){
+export function track(pts,maxjump=80,predict=false){
   const n=pts.length,out=new Array(n).fill(null); let seed=-1,best=0;
   pts.forEach((p,i)=>{ if(p.length&&p[0][0]>best){best=p[0][0];seed=i;} });
   if(seed<0) return out; out[seed]=[pts[seed][0][1],pts[seed][0][2]];
-  for(const dir of [1,-1]){ let last=out[seed],gap=0;
+  for(const dir of [1,-1]){ let last=out[seed],gap=0,vel=null;
     for(let i=seed+dir;i>=0&&i<n;i+=dir){ let b=null;
-      for(const [c,x,y] of pts[i]){ const d=hyp(x-last[0],y-last[1]); if(d<maxjump*(1+gap)&&(!b||d<b[0])) b=[d,x,y]; }
-      if(b){ out[i]=[b[1],b[2]]; last=out[i]; gap=0; } else gap++; } }
+      /* predict: at low frame rates the head travels far between frames, so "nearest to the last point" picks a wrong nearby
+         candidate. Look for the candidate nearest to where the head would be if it kept its last velocity. */
+      const ex=predict&&vel? [last[0]+vel[0]*(gap+1),last[1]+vel[1]*(gap+1)] : last;
+      for(const [c,x,y] of pts[i]){ const d=hyp(x-ex[0],y-ex[1]); if(d<maxjump*(1+gap)&&(!b||d<b[0])) b=[d,x,y]; }
+      if(b){ const p=[b[1],b[2]]; vel=[(p[0]-last[0])/(gap+1),(p[1]-last[1])/(gap+1)]; out[i]=p; last=p; gap=0; } else { gap++; if(gap>3) vel=null; } } }
   return out;
 }
 // 3) drop isolated points
