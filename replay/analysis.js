@@ -323,3 +323,18 @@ export function backswingSteps(pose,ph,po,view,TF,fps){
       if(v(j)>TH&&(j+1>=ix.length||v(j+1)>TH)&&(j+2>=ix.length||v(j+2)>TH)){ onset[k]={i:ix[j],t:tOf(ix[j]),phase:phaseOf(ix[j]),sign:sg}; break; } } }
   return {view,TH,steps,onset};
 }
+
+// A detection that stays in one place while the hands travel is not the club head: the head is on the end of the club, so it can
+// only stand still when the hands do (address, the pause at the top). Catches wall banners, signs and lamps that the head model
+// fires on for part of the clip only - staticFilter misses those because they are not present from start to end.
+export function stillWhileHandsMove(pts,pose){
+  const near=i=>{ for(let d=0;d<=8;d++){ if(pose[i-d]) return pose[i-d]; if(pose[i+d]) return pose[i+d]; } return null; };
+  const cell=new Map();
+  pts.forEach((p,i)=>p&&p.forEach(([c,x,y])=>{ for(const ox of [0,8]){ const k=ox+":"+Math.round((x+ox)/16)+","+Math.round((y+ox)/16); (cell.get(k)||cell.set(k,[]).get(k)).push([i,x,y]); } }));
+  const cen=[];
+  for(const v of cell.values()){ if(v.length<6) continue; let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,tl=0,m=0;
+    for(const [i] of v){ const P=near(i); if(!P) continue; m++; x0=Math.min(x0,P.hands[0]); x1=Math.max(x1,P.hands[0]); y0=Math.min(y0,P.hands[1]); y1=Math.max(y1,P.hands[1]); tl=hyp(P.sh[0]-P.hip[0],P.sh[1]-P.hip[1]); }
+    if(m>=6&&tl>10&&hyp(x1-x0,y1-y0)>0.5*tl) cen.push([v.reduce((a,z)=>a+z[1],0)/v.length,v.reduce((a,z)=>a+z[2],0)/v.length]); }
+  if(!cen.length) return pts;
+  return pts.map(p=>p? p.filter(([c,x,y])=>cen.every(([a,b])=>hyp(x-a,y-b)>14)) : p);
+}
