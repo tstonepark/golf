@@ -75,7 +75,7 @@ input[type=file]{display:none}
       <div id="phase" hidden></div>
       <div id="legend" hidden><span style="color:var(--back)">━ 백스윙</span> <span style="color:var(--down)">━ 다운스윙</span> <span style="color:var(--after)">━ 팔로스루</span><br><span style="color:var(--shaft)">━ 샤프트선</span> <span style="color:var(--shoulder)">━ 어깨선</span> · 점선=가려져 추정</div>
       <div id="start">
-        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v115</small></div>
+        <div class="big">스윙 영상 분석 <small style="font-size:16px;color:var(--dim)">v116</small></div>
         <p>폰에 저장된 <b>240fps 원본 영상</b>(갤러리 → Movies/SwingCam)을 불러오면 아이패드가 직접 헤드 궤적·플레인·몸 회전을 분석합니다. 처음 한 번은 모델(약 40MB)을 내려받습니다.</p>
         <button class="main" id="pick">영상 불러오기</button>
         <div id="prog"><div id="bar"><i></i></div><div id="pt"></div></div>
@@ -103,9 +103,9 @@ input[type=file]{display:none}
 <script src="../vendor/ort/ort.webgpu.min.js"></script>
 <script src="../vendor/mp4box/mp4box.all.min.js"></script>
 <script type="module">
-import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=115";
-import * as A from "./analysis.js?v=115";
-import {diagnose,summary} from "./diagnose.js?v=115";
+import {W,H,setFrame,loadHead,headInfer,demux,decodeRange} from "./engine.js?v=116";
+import * as A from "./analysis.js?v=116";
+import {diagnose,summary} from "./diagnose.js?v=116";
 const $=id=>document.getElementById(id);
 let R=null, showLines=true, vfps=240;
 
@@ -335,7 +335,7 @@ function detailHtml(){
   }
   h+=`<div class="card"><h3>측정 품질</h3><div class="row"><span>헤드 실측</span><b>${Math.round(seen/span*100)}%</b></div>
     <div class="row"><span>영상</span><b>${Math.round(fps/(R.slow||1))}fps${R.slow>1?" (슬로모션 약 "+R.slow+"배)":""} · ${({face:"정면",dtl:"후면",angle:"비스듬"})[R.view]||"-"}</b></div><div class="row"><span>분석 시간</span><b>${R.phone?"폰에서 ":""}${Math.round(R.secs||0)}초</b></div>
-    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v115</div></div>`;
+    <div class="dimt">${R.name?R.name+" · ":""}엔진 ${R.ep}/${R.pd} · 분석기 v116</div></div>`;
   return h;
 }
 const HK="swinghist";
@@ -388,11 +388,25 @@ function verifyHtml(D){ const B=getBase(R.view); const now=summary(R,D);
     if(B.fps&&now.fps&&Math.abs(B.fps-now.fps)>B.fps*0.3) w.push("촬영 속도("+B.fps+" → "+now.fps+"fps)가 다름");
     if(B.burst!==now.burst) w.push("한쪽이 묶음 녹화 영상");
     h+=`<div class="row"><span>촬영 조건</span><b class="${w.length?"warn":"ok"}">${w.length?"다름 — 비교가 부정확할 수 있음":"교정 전과 같음(거리·위치·방향)"}</b></div>${w.length?`<div class="dimt warn">${w.join(" · ")}. 같은 자리에 폰을 두고 다시 찍어야 숫자를 그대로 비교할 수 있습니다.</div>`:""}`; }
-  h+=groupHtml(B,now,MET,same);
+  h+=groupHtml(B,now,MET,same)+sessHtml(B,MET);
   return h+btn+`</div>`; }
 /* 묶음 평균 비교: 한 번의 스윙은 편차가 커서(같은 날 세 스윙의 머리 이동이 16~19cm) 한 개씩 비교하면 '변화 없음'만 나온다.
    같은 방향으로 30분 안에 찍은 스윙을 한 묶음으로 보고, 교정 전 묶음과 이번 묶음의 평균을 비교한다.
    찍은 시각은 앱 파일 이름(swing_날짜_시각)에서 읽고, 없으면 분석한 시각을 쓴다. */
+/* 유지 검증: 찍은 시각이 30분 넘게 떨어지면 다른 묶음(연습 회차)으로 보고, 회차별 평균을 차례로 보여 준다.
+   교정 직후 한 번 좋아진 것과, 그 뒤 회차에서도 유지되는 것을 구분하기 위한 표. */
+function sessHtml(B,MET){ const a=hist().filter(x=>x.view===R.view).sort((p,q)=>recT(p)-recT(q)); if(a.length<2) return "";
+  const S=[]; for(const x of a){ const L=S[S.length-1]; if(L&&recT(x)-recT(L[L.length-1])<=30*60e3) L.push(x); else S.push([x]); }
+  if(S.length<2) return ""; const last=S.slice(-5), bi=S.findIndex(g=>g.some(x=>x.name===B.name));
+  const avg=(g,k)=>{ const v=g.map(x=>x[k]).filter(q=>q!=null); return v.length? Math.round(v.reduce((p,q)=>p+q,0)/v.length) : null; };
+  let h=`<div class="row"><span>회차별 평균(유지 검증)</span><b>최근 ${last.length}회차</b></div>`;
+  for(const g of last){ const d=new Date(recT(g[0])), lab=(d.getMonth()+1)+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+    h+=`<div class="dimt">${lab} · ${g.length}개${S.indexOf(g)===bi?" · 교정 전":""} — ${MET.map(([nm,k,u])=>{ const v=avg(g,k); return nm.replace("백스윙 ","")+" "+(v==null?"-":v+u); }).join(" · ")}</div>`; }
+  /* 교정 전 뒤로 2회차 이상 연속해서 주 항목이 편차(3) 넘게 줄어 있어야 '유지' */
+  if(bi>=0&&S.length-bi-1>=2){ const k=MET[0][1], b0=avg(S[bi],k), l2=S.slice(-2).map(g=>avg(g,k)); if(b0!=null&&l2.every(v=>v!=null)){
+      const ok=l2.every(v=>v<=b0-3); h+=`<div class="row"><span>${MET[0][0]} 유지</span><b class="${ok?"ok":"warn"}">${ok?"최근 2회차 연속으로 교정 전보다 줄어듦 — 유지되고 있음":"아직 유지된다고 보기 어려움(최근 2회차가 모두 교정 전보다 3"+MET[0][2]+" 이상 줄어야 함)"}</b></div>`; } }
+  else h+=`<div class="dimt">교정 전 뒤로 2회차 이상 찍으면 ‘유지되고 있는지’를 판정합니다. 한 번 좋아진 숫자는 스윙 편차일 수 있습니다.</div>`;
+  return h; }
 function recT(x){ const m=/swing_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/.exec(x.name||""); return m? new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]).getTime() : (x.t||0); }
 function groupHtml(B,now,MET,same){ const all=hist().filter(x=>x.view===R.view), WIN=30*60e3;
   const near=(anchor)=>all.filter(x=>Math.abs(recT(x)-recT(anchor))<=WIN&&(!x.cam||!anchor.cam||Math.abs(x.cam.tl/anchor.cam.tl-1)<=0.15));
@@ -417,7 +431,8 @@ function planHtml(D){ const P=D.plan||[]; if(!P.length) return "";
       <div class="row"><span>측정</span><b class="${c.sev}">${c.value}</b></div>
       ${c.when?`<div class="row"><span>언제부터</span><b>${c.when}</b></div>`:""}
       ${c.results.length?`<div class="row"><span>이어지는 결과</span><b>${c.results.join(" · ")}</b></div>`:""}
-      <div class="dimt">${c.link} (미리 정한 규칙으로 연결한 것이며 신뢰도 ${c.conf})</div>
+      <div class="dimt">${c.link}</div>
+      <div class="row"><span>근거 구분</span><b>위치 수치 = 측정 · 원인→결과 연결 = 추정(미리 정한 규칙, 신뢰도 ${c.conf}) · 회전량·체중 이동 = 측정 불가</b></div>
       <div class="row"><span>준비</span><b>${c.prep}</b></div><div class="row"><span>동작</span><b>${c.act}</b></div><div class="row"><span>반복</span><b>${c.reps}</b></div><div class="row"><span>주의</span><b>${c.caution}</b></div><div class="row"><span>성공 기준</span><b class="ok">다시 찍었을 때 ${c.ref} (지금 ${c.value})</b></div>
       ${hv.length>=2?`<div class="row"><span>지난 기록 → 이번</span><b>${hv.map(v=>Math.round(v)+c.unit).join(" → ")}</b></div>`:`<div class="dimt">같은 방향으로 한 번 더 찍으면 여기에서 지난 기록과 비교됩니다.</div>`}</div>`; });
   if(P.length>1) h+=`<div class="dimt">두 가지를 한꺼번에 고치려 하지 말고 1번부터. 1번의 숫자가 줄어든 뒤 2번으로 넘어가세요.</div>`;
@@ -493,7 +508,7 @@ function results(save){
   const na=D.items.filter(x=>x.sev==="na");
   let h=`<div class="sum ${D.issues.some(x=>x.sev==="bad")?"bad":D.issues.length?"warn":"ok"}">${D.issues.length?`고칠 점 <b>${D.issues.length}</b>가지 · 양호 ${D.good.length}가지`:`뚜렷한 문제 없음 · 양호 ${D.good.length}가지`}</div>`;
   { const m=R.ms, f=v=>(v/1000).toFixed(1);   // 어디서 시간이 걸렸는지 그대로 표시
-    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v115</div>`; }
+    h+=`<div class="dimt" style="text-align:center">분석 ${R.phone?"폰":"아이패드"} ${Math.round(R.secs||0)}초${m?` (준비 ${f(m[0])} · 1차 ${f(m[1])} · 2차 ${f(m[2])}초)`:""}${R.phoneErr?" · 폰 측정값은 쓰지 못해 아이패드가 다시 분석":""} · v116</div>`; }
   if(R.burst) h+=`<div class="card"><div class="dimt warn">이 영상은 장면이 몇 장씩 뭉쳐 찍혔습니다(광각 고속 녹화의 문제). 실제 움직임은 초당 15장 정도만 담겨 있어 시간·임팩트·클럽 관련 값이 거칩니다. 앱을 130 이상으로 올리면 광각은 고른 60fps로 찍힙니다.</div></div>`;
   h+=planHtml(D)+verifyHtml(D);
   if(D.issues.some(x=>(x.sev==="bad"&&FIXK.includes(x.key))||(R.view==="dtl"&&x.key==="hipDepth"))) h+=`<h2>고칠 점 그림</h2><div class="dimt">빨간 항목만 · 왼쪽은 지금 모습, 오른쪽은 같은 장면에 목표 위치(초록)를 그린 것입니다. 사진을 고친 것이 아니라 어디에 있어야 하는지를 표시한 그림입니다.</div><div id="fixpics"></div>`;
@@ -721,7 +736,7 @@ async function makePdf(onProg){
   // 1쪽~: 요약과 진단
   newPage(); text("스윙 분석 리포트",50,{bold:true}); gap(6);
   text((R.name||"이름 없는 영상")+" · 만든 시각 "+new Date().toLocaleString("ko-KR"),24,{color:"#444"});
-  text("분석기 v115 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
+  text("분석기 v116 · 방향 "+({dtl:"후면",face:"정면",angle:"비스듬"}[R.view]||R.view)+" · 영상 "+Math.round(R.fps/(R.slow||1))+"fps"+(R.slow>1?"(슬로모션 약 "+R.slow+"배) ":" ")+R.n+"장면 · 분석 "+(R.phone?"폰":"이 기기")+" "+Math.round(R.secs||0)+"초 ("+R.ep+"/"+R.pd+")",24,{color:"#444"}); rule();
   // 결과 화면에 보이는 내용을 그대로 옮긴다(접혀 있는 '나머지'·'양호'·'상세 수치'도 펼쳐서): 종합 진단, 프로 비교, 기록 비교, 상세 수치
   { const CLR=el=>el.classList.contains("bad")?"#c62828":el.classList.contains("warn")?"#b26a00":el.classList.contains("ok")?"#1b7a3a":null, T=el=>(el.textContent||"").replace(/\s+/g," ").trim();
     const emit=(el,ind)=>{ if(el.nodeType!==1||el.tagName==="BUTTON"||el.hidden) return; if(el.id==="fixpics"){ text("(그림은 뒤쪽 「고칠 점 그림」 쪽에 있습니다)",22,{indent:ind+16,color:"#333"}); return; } const tag=el.tagName, cl=el.classList;
